@@ -355,6 +355,10 @@ The rule: never start any coding task without answering these questions first.
 
 - **Which steps run**: optional and deferred steps can be skipped (static checks, the CI jobs, release tests,
   coverage, deps, the reviewers).
+- **Whole test suite before push**: required by default. When your CI runs the whole suite, turn it off for the
+  project in Settings › General › Flow and gates (it is saved in `.keel/config.yml` as `release: {required: false}`):
+  ship skips verify release and a push only shows a warning. An agent cannot turn it off: over MCP
+  (`keel_release_check`) keel asks you first, in the Inbox.
 - **CI jobs (0.18.65)**: keel runs the project's own CI jobs on CI's versions (see *The project's CI on CI's
   versions* below); a failure is an exception at the final review, and the reviewers get the report.
 - **Final review**: every verdict on one page; send it back to fix.

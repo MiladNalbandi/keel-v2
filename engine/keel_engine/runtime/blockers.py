@@ -1,7 +1,7 @@
 """What stands between HEAD and a push (keel v1 lib/gates.js pushBlockers), plus secrets in the branch diff.
 
     push_blockers(root, base, secrets, project) -> [{gate: release|coverage|deps|security|knowledge|secrets, why, fix}]
-    push_warnings(root, base)                   -> the same shape; shown, never blocking
+    push_warnings(root, base)                   -> the same shape; shown, never blocking (a gate turned off too)
 
 Verdicts come from the engine DB (runtime/verdicts.py), written by the code steps: knowledge_check (memory),
 verify_release / a whole-suite verify_green (release), verify_coverage (coverage). The workflow gates only apply
@@ -10,6 +10,14 @@ once the project adopted keel (.keel/config.yml exists); the secrets check alway
 The deps and security gates read the verdicts of the security phase (verify_deps, the security audit and the dependency
 triage: runtime/security_actions.py). Without a verdict they say "not run" as a warning. Either way they block only when
 .keel/config.yml marks them required (`security: {required: true}` or `required: [deps, security]`).
+
+The release gate (the whole test suite) is required unless .keel/config.yml says `release: {required: false}`
+(the person's switch: Settings › Flow and gates, or keel_release_check after their OK; CI runs the whole suite then).
+Off, it never blocks; push_warnings says it is off, and ship's verify release step is skipped (gates_off).
+
+    release_required(cfg)            the switch (no `release` block, as in every older config: required)
+    gates_off(root | cfg)            [{gate, why, fix}] the push gates this project turned off
+    release_view(root) / set_release_required(root, required)   what the switch says / keel writes it
 """
 
 from __future__ import annotations
@@ -22,6 +30,53 @@ from ..tools import git
 from . import knowledge, verdicts
 
 NOT_AVAILABLE = "not run on this branch (the feature flow's security phase writes it)"
+# the release gate turned off by the person (`release: {required: false}`): what the skipped step, the push warning and
+# every list of push blockers say
+RELEASE_OFF = "off in this project's settings: CI runs the whole suite"
+RELEASE_OFF_WARNING = "the whole test suite is off for pushes in this project"
+RELEASE_ON_FIX = "turn \"Whole test suite before push\" on again in Settings › Flow and gates to have keel run it before the push"
+
+
+def release_required(cfg: dict | None) -> bool:
+    """Must the whole test suite pass on HEAD before a push? Yes unless .keel/config.yml says `release: {required:
+    false}` (a config without a release block, every older one, keeps it required)."""
+    r = (cfg or {}).get("release")
+    return not (isinstance(r, dict) and r.get("required") is False)
+
+
+def gates_off(where: str | dict | None) -> list[dict]:
+    """The push gates this project turned off ({gate, why, fix}): only release so far. `where` is the project's root
+    (only a project with .keel/config.yml has gates) or its loaded config."""
+    if isinstance(where, dict):
+        cfg = where
+    else:
+        if not where or not (Path(where) / ".keel" / "config.yml").is_file():
+            return []
+        cfg = layout.raw_config(where)
+    return [] if release_required(cfg) else [{"gate": "release", "why": RELEASE_OFF, "fix": RELEASE_ON_FIX}]
+
+
+def release_view(root: str) -> dict:
+    """What Settings › Flow and gates and keel_release_check show: is the whole test suite required before a push, and
+    what .keel/config.yml says (setting: true, false or None when it has no release block)."""
+    configured = (Path(root) / ".keel" / "config.yml").is_file()
+    raw = layout.raw_config(root) if configured else {}
+    r = raw.get("release") if isinstance(raw.get("release"), dict) else {}
+    setting = r.get("required") if isinstance(r.get("required"), bool) else None
+    return {"configured": configured, "required": release_required(raw), "setting": setting,
+            "why": None if release_required(raw) else RELEASE_OFF}
+
+
+def set_release_required(root: str, required: bool) -> dict:
+    """keel writes `release.required` into .keel/config.yml (only that block; the other lines stay). The person's
+    choice: the web's switch, or keel_release_check after the person's OK. An agent never edits the file
+    (rules: keel-rules-files)."""
+    from . import rules_view
+
+    if not isinstance(required, bool):
+        raise rules_view.RulesError(400, "required is true or false.")
+    rules_view.set_config(root, {"release": {"required": required}})
+    return release_view(root)
 
 
 def _short(s) -> str:
@@ -119,10 +174,11 @@ def push_blockers(root: str, base: str | None = None, secrets: list[dict] | None
     cfg = rules.load_config(root)
     key = project or root
 
-    _verdict(out, "release", verdicts.for_code(key, "release", head, tree), head, tree,
-             "run the whole test suite on this commit (the flow's verify_release step)",
-             "make the whole test suite pass, then run verify_release again",
-             "no release verdict for this commit", "the test suite failed")
+    if release_required(cfg):
+        _verdict(out, "release", verdicts.for_code(key, "release", head, tree), head, tree,
+                 "run the whole test suite on this commit (the flow's verify_release step)",
+                 "make the whole test suite pass, then run verify_release again",
+                 "no release verdict for this commit", "the test suite failed")
     if (cfg.get("coverage") or {}).get("enabled") is not False and ((cfg.get("commands") or {}).get("coverage")
                                                                    or ((cfg.get("coverage") or {}).get("reports"))):
         _verdict(out, "coverage", verdicts.for_code(key, "coverage", head, tree), head, tree,
@@ -158,8 +214,11 @@ def for_agents(root: str, base: str | None = None, project: str | None = None) -
 
 
 def push_warnings(root: str, base: str | None = None, project: str | None = None) -> list[dict]:
-    """The deps and security gates the project does not require (not run, stale or failing): told, not enforced."""
+    """The deps and security gates the project does not require (not run, stale or failing), and the release gate when
+    the project turned it off: told, not enforced."""
     if not git.is_repo(root) or not (Path(root) / ".keel" / "config.yml").is_file():
         return []
     cfg = rules.load_config(root)
-    return [{k: g[k] for k in ("gate", "why", "fix")} for g in _scanner_gates(root, base, cfg, project) if not g["required"]]
+    off = [{"gate": "release", "why": RELEASE_OFF_WARNING, "fix": RELEASE_ON_FIX}] \
+        if not release_required(cfg) else []
+    return off + [{k: g[k] for k in ("gate", "why", "fix")} for g in _scanner_gates(root, base, cfg, project) if not g["required"]]

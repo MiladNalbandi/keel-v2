@@ -161,6 +161,8 @@ def status(api: KeelApi, project: str | None = None) -> str:
         out.append(f"error     {thread['error']}")
     for b in thread.get("blockers") or []:
         out.append(f"blocker   {b.get('gate')}: {b.get('why')} -> {b.get('fix')}")
+    for g in thread.get("gates_off") or []:
+        out.append(f"gate off  {g.get('gate')}: {g.get('why')} (it does not block a push)")
     return "\n".join(out)
 
 
@@ -267,6 +269,10 @@ def next_action(api: KeelApi, project: str | None = None) -> str:
     blockers = thread.get("blockers") or []
     if blockers:
         out += ["", "blocking a push:"] + [f"  {b.get('gate')}: {b.get('why')} -> {b.get('fix')}" for b in blockers]
+    off = thread.get("gates_off") or []
+    if off:
+        # the person turned a push gate off (release.required: false): said, so nobody waits for it
+        out += ["", "off for a push (not blocking):"] + [f"  {g.get('gate')}: {g.get('why')}" for g in off]
     return "\n".join(out)
 
 

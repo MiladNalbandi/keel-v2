@@ -74,6 +74,8 @@ DOCS: dict[str, dict] = {
             "Runs the module test command once; a failure runs once more (loops.flaky_reruns, default 1).",
             "Failed then passed = flaky: passes with a warning and the flaky tests are kept for the PR body.",
             "Writes the release verdict (pass or fail) stamped with HEAD; push blockers read it.",
+            "Off in a project whose .keel/config.yml says release: {required: false} (Settings › Flow and gates: CI "
+            "runs the whole suite): ship skips this step and the push does not wait for a release verdict.",
         ],
     },
     "verify_coverage": {

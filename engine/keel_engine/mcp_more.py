@@ -332,6 +332,30 @@ def base_branch(api: KeelApi, project: str | None = None, choice: str | None = N
     return "\n".join(out)
 
 
+def release_check(api: KeelApi, project: str | None = None, required: bool | None = None) -> str:
+    """The project's switch for the whole test suite before a push (GET /projects/{pid}/release-check), or the
+    person's choice (PUT, required true or false). keel writes release.required in .keel/config.yml; an agent never
+    edits that file."""
+    p = _project(api, project)
+    if required is None:
+        res = api.get(f"/projects/{p['id']}/release-check") or {}
+    else:
+        res = api.put(f"/projects/{p['id']}/release-check", {"required": required}) or {}
+    if not res.get("configured", True):
+        return (f"{p['id']} has no .keel/config.yml yet: keel has no push gates there. Run keel init (Flow page) "
+                "first.")
+    said = {True: "release.required: true", False: "release.required: false"}.get(res.get("setting"),
+                                                                                    "no release block: keel's default")
+    if res.get("required", True):
+        text = (f"whole test suite before push in {p['id']}: required ({said} in .keel/config.yml). A push waits for a "
+                "fresh, passing release verdict (ship's verify release step).")
+    else:
+        text = (f"whole test suite before push in {p['id']}: off ({said} in .keel/config.yml): "
+                f"{res.get('why') or 'CI runs the whole suite'}. Ship skips verify release and the push does not "
+                "wait for a release verdict; keel shows a warning instead.")
+    return ("saved: " if required is not None else "") + text
+
+
 def actions(level: str) -> str:
     from .runtime import action_docs
 

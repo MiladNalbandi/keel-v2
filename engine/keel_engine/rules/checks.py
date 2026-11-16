@@ -116,9 +116,20 @@ def added_text(old: str | None, new: str) -> str:
     return "\n".join(line for line in str(new or "").split("\n") if line not in have)
 
 
+# A push gate switched off in .keel/config.yml (`release: {required: false}`, or a `required: false` line under a
+# block). Only init's setup phase may edit that file at all (rules.check_edit); even there an agent never turns a gate
+# off: the person does (Settings › Flow and gates, or an MCP client after the person's OK).
+CONFIG_FILE = re.compile(r"^\.keel/config\.ya?ml$")
+GATE_OFF = re.compile(r"(?im)^\s*required\s*:\s*(false|no|off)\b|\brequired\s*:\s*(false|no|off)\s*[},]")
+
+
 def check_content(rel: str, text: str, cfg: dict | None = None) -> str | None:
-    """The reason an edit that adds `text` to `rel` is refused (a secret, a disabled test), else None."""
+    """The reason an edit that adds `text` to `rel` is refused (a secret, a disabled test, a push gate turned off in
+    .keel/config.yml), else None."""
     rel = str(rel).replace("\\", "/").removeprefix("./")
+    if text and CONFIG_FILE.search(rel) and GATE_OFF.search(text):
+        return (f"{rel}: the new text turns a push gate off (required: false). An agent never turns a safety check off; "
+                "the person does, in Settings › Flow and gates.")
     if not text or not SCANNED.search(rel) or NOT_SCANNED.search(rel) or classify(cfg, rel) == "generated":
         return None
     for hit in scan_secrets(text):

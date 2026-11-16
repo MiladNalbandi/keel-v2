@@ -8,9 +8,9 @@ TTL seconds. Elicitation, where it works, and --yes stay as they were.
 
 The model reads that answer, so it could send the token back by itself. So keel also puts the question in its Inbox
 (engine approvals, POST /api/projects/{pid}/plugins/ask): the person approves it there, out of the model's reach. For
-the dangerous kinds ([OUT_OF_BAND]: deletes, pushes, stops, model changes) the token alone does nothing: the Inbox's
-approval decides (KEEL_MCP_CONFIRM=token: the token alone, as before). For the others the token works as before, and
-an approval in the Inbox counts too.
+the dangerous kinds ([OUT_OF_BAND]: deletes, pushes, stops, model changes, a push gate turned off) the token alone
+does nothing: the Inbox's approval decides (KEEL_MCP_CONFIRM=token: the token alone, as before). For the others the
+token works as before, and an approval in the Inbox counts too.
 
     first call (no form)  ──► nothing done; token t (tool + arguments, once) + a question in keel's Inbox
     second call + confirm: t ──► the Inbox's answer: approved → done; denied → not done; still waiting → not yet
@@ -38,13 +38,14 @@ PARAM = "confirm"           # the argument the second call sends it in
 # the token the current tool call was given (set by with_confirm, read by the server's act())
 GIVEN: contextvars.ContextVar[str | None] = contextvars.ContextVar("keel_confirm", default=None)
 
-# The dangerous kinds: deletes, pushes, stops, model changes. A client without forms confirms them in keel's Inbox
-# only; the token the model gets is not enough (it could send it back by itself).
+# The dangerous kinds: deletes, pushes, stops, model changes, a push gate turned off. A client without forms confirms
+# them in keel's Inbox only; the token the model gets is not enough (it could send it back by itself).
 OUT_OF_BAND = {"keel_delete_run", "keel_remove_project", "keel_stack_remove", "keel_keelbot_undo",     # deletes
                "keel_git_push",                                                                       # pushes
                "keel_stop_flow", "keel_stop_flows", "keel_pause",                                     # stops
                "keel_agent_model",                                                                    # model changes
-               "keel_db_change"}                                                                      # data changes
+               "keel_db_change",                                                                      # data changes
+               "keel_release_check"}                                                    # a safety check turned off
 OUT_OF_BAND_ACTIONS = {"open_pr", "pr"}     # keel_run_action actions that publish (they push a branch)
 
 

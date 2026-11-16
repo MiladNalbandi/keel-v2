@@ -242,7 +242,7 @@ function FlowSidePanel({ pid, thread, workflow, job, running, side, setSide, sel
       ) : at === "criteria" ? (
         <AcsPanel thread={thread} />
       ) : at === "ship" ? (
-        <BeforeShipPanel blockers={thread.blockers} />
+        <BeforeShipPanel blockers={thread.blockers} off={thread.gates_off} pid={pid} />
       ) : (
         <div className="grid" style={{ gap: 12 }}>
           {panels.map((p) => <p.component key={p.id} pid={pid} thread={thread} readOnly={!!readOnly} />)}

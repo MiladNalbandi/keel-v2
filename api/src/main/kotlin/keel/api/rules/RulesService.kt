@@ -46,8 +46,19 @@ class RulesService(
 
     fun view(pid: String): JsonNode = engine.get("/rules?root={root}", mapOf("root" to root(pid)))
 
+    /** The engine's route is a PUT (keel_engine/app.py put_rules_config): a POST there was refused (405). */
     fun setConfig(pid: String, patch: Map<String, Any?>): JsonNode =
-        engine.post("/rules/config", mapOf("root" to root(pid), "patch" to patch))
+        engine.put("/rules/config", mapOf("root" to root(pid), "patch" to patch))
+
+    /** The whole test suite before a push (engine GET /release-check): required, and what .keel/config.yml says. */
+    fun releaseCheck(pid: String): JsonNode = engine.get("/release-check?root={root}", mapOf("root" to root(pid)))
+
+    /** The person's switch (engine PUT /release-check): keel writes release.required in .keel/config.yml. */
+    fun setReleaseCheck(pid: String, body: ReleaseCheckBody): JsonNode {
+        val required = body.required
+            ?: throw BadRequest("required is true or false", "true: keel runs the whole test suite before a push; false: CI runs it.")
+        return engine.put("/release-check", mapOf("root" to root(pid), "required" to required))
+    }
 
     fun library(): JsonNode = engine.get("/rules/library")
 

@@ -2,7 +2,8 @@
 
     review_lenses     code action: the ship reviewers' lenses -> state.data.review_lenses (one reviewer per lens)
     coverage_report   code action: the coverage verdict and every accepted (not covered) group, as the step's note
-    skip_units        the skippable steps after the opening gate, by band (always runs / deferred / optional)
+    skip_units        the skippable steps after the opening gate, by band (always runs / deferred / optional); a step
+                      the project's settings turn off (off_actions: verify release) is not offered
     skip_menu_detail  the opening gate's text; parse_skips reads the answer (every skip needs a reason)
     final_report      the final review gate's text: exceptions first, then the verdict table for HEAD, trace, diff
 
@@ -277,23 +278,34 @@ def covered(steps: list, after: int) -> list:
     return out
 
 
-def skip_units(steps: list, after: int) -> list[dict]:
-    """The skippable units after step `after` (up to the next skip menu), in order: {name, band, steps: [step ids]}."""
+def off_actions(root: str | None) -> set[str]:
+    """The code actions the project's settings turn off for ship: verify_release when the whole test suite is off for
+    pushes (release.required: false). Those steps do not run and the skip menu does not offer them."""
+    return {"verify_release"} if blockers.gates_off(root) else set()
+
+
+def skip_units(steps: list, after: int, off: set[str] | frozenset = frozenset()) -> list[dict]:
+    """The skippable units after step `after` (up to the next skip menu), in order: {name, band, steps: [step ids]}.
+    `off`: code actions the project turned off (off_actions): their steps are not offered."""
     out: dict[str, dict] = {}
     for s in covered(steps, after):
-        if s.skippable:
+        if s.skippable and not (s.kind == "code" and s.action in off):
             u = out.setdefault(unit_of(s), {"name": unit_of(s), "band": s.skippable, "steps": []})
             u["steps"].append(s.id)
     return list(out.values())
 
 
-def skip_menu_detail(steps: list, after: int) -> str:
-    units = skip_units(steps, after)
+def skip_menu_detail(steps: list, after: int, off: set[str] | frozenset = frozenset()) -> str:
+    units = skip_units(steps, after, off)
     skippable = {sid for u in units for sid in u["steps"]}
-    always = [s.name for s in covered(steps, after) if s.id not in skippable]
+    turned_off = [s.name for s in covered(steps, after) if s.kind == "code" and s.action in off]
+    always = [s.name for s in covered(steps, after) if s.id not in skippable and s.name not in turned_off]
     lines = ["Which steps run this time? Skipping a step is not the same as removing its gate: every skip needs a reason, "
              "is shown again at the final review and printed in the PR body.", "",
              "Always runs: " + (", ".join(always) or "nothing else")]
+    if turned_off:
+        lines += ["", f"Off in this project's settings (CI runs the whole suite; the push does not wait for it): "
+                      f"{', '.join(turned_off)}"]
     for band in ("deferred", "optional"):
         mine = [u for u in units if u["band"] == band]
         if mine:

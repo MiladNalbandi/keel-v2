@@ -183,6 +183,9 @@ export type ThreadState = {
   updated_at: string;
   /** v0.2: what still blocks shipping (computed by push_check, refreshed after every commit). */
   blockers?: Blocker[];
+  /** the push gates the person turned off for this project (release: the whole test suite, CI runs it); they block
+   *  nothing. Missing from an older keel. */
+  gates_off?: Blocker[];
   /** v0.2: the init flow's setup ladder. */
   ladder?: LadderRung[];
   /** v0.4.1: how much keel decides by itself in this flow (changeable during a run). */
@@ -228,6 +231,9 @@ export type ExplainRequest = { workflow_id?: string; workflow?: Workflow; step_i
 
 export type BlockerGate = "release" | "coverage" | "deps" | "knowledge" | "secrets";
 export type Blocker = { gate: BlockerGate | string; why: string; fix: string };
+/** The project's "Whole test suite before push" (GET/PUT /projects/{pid}/release-check). setting: what .keel/config.yml
+ *  says (null: no release block, keel's default: required). configured false: no .keel/config.yml yet. */
+export type ReleaseCheck = { configured: boolean; required: boolean; setting: boolean | null; why: string | null };
 export type LadderRung = { n: number; name: string; cmd: string; status: "pass" | "fail" | "fixing" | "waiting" | "skipped"; detail?: string };
 export type Checkpoint = { id: string; n: number; step: string; at: string; note: string };
 /** keel 0.18.11 what one step of a flow really did (GET .../flows/{tid}/step-runs): its agent calls added up per step and
@@ -1207,6 +1213,9 @@ export const api = {
   /** 0.18.65 the project's base and canonical remote; the person's choice (keel writes .keel/config.yml) */
   base: (pid: string) => get<BaseView>(`/projects/${e(pid)}/base`),
   chooseBase: (pid: string, body: BaseChoice) => put<BaseView>(`/projects/${e(pid)}/base`, body),
+  /** the whole test suite before a push: required, or off (CI runs it); keel writes release.required in .keel/config.yml */
+  releaseCheck: (pid: string) => get<ReleaseCheck>(`/projects/${e(pid)}/release-check`),
+  setReleaseCheck: (pid: string, required: boolean) => put<ReleaseCheck>(`/projects/${e(pid)}/release-check`, { required }),
   /** 0.18.57 "Ignore this path": an untracked path into .git/info/exclude (this computer only) */
   excludePath: (pid: string, path: string) => post<DoctorApplied>(`/projects/${e(pid)}/doctor/workspace/exclude`, { path }),
   resume: (tid: string, decision: "approve" | "reject", why?: string, payload?: Record<string, unknown>) =>

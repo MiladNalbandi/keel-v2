@@ -31,6 +31,7 @@ from . import memory as memory_mod
 from . import branch_sync, db, doc_history, flow_doc, migrate, prompts, run_mode, spec_check
 from . import choices as choices_mod
 from . import finding_decisions, thread_models
+from . import blockers as push_gates
 from .compiler import FINISH, answer_problem, compile_workflow, running_usage
 from .state import ThreadContext, initial_state, merge_unlocks, normalize_unlocks
 
@@ -640,6 +641,14 @@ class Engine:
             # 0.18.57 the branch or ref the flow's file:line citations are about (the Code page opens them there)
             "source_ref": await asyncio.to_thread(source_ref.flow_source_ref, row["root"], v.get("data")),
         }
+        # the push gates the person turned off for this project (the whole test suite: release.required false): the
+        # Flow page's Before ship and keel_next say so, and they block nothing
+        try:
+            off = await asyncio.to_thread(push_gates.gates_off, row["root"])
+        except Exception:  # noqa: BLE001 an unreadable config: no line, as before
+            off = []
+        if off:
+            out["gates_off"] = off
         # 0.22.0 the flow started behind its base's remote (or a fetch failed): said on the page, not only at the start
         behind = branch_sync.behind_note((v.get("data") or {}).get("base_check"))
         if behind:

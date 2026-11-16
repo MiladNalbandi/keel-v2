@@ -301,6 +301,9 @@ export function handlers(db: Db) {
       for (const b of Object.values(db.boards)) b.flows = b.flows.filter((f) => f.thread_id !== params.tid);
       return HttpResponse.json({ ok: true, worktree: `flow-${params.tid}` });
     }),
+    // the whole test suite before a push (Settings › Flow and gates): keel's default, required
+    http.get("/api/projects/:pid/release-check", () =>
+      HttpResponse.json({ configured: true, required: true, setting: null, why: null })),
     http.get("/api/projects/:pid/start-check", ({ params }) =>
       HttpResponse.json(db.startCheck[String(params.pid)] ?? { worktree: { ok: true, reason: "", service: null }, base: null })),
     http.post("/api/projects/:pid/doctor/workspace/exclude", async ({ request }) => {

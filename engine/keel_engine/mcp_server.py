@@ -1406,6 +1406,22 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                 "pick": f"set base_branch to {branch}", "canonical": f"make {remote or 'the default'} the canonical remote"}[choice]
         return await act(ctx, "keel_base_branch", what, more.base_branch, api, project, choice, branch, remote, confirm=True)
 
+    @reg(rw)
+    async def keel_release_check(required: bool | None = None, project: str | None = None,
+                                 ctx: Context | None = None) -> str:
+        """The project's "Whole test suite before push" setting: without required, what it is. required=false turns it
+        off (CI runs the whole suite: ship skips verify release and a push no longer waits for a release verdict, a
+        warning shows instead); required=true turns it on again. Turning it off is the person's decision: keel asks
+        them first (a form, else their approval in keel's Inbox), and an agent cannot switch a safety check off
+        without the person. Turning it on asks nothing. keel writes .keel/config.yml (release.required); agents never
+        edit that file."""
+        if required is None:
+            return guard(more.release_check, api, project)
+        return await act(ctx, "keel_release_check",
+                         "turn off the whole test suite before push (CI runs it; the push no longer waits for it)"
+                         if not required else "turn on the whole test suite before push",
+                         more.release_check, api, project, required, confirm=not required)
+
     # ---------------------------------------------------------------- the marketplace (step 4)
     # last at every level (keel 0.16.1's list keeps its order); asking for a plugin is allowed read-only
 
