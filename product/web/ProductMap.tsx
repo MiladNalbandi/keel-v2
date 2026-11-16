@@ -15,7 +15,14 @@ import {
   type ProductMap as PMap,
   type TeamTickets,
 } from "./productApi";
-import { fmtDate, ProductHead, useAct } from "./shared";
+import {
+  Avatar,
+  fmtDate,
+  Key,
+  ProductHead,
+  useAct,
+  usePageKeys,
+} from "./shared";
 
 const RUN_TONE = {
   running: "run",
@@ -46,46 +53,69 @@ export default function ProductMap() {
     if (await act.run("find", () => productApi.findFlows([]))) void r.reload();
   };
   const teams = r.data?.teams ?? [];
+  const [adding, setAdding] = useState(false);
+  usePageKeys({
+    f: act.busy === null && !running ? () => void findFlows() : null,
+    n: () => setAdding(true),
+  });
   return (
-    <div className="pd">
+    <div className="pd pdx">
       <ProductHead
         crumbs={[["Product map"]]}
         title="Product map"
         sub="The teams, the business flows in their repos, and the tickets and work keel found in git."
         actions={
           <>
-            <select
-              aria-label="Team"
-              value={team}
-              onChange={(e) => setTeam(e.target.value)}
-            >
-              <option value="">All teams</option>
-              {teams.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
             <button
               className="btn"
               type="button"
               disabled={act.busy !== null || running}
               onClick={() => void findFlows()}
             >
-              Find flows again
+              Find flows again <Key k="F" />
+            </button>
+            <button
+              className="btn primary"
+              type="button"
+              onClick={() => setAdding(true)}
+            >
+              New initiative <Key k="N" />
             </button>
           </>
         }
       />
+      <div className="pd-bar rise r1">
+        {teams.length > 0 && (
+          <div className="pd-fchips" role="group" aria-label="Team">
+            {[{ id: "", name: "All teams" }, ...teams].map((t) => (
+              <button
+                key={t.id || "all"}
+                type="button"
+                className="pd-fchip"
+                aria-pressed={team === t.id}
+                onClick={() => setTeam(t.id)}
+              >
+                {t.name}
+              </button>
+            ))}
+          </div>
+        )}
+        <span className="grow" />
+        {run && <RunLine run={run} />}
+      </div>
+      {running && <div className="pd-shim" aria-hidden="true" />}
       {act.box}
-      {run && <RunLine run={run} />}
       <Async r={r} what="Loading the Product map">
         {(m) => (
           <>
             {m.not_analysed.length > 0 && (
-              <p className="sub">
-                No flows yet for: {m.not_analysed.join(", ")}.
-              </p>
+              <div className="pd-note n-warn">
+                <span>No flows yet for: {m.not_analysed.join(", ")}.</span>
+                <span className="sub">
+                  Find flows again: one flow analyst per repo reads it, read
+                  only.
+                </span>
+              </div>
             )}
             <div className="pd-map">
               <MapTeams
@@ -122,6 +152,7 @@ export default function ProductMap() {
           idea={`About the flow "${newFor.name}": `}
         />
       )}
+      {adding && <NewInitiative onClose={() => setAdding(false)} />}
     </div>
   );
 }
@@ -137,7 +168,7 @@ function RunLine({ run }: { run: FlowRun }) {
           ? "Finding the flows was stopped."
           : `Flows found ${fmtDate(run.ended_at)} in ${n} repo${n === 1 ? "" : "s"}.`;
   return (
-    <div className="pd-bar" aria-label="Flow run">
+    <div className="pd-runline" aria-label="Flow run" role="status">
       <Pill tone={RUN_TONE[run.status as keyof typeof RUN_TONE] ?? "idle"}>
         {run.status}
       </Pill>
@@ -154,8 +185,10 @@ function MapTeams({
   onPick: (id: string) => void;
 }) {
   return (
-    <section className="pd-map-col" aria-label="Teams">
-      <h2>Teams</h2>
+    <section className="pd-map-col rise r2" aria-label="Teams">
+      <h2>
+        Teams <span className="pd-n">{teams.length}</span>
+      </h2>
       {teams.length === 0 ? (
         <p className="sub">
           No team yet. <a href="#/teams">Add one</a>.
@@ -169,10 +202,13 @@ function MapTeams({
             aria-label={`Team ${t.name}`}
             onClick={() => onPick(t.id)}
           >
-            <span className="pd-card-top">
-              <b>{t.name}</b>
-              <span className="sub">
-                {t.lead ? `lead ${t.lead}` : "no lead"}
+            <span className="pd-who">
+              <Avatar name={t.name} />
+              <span>
+                <b>{t.name}</b>
+                <span className="sub">
+                  {t.lead ? `lead ${t.lead}` : "no lead"}
+                </span>
               </span>
             </span>
             <span className="pd-chips">
@@ -194,6 +230,9 @@ function MapTeams({
           </button>
         ))
       )}
+      <span className="sub">
+        Who owns which repo lives on <a href="#/teams">Teams ›</a>
+      </span>
     </section>
   );
 }
@@ -214,8 +253,10 @@ function Flows({
   const hidden = m.flows.filter((f) => f.hidden).length;
   const flows = m.flows.filter((f) => showHidden || !f.hidden);
   return (
-    <section className="pd-map-col" aria-label="Business flows">
-      <h2>Business flows</h2>
+    <section className="pd-map-col rise r3" aria-label="Business flows">
+      <h2>
+        Business flows <span className="pd-n">{flows.length}</span>
+      </h2>
       {m.flows.length === 0 ? (
         <Empty>No flow found yet. Find flows again to look in the repos.</Empty>
       ) : (
@@ -240,7 +281,7 @@ function Flows({
               >
                 <span className="pd-card-top">
                   <b>{f.name}</b>
-                  <span className="mono sub">{f.project_id}</span>
+                  <span className="mono">{f.project_id}</span>
                 </span>
                 <span className="sub">{more}</span>
                 {f.tickets.length > 0 && (
@@ -295,7 +336,7 @@ function FlowDetail({
     if (n) onChanged(n);
   };
   return (
-    <div className="pd-flow-detail">
+    <div className="pd-flow-detail pd-pop">
       {f.summary && <p>{f.summary}</p>}
       <ol className="pd-steps">
         {(f.steps ?? []).map((s, n) => (
@@ -335,7 +376,7 @@ function FlowDetail({
           Rename
         </button>
         <button
-          className="btn sm"
+          className="btn sm ghost"
           type="button"
           disabled={act.busy !== null}
           onClick={() => void edit({ hidden: !f.hidden })}
@@ -353,7 +394,7 @@ function FlowDetail({
 
 function Work({ t, board }: { t: TeamTickets; board: LinkedTicket[] }) {
   return (
-    <section className="pd-map-col" aria-label="Tickets and work">
+    <section className="pd-map-col rise r4" aria-label="Tickets and work">
       <h2>Tickets and work</h2>
       {/* B6: the Jira tickets on the team projects' Tasks boards, with the initiative each belongs to */}
       <h3 className="pd-map-h">On the Tasks boards</h3>
@@ -397,7 +438,8 @@ function Work({ t, board }: { t: TeamTickets; board: LinkedTicket[] }) {
       )}
       {t.unlinked.length > 0 && (
         <p className="pd-warn">
-          {t.unlinked.length} branches or commits with no ticket key
+          {t.unlinked.length} branches or commits with no ticket key.{" "}
+          <a href="#/teams">See them on Teams › Tickets</a>
         </p>
       )}
     </section>

@@ -16,9 +16,9 @@ export function Overview({ s, pid }: { s: Shared; pid: string }) {
   const ctx = s.ctx!;
   return (
     <div className="grid" style={{ gap: 16 }}>
-      <div className="kc-bar" style={{ marginBottom: 0 }}>
-        <label className="sub" style={{ display: "flex", gap: 8, alignItems: "center" }}>Cluster
-          <select value={ctx.name} onChange={(e) => s.setCtx(e.target.value)} aria-label="Cluster" style={{ fontWeight: 600, color: "var(--fg)" }}>
+      <div className="kc-ctx">
+        <label className="kc-lab">Cluster
+          <select value={ctx.name} onChange={(e) => s.setCtx(e.target.value)} aria-label="Cluster" className="kc-sel">
             {s.on.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
           </select>
         </label>

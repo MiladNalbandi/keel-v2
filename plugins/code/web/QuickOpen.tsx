@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { errorParts } from "@keel/web-sdk";
 import { codeApi as api } from "./codeApi";
-import { FileIcon } from "./icons";
+import { FileIcon, Icon } from "./icons";
 import { nameOf, rankFiles } from "./model";
 
 let cache: { pid: string; at: number; files: string[]; truncated: boolean } | null = null;
@@ -61,6 +61,7 @@ export function QuickOpen({ pid, hasFile, onOpen, onGoto, onClose }: Props) {
     <div className="qo-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="qo" role="dialog" aria-modal="true" aria-label="Quick open">
         <div className="qo-top">
+        <Icon name="search" size={18} />
         <input autoFocus type="text" className="qo-in" role="combobox" aria-expanded="true" aria-controls="qo-list" aria-label="Search files by name"
           aria-activedescendant={ranked[at] ? `qo-${at}` : undefined}
           placeholder="Search files by name (type : and a number to go to a line)" value={q} onChange={(e) => setQ(e.target.value)}
@@ -98,6 +99,11 @@ export function QuickOpen({ pid, hasFile, onOpen, onGoto, onClose }: Props) {
             {truncated && <p className="qo-note">The project has more than {files.length.toLocaleString()} files; only those are listed.</p>}
           </>
         )}
+        {/* 0.28 the keys this box takes, in a quiet strip at its foot */}
+        <div className="qo-keys" aria-hidden="true">
+          <span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↩</kbd> open</span><span>double click keeps the tab</span>
+          <span><kbd>:</kbd> line</span><span><kbd>esc</kbd> close</span>
+        </div>
       </div>
     </div>,
     document.body,

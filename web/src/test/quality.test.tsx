@@ -179,6 +179,20 @@ function quality(): { view: QualityView; posted: unknown[] } {
 }
 
 describe("the Quality page", () => {
+  it("keel 0.28 the redesign: the drop note links to Agents and can be hidden; Run now carries R", async () => {
+    const user = userEvent.setup();
+    quality();
+    location.hash = "#/quality";
+    render(<App />);
+    const note = await screen.findByRole("alert");
+    expect(within(note).getByRole("link", { name: "Open Agents" })).toHaveAttribute("href", "#/agents");
+    await user.click(within(note).getByRole("button", { name: "Hide this note" }));
+    expect(screen.queryByText(/A score dropped/)).not.toBeInTheDocument();
+    // the scores stay
+    expect(screen.getByRole("table", { name: "Scores by flow and model" })).toBeInTheDocument();
+    expect(document.querySelector('[data-pagekey="R"]')).not.toBeNull();
+  });
+
   it("is in the Build group and shows each flow and model's score, with a drop in red", async () => {
     quality();
     location.hash = "#/quality";
@@ -186,12 +200,8 @@ describe("the Quality page", () => {
     expect(
       await screen.findByRole("heading", { name: "Quality" }),
     ).toBeInTheDocument();
-    expect(
-      within(screen.getByRole("navigation", { name: "Screens" })).getByRole(
-        "link",
-        { name: "Quality" },
-      ),
-    ).toHaveAttribute("aria-current", "page");
+    // keel 0.28 the top bar says where you are; the page is in All pages (Build)
+    expect(document.querySelector(".tb-page")).toHaveTextContent("Quality");
     expect(screen.getByRole("alert")).toHaveTextContent(
       "A score dropped. change · Claude haiku went from 82 to 41 since the run before.",
     );

@@ -49,8 +49,9 @@ describe("the Desk", () => {
   it("says what can go to the model company on the page, and lists the requests", async () => {
     open("#/desk");
     expect((await main().findByText(/What can go to the model company/)).parentElement?.textContent).toContain(SENDS);
-    const table = await main().findByRole("table", { name: "Requests" });
-    expect(within(table).getByRole("link", { name: "Login breaks" }).getAttribute("href")).toBe("#/desk/d1");
+    // the redesign: the requests are a list of cards (they were a table)
+    const list = await main().findByRole("list", { name: "Requests" });
+    expect(within(list).getByRole("link", { name: /Login breaks/ }).getAttribute("href")).toBe("#/desk/d1");
   });
 
   it("adds a request and starts nothing", async () => {
@@ -74,6 +75,31 @@ describe("the Desk", () => {
     expect(calls).toEqual(["sort"]);
     expect(main().getByRole("link", { name: "Choose what happens next" }).getAttribute("href")).toBe("#/flow/t1");
     expect(main().queryByRole("button", { name: "Sort it" })).toBeNull();
+  });
+
+  it("shows the requests beside the open one; N opens the add form and S sorts", async () => {
+    open("#/desk/d1");
+    const list = await main().findByRole("list", { name: "Requests" });
+    expect(within(list).getByRole("link", { name: /Login breaks/ }).getAttribute("aria-current")).toBe("page");
+    expect(main().queryByRole("form", { name: "Add a request" })).toBeNull();
+    await main().findByRole("button", { name: "Sort it" });
+    await userEvent.keyboard("n");
+    expect(await main().findByRole("form", { name: "Add a request" })).toBeTruthy();
+    (document.activeElement as HTMLElement | null)?.blur();
+    await userEvent.keyboard("s");
+    await main().findByText("How it was sorted");
+    expect(calls).toEqual(["sort"]);
+  });
+
+  it("filters the requests: Open, Done, All", async () => {
+    open("#/desk");
+    const list = await main().findByRole("list", { name: "Requests" });
+    expect(within(list).getAllByRole("link")).toHaveLength(1);
+    await userEvent.click(main().getByRole("button", { name: "Done" }));
+    expect(main().queryByRole("list", { name: "Requests" })).toBeNull();
+    expect(main().getByText("No closed request.")).toBeTruthy();
+    await userEvent.click(main().getByRole("button", { name: "All" }));
+    expect(main().getByRole("list", { name: "Requests" })).toBeTruthy();
   });
 
   it("has a card for a new request in the Inbox", () => {

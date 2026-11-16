@@ -10,6 +10,10 @@ export type ScreenId = string;
 /** keel's own screens. The others (Tasks, Code, KeelBot, Graph) are parts' pages (web/src/builtins.ts), and the
  *  plugins' pages (the Map and the Wiki: plugins/map and plugins/wiki, registered at start by addons.ts). */
 export const SCREEN = {
+  /** keel 0.28 Home: one box to start a flow or ask, what waits, what runs, the recent flows */
+  home: "home",
+  /** keel 0.28 Add features: keel's features as cards, on or off, pinned, or a new one built by a flow */
+  features: "features",
   projects: "projects",
   inbox: "inbox",
   flow: "flow",
@@ -176,6 +180,8 @@ export function parseHash(hash: string): Route {
     };
   }
   const [first, ...rest] = raw.split("/");
+  // keel 0.28 keel opens on Home (a link to a page that is gone still shows Flow, below)
+  if (!first) return withQuery({ page: SCREEN.home });
   // keel 0.18.66 a Settings tab that is part of another one now (#/settings/devices is Settings › Access)
   if (first === "settings" && rest[0] && TAB_MOVED[rest[0]]) {
     const to = TAB_MOVED[rest[0]];

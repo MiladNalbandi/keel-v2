@@ -590,7 +590,7 @@ export function WikiPage({ pid }: { pid: string }) {
   const stale = groups.flatMap(groupItems).filter((i) => i.status === "stale" && i.id.startsWith("kb:")).map((i) => i.id.slice(3));
   const place = placeOf(groups, cur);
   return (
-    <>
+    <div className="rdw rdw-wiki">
       <PageHead title="Wiki"
         sub={`What keel knows about ${project?.name ?? pid}: an overview, the knowledge base the librarians write, the specs by build status, the decisions and a page for every workflow.`}
         actions={notesOff ? undefined : <>
@@ -607,7 +607,7 @@ export function WikiPage({ pid }: { pid: string }) {
         const menu = { pid, groups, shown, cur, q, recent, isOpen, toggle, onClear: clear, notesOff };
         return (
           <div className="wiki-grid">
-            <div className="wk-side">
+            <div className="wk-side rise r1">
               <div className="wk-search">
                 {/* keel's SearchBox, with Esc to clear (on the box only: Esc elsewhere keeps its own meaning) */}
                 <input ref={box} type="search" className="inline-input pg-search" placeholder="Search the wiki" aria-label="Search the wiki"
@@ -622,7 +622,7 @@ export function WikiPage({ pid }: { pid: string }) {
               </div>
               {narrow ? <PagePicker {...menu} prefix="wkp" /> : <Sections {...menu} prefix="wks" />}
             </div>
-            <article className="panel"><div className="panel-body">
+            <article className="panel wk-article rise r2"><div className="panel-body">
               <Crumbs groups={groups} cur={cur} />
               {!cur ? <span className="sub">Pick a page.</span> : cur.startsWith("wf:") ? <WorkflowPage key={cur} pid={pid} wid={cur.slice(3)} /> : (
                 <Page key={cur} pid={pid} id={cur} item={place?.item}
@@ -632,6 +632,6 @@ export function WikiPage({ pid }: { pid: string }) {
           </div>
         );
       })()}
-    </>
+    </div>
   );
 }

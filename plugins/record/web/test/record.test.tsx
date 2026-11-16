@@ -47,10 +47,30 @@ describe("the Record plugin", () => {
   it("lists the project's flows with their counts and a link to each record", async () => {
     server.use(http.get("/api/projects/:pid/record/flows", () => HttpResponse.json([ROW])));
     open("#/record");
-    const table = await main().findByRole("table", { name: "Flows" });
+    // keel 0.28 the redesign: the flows are a list beside the open record, not a table
+    const table = await main().findByRole("list", { name: "Flows" });
     const link = within(table).getByRole("link", { name: "Export invoices" });
     expect(link.getAttribute("href")).toBe("#/record/t1");
     expect(within(table).getByText("$0.50")).toBeTruthy();
+  });
+
+  it("keel 0.28: finds a flow by its words or its status, and keeps the list beside the open record", async () => {
+    const rows: RecordRow[] = [ROW, { ...ROW, thread_id: "t2", title: "Empty cart message", workflow_id: "bugfix", status: "waiting" }];
+    server.use(
+      http.get("/api/projects/:pid/record/flows", () => HttpResponse.json(rows)),
+      http.get("/api/projects/:pid/record/flows/t1", () => HttpResponse.json(FLOW)),
+    );
+    open("#/record");
+    const list = await main().findByRole("list", { name: "Flows" });
+    expect(within(list).getAllByRole("link")).toHaveLength(2);
+    await userEvent.type(main().getByRole("searchbox", { name: "Find a flow" }), "cart");
+    expect(within(main().getByRole("list", { name: "Flows" })).getAllByRole("link").map((a) => a.textContent)).toEqual([expect.stringContaining("Empty cart message")]);
+    await userEvent.clear(main().getByRole("searchbox", { name: "Find a flow" }));
+    await userEvent.click(within(main().getByRole("group", { name: "Status" })).getByRole("button", { name: "Done" }));
+    expect(within(main().getByRole("list", { name: "Flows" })).getAllByRole("link").map((a) => a.textContent)).toEqual([expect.stringContaining("Export invoices")]);
+    await userEvent.click(main().getByRole("link", { name: "Export invoices" }));
+    await main().findByRole("heading", { name: "Export invoices" });
+    expect(main().getByRole("link", { name: "Export invoices" })).toHaveAttribute("aria-current", "page");
   });
 
   it("says so when the project has no flow", async () => {
@@ -81,6 +101,8 @@ describe("the Record plugin", () => {
   it("gives the export as a file, Markdown or JSON", async () => {
     const asked: string[] = [];
     server.use(
+      // keel 0.28 the redesign: the flows' list stays beside the open record
+      http.get("/api/projects/:pid/record/flows", () => HttpResponse.json([ROW])),
       http.get("/api/projects/:pid/record/flows/t1", () => HttpResponse.json(FLOW)),
       http.get("/api/projects/:pid/record/flows/t1/export", ({ request }) => {
         asked.push(new URL(request.url).searchParams.get("format") ?? "");

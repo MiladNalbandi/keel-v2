@@ -10,6 +10,7 @@ import { hasAddonWeb, pluginsStarted, refreshFeatures, setAddonImporter } from "
 import type { Features, PluginWeb } from "../api";
 import { definePlugin, type AddonPageProps, type KeelSdk } from "../sdk";
 import { db } from "./setup";
+import { allPagesNav } from "./menu";
 
 const ENTRY = "/plugins/demo/1.2.0/web/index.js";
 const CSS = "/plugins/demo/1.2.0/web/style.css";
@@ -52,8 +53,8 @@ describe("an add-on's web part, loaded at run time", () => {
     const importer = open("#/boards/B-7", demo({ entry: ENTRY, css: [CSS] }), async () => MODULE);
     expect(await main().findByRole("heading", { name: "Boards B-7", level: 1 })).toBeInTheDocument();
     expect(importer).toHaveBeenCalledWith(ENTRY);
-    const nav = screen.getByRole("navigation", { name: "Screens" });
-    expect(within(nav).getByRole("link", { name: "Boards" })).toBeInTheDocument();
+    // keel 0.28 an add-on's page is in All pages (the menu keeps the main places and the pins)
+    expect(within(await allPagesNav()).getByRole("link", { name: "Boards" })).toBeInTheDocument();
   });
 
   it("imports it once for all its pages and links its css once", async () => {
@@ -83,7 +84,7 @@ describe("an add-on's web part, loaded at run time", () => {
     expect(await main().findByText("This page of demo could not be loaded.")).toHaveAttribute("role", "status");
     expect(error).toHaveBeenCalledWith("keel: the web part of demo did not load", expect.any(TypeError));
     const nav = screen.getByRole("navigation", { name: "Screens" });
-    expect(within(nav).getByRole("link", { name: "Flow" })).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: /^Flow/ })).toBeInTheDocument();
   });
 
   it("a failed import is not kept: later, the page imports the web part again", async () => {
@@ -141,7 +142,8 @@ describe("a plugin's web part with setup(), loaded at start (step 3)", () => {
 
   it("imports it at start and runs setup once: the page joins the menu at its place", async () => {
     const importer = open("#/flow", atlas({ entry: PENTRY, css: [] }), async () => ATLAS);
-    const nav = screen.getByRole("navigation", { name: "Screens" });
+    // keel 0.28 the page joins All pages at its place (it opens when the plugin's setup() has run)
+    const nav = await allPagesNav();
     expect(await within(nav).findByRole("link", { name: "Atlas" })).toBeInTheDocument();
     const links = within(nav).getAllByRole("link").map((l) => l.textContent?.trim());
     expect(links.indexOf("Atlas")).toBe(links.indexOf("Map") + 1);   // order 35: between Map (30) and Graph (40)

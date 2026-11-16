@@ -304,6 +304,22 @@ describe("Tasks (new page): the board", () => {
       await screen.findByRole("dialog", { name: "ABC-9 · Export the scores" }),
     ).toBeInTheDocument();
   });
+
+  it("N opens New task on this page (the button shows the key); typing an n in a field does not", async () => {
+    const user = userEvent.setup();
+    await openTasks();
+    const btn = main().getByRole("button", { name: "New task" });
+    expect(btn).toHaveAttribute("aria-keyshortcuts", "N");
+    expect(btn.querySelector("kbd")).toHaveTextContent("N");
+    await user.type(main().getByRole("searchbox", { name: "Find a task" }), "n");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await user.clear(main().getByRole("searchbox", { name: "Find a task" }));
+    (document.activeElement as HTMLElement | null)?.blur();
+    await user.keyboard("n");
+    expect(await screen.findByRole("dialog", { name: "New task" })).toBeInTheDocument();
+    // only the one drawer: keel's own N (Start a flow) did not open as well
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  });
 });
 
 describe("Tasks (new page): a name on a task", () => {

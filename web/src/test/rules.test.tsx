@@ -17,7 +17,8 @@ describe("Rules page", () => {
     location.hash = "#/rules";
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Safety & History", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Safety & History/ })).toBeInTheDocument();
+    // keel 0.28 the top bar says where you are; the page is in All pages (Build)
+    expect(document.querySelector(".tb-page")).toHaveTextContent("Safety & History");
     expect(screen.getByRole("tab", { name: "Safety rules" })).toHaveAttribute("aria-selected", "true");
     const always = (await screen.findByRole("heading", { name: /Always on/ })).closest("section") as HTMLElement;
     const env = within(always).getByText(/\.env files hold secrets/).closest("tr") as HTMLElement;

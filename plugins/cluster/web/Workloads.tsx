@@ -93,36 +93,36 @@ export function Workloads({ s }: { s: Shared }) {
   const counts = L ? { pods: L.pods.length, deploy: L.deploy.length, svc: L.svc.length, nodes: L.nodes.length, events: L.events.length } : null;
   return (
     <div onKeyDown={onKey}>
-      <div className="panel" style={{ padding: "10px 12px", marginBottom: 12 }}>
-        <div className="kc-bar" style={{ marginBottom: 0 }}>
-          <label className="sub" style={{ display: "flex", gap: 8, alignItems: "center" }}>Cluster
-            <select value={ctx.name} onChange={(e) => s.setCtx(e.target.value)} aria-label="Cluster" style={{ fontWeight: 600, color: "var(--fg)" }}>
-              {s.on.map((c) => <option key={c.name} value={c.name}>{c.name}{c.local ? " · this computer" : ""}</option>)}
-            </select>
-          </label>
-          <AccessPill c={ctx} />
-          {namespaces.length > 0 && (
+      <div className="kc-ctx">
+        <label className="kc-lab">Cluster
+          <select value={ctx.name} onChange={(e) => s.setCtx(e.target.value)} aria-label="Cluster" className="kc-sel">
+            {s.on.map((c) => <option key={c.name} value={c.name}>{c.name}{c.local ? " · this computer" : ""}</option>)}
+          </select>
+        </label>
+        <AccessPill c={ctx} />
+        {namespaces.length > 0 && (
+          <div className="kc-nsw"><span className="kc-lab" aria-hidden="true">Namespace</span>
             <div className="kc-ns" role="group" aria-label="Namespace">
               <button type="button" aria-pressed={ns === ""} onClick={() => setNs("")}>all<span className="kc-cnt">{snap?.pods.length ?? 0}</span></button>
               {namespaces.map((n) => (
                 <button key={n} type="button" aria-pressed={ns === n} onClick={() => setNs(n)}>{n}<span className="kc-cnt">{snap?.pods.filter((p) => p.ns === n).length ?? 0}</span></button>
               ))}
             </div>
-          )}
-          <input ref={search} className="kc-in kc-search" type="search" aria-label="Search" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onSearchKey}
-            placeholder="/  search name, IP, node, status  ·  :svc  :nodes  :ns shop" />
-          {snap && <Pill tone="ok" title={`read at ${new Date(snap.at).toLocaleTimeString()}`}>live</Pill>}
-        </div>
+          </div>
+        )}
+        {snap && <span className="kc-live" title={`read at ${new Date(snap.at).toLocaleTimeString()}`}><i aria-hidden="true" />live · read every 5 s</span>}
       </div>
 
       {snap?.warnings.map((w) => <Note key={w} tone="warn">{w}</Note>)}
       {s.snapError && <Note tone="err" role="alert">{s.snapError.message} {s.snapError.hint ?? ""}</Note>}
 
-      <div className="tabs" role="tablist" aria-label="Kind" style={{ marginBottom: 12 }}>
+      <div className="tabs kc-kinds" role="tablist" aria-label="Kind">
         {KINDS.map(([id, label]) => (
           <button key={id} role="tab" type="button" aria-selected={kind === id} onClick={() => setKind(id)}>{label}{counts && <span className="kc-cnt">{counts[id]}</span>}</button>
         ))}
       </div>
+      <input ref={search} className="kc-in kc-search" type="search" aria-label="Search" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onSearchKey}
+        placeholder="/  search name, IP, node, status  ·  :svc  :nodes  :ns shop" />
 
       {!snap || !L ? (
         !s.snapError && <div className="empty loading" role="status">Reading {ctx.name}…</div>
@@ -150,7 +150,7 @@ export function Workloads({ s }: { s: Shared }) {
       <div className="kc-keys" aria-label="Keys">
         <span><kbd>/</kbd> search</span><span><kbd>:</kbd> kind, e.g. <span className="mono">:svc</span></span><span><kbd>j</kbd> <kbd>k</kbd> move</span>
         <span><kbd>l</kbd> logs</span><span><kbd>d</kbd> describe</span><span><kbd>s</kbd> shell</span><span><kbd>f</kbd> port-forward</span><span><kbd>e</kbd> events</span>
-        <span><kbd>Esc</kbd> close</span><span style={{ marginLeft: "auto" }}>Keys work once you click in the list.</span>
+        <span><kbd>Esc</kbd> close</span><span className="kc-keys-n">Keys work once you click in the list.</span>
       </div>
     </div>
   );

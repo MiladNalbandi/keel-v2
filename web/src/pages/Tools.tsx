@@ -6,6 +6,7 @@
 import { Fragment, useState } from "react";
 import { api, errorParts, type JobStep, type McpAllow, type McpServer, type Plugin } from "../api";
 import { EmptyState, SearchBox, Section, Skeleton, Spinner } from "../components/page";
+import { pageKey, RdPage } from "../components/rdBuild";
 import { Confirm, Drawer, ErrorBox, PageHead, Panel, Pill } from "../components/ui";
 import { clock } from "../format";
 import { useSlot } from "../sdk/registry";
@@ -148,9 +149,9 @@ export function ToolsPage({ pid }: { pid: string }) {
   const rows = (agents.data ?? []).filter((a) => !needle || `${a.id} ${a.label}`.toLowerCase().includes(needle));
 
   return (
-    <>
-      <PageHead title="Tools (MCP servers)" sub="Programs your agents can call for extra tools, and which agent may use which. Plugins are turned on in Settings › Plugins."
-        actions={<button className="btn primary" type="button" onClick={() => setAdding(true)}>Add server</button>} />
+    <RdPage name="tools">
+      <PageHead title="Tools (MCP servers)" sub={<>Programs your agents can call for extra tools, and which agent may use which. Plugins that bring tools are turned on in <a href="#/features">Add features</a>.</>}
+        actions={<button className="btn primary" type="button" {...pageKey("A")} onClick={() => setAdding(true)}>Add server</button>} />
       <div className="tl-top">
         <Section title="Servers" sub="Test a server to see its tools. A turned-off server gives no agent anything.">
           {mcpServers.error ? <ErrorBox error={mcpServers.error} onRetry={() => void mcpServers.reload()} /> : !mcpServers.data ? <div className="panel"><Skeleton lines={3} label="Loading servers" /></div> : !mcpServers.data.length ? (
@@ -261,6 +262,6 @@ export function ToolsPage({ pid }: { pid: string }) {
         </div>
       </Section>
       {adding && <AddServerDrawer onClose={() => setAdding(false)} onAdded={() => void servers.reload()} />}
-    </>
+    </RdPage>
   );
 }

@@ -4,6 +4,7 @@
 import { Fragment, useState } from "react";
 import { api, errorParts, type Agent, type RepoSkills, type Skill, type Stack } from "../api";
 import { EmptyState, SearchBox, Skeleton, Toolbar } from "../components/page";
+import { pageKey, RdPage } from "../components/rdBuild";
 import { Drawer, ErrorBox, Loading, PageHead, Panel, Tabs } from "../components/ui";
 import { useApp, useLoad } from "../state";
 
@@ -248,12 +249,12 @@ export function SkillsPage({ pid }: { pid: string }) {
   const match = (s: Skill) => (filter === "all" || s.source === filter) && (!needle || (s.id + s.kind + s.stack + s.agents.join(" ")).toLowerCase().includes(needle));
   const count = (k: Src) => (skills.data ? ` ${k === "all" ? skills.data.length : skills.data.filter((s) => s.source === k).length}` : "");
   return (
-    <>
+    <RdPage name="skills">
       <PageHead title="Skill hub" sub={`Skills the agents of ${project?.name ?? pid} load: keel's skills for its stacks, packs, Claude skills, and skills only this project has.`}
         actions={<>
           <a className="btn" href="#/settings/plugins?tab=market&kind=skills" style={{ textDecoration: "none" }}>Find in the marketplace</a>
-          <button className="btn" type="button" onClick={() => setImporting(true)}>Import</button>
-          <button className="btn primary" type="button" id="newSkill" onClick={() => setCreating(true)}>New skill</button>
+          <button className="btn" type="button" {...pageKey("I")} onClick={() => setImporting(true)}>Import</button>
+          <button className="btn primary" type="button" id="newSkill" {...pageKey("N")} onClick={() => setCreating(true)}>New skill</button>
         </>} />
       <Toolbar>
         <Tabs value={filter} onChange={setFilter} label="Source" options={(Object.keys(SRC_LABEL) as Src[]).map((k) => [k, <>{SRC_LABEL[k]}<span className="sh-n">{count(k)}</span></>])} />
@@ -313,6 +314,6 @@ export function SkillsPage({ pid }: { pid: string }) {
       {open && <SkillDrawer pid={pid} id={open} agents={agents.data ?? []} onClose={() => setOpen(null)} onSaved={() => void skills.reload()} />}
       {importing && <ImportSkillDrawer pid={pid} onClose={() => setImporting(false)} onImported={() => { setFilter("yours"); void skills.reload(); }} />}
       {creating && <NewSkillDrawer pid={pid} stacks={stacks.data ?? []} onClose={() => setCreating(false)} onCreated={() => { setFilter("yours"); void skills.reload(); }} />}
-    </>
+    </RdPage>
   );
 }

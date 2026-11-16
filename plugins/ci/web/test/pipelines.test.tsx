@@ -11,7 +11,7 @@ import { slotItems, SLOTS } from "../../../../web/src/sdk";
 import { restorePlugins, withoutPages } from "../../../../web/src/test/coreOnly";
 import { db } from "../../../../web/src/test/setup";
 import plugin from "../index";
-import { runTone, type CiRun } from "../Pipelines";
+import { ciStats, runTone, type CiRun } from "../Pipelines";
 
 const calls = (method: string, path: string) =>
   db.calls.filter((c) => c.method === method && c.path === path);
@@ -54,6 +54,49 @@ describe("the CI/CD plugin's web part", () => {
     expect(runTone(ciRun(1, true))).toBe("bad");
     expect(runTone(ciRun(1, false))).toBe("ok");
     expect(runTone({ ...ciRun(1, false), conclusion: "skipped" })).toBe("idle");
+  });
+});
+
+describe("keel 0.28 the redesign of Pipelines", () => {
+  it("counts main's last result, the failures of 7 days and the usual time", () => {
+    const now = Date.parse("2026-11-15T12:00:00Z");
+    const at = (iso: string, mins: number) => ({ created_at: iso, updated_at: new Date(Date.parse(iso) + mins * 60_000).toISOString() });
+    const runs: CiRun[] = [
+      { ...ciRun(3, true, "feat/a"), ...at("2026-11-15T10:00:00Z", 4) },
+      { ...ciRun(2, false, "main"), ...at("2026-11-14T10:00:00Z", 3) },
+      { ...ciRun(1, true, "feat/b"), ...at("2026-11-01T10:00:00Z", 5) },
+    ];
+    const st = ciStats(runs, now);
+    expect(st.main?.id).toBe(2);
+    expect(st.failed).toBe(1);
+    expect(st.failedOn).toEqual(["feat/a"]);
+    expect(st.usual).toBe("4m 0s");
+  });
+
+  it("filters the runs to the failed ones and by words, and C checks now", async () => {
+    const user = userEvent.setup();
+    db.plugins.ci = true;
+    db.ciRuns = [ciRun(12, true), ciRun(11, false, "main")];
+    location.hash = "#/jobs/pipelines";
+    render(<App />);
+    const table = await screen.findByRole("table", { name: "Pipeline runs" });
+    expect(screen.getByText("Failed in the last 7 days")).toBeInTheDocument();
+    await user.click(within(screen.getByRole("group", { name: "Show" })).getByRole("button", { name: "Failed" }));
+    expect(within(table).getAllByRole("row")).toHaveLength(2);
+    expect(within(table).getByRole("button", { name: "Open run #12" })).toBeInTheDocument();
+    // Passed: the runs that succeeded; each choice shows its count, its name stays the plain word
+    const passed = within(screen.getByRole("group", { name: "Show" })).getByRole("button", { name: "Passed" });
+    expect(passed).toHaveTextContent("Passed1");
+    await user.click(passed);
+    expect(within(table).getAllByRole("row")).toHaveLength(2);
+    expect(within(table).getByRole("button", { name: "Open run #11" })).toBeInTheDocument();
+    await user.click(within(screen.getByRole("group", { name: "Show" })).getByRole("button", { name: "All" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search runs" }), "main");
+    expect(within(table).getAllByRole("row")).toHaveLength(2);
+    expect(within(table).getByRole("button", { name: "Open run #11" })).toBeInTheDocument();
+    await user.click(screen.getByText("Failed in the last 7 days"));
+    await user.keyboard("c");
+    await waitFor(() => expect(calls("POST", "/api/projects/ludus-engine/ci/check")).toHaveLength(1));
   });
 });
 

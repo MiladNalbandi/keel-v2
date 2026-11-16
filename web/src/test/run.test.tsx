@@ -223,7 +223,7 @@ describe("All projects (home)", () => {
 });
 
 describe("shell", () => {
-  it("the phone bar is menu + project + bell; the menu holds every screen, the status and the theme switch", async () => {
+  it("the phone bar is menu + project + bell; the menu holds the main places, the status and the theme switch", async () => {
     const user = userEvent.setup();
     await at("#/flow");
     await screen.findByText(/AC gate — AC-002/);
@@ -242,7 +242,8 @@ describe("shell", () => {
     await user.click(within(sheet).getByRole("button", { name: /Switch to the (light|dark) theme/ }));
     expect(document.documentElement.dataset.theme).not.toBe(before);
     expect(localStorage.getItem("keel2.theme")).toBe(document.documentElement.dataset.theme);
-    await user.click(within(nav).getByRole("link", { name: /^Jobs/ }));
+    // keel 0.28 the sheet has the main places, the pins and the recent flows; the rest is in All pages
+    await user.click(within(nav).getByRole("link", { name: /^Live agents/ }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Menu" })).not.toBeInTheDocument());
     await user.click(menu);
     await screen.findByRole("dialog", { name: "Menu" });
@@ -261,11 +262,12 @@ describe("shell", () => {
     expect(menu.querySelector(".menu-dot")).not.toBeNull();
   });
 
-  it("the sidebar nav starts with All projects and marks the screen you are on", async () => {
+  it("the sidebar nav starts with Home and marks the screen you are on", async () => {
     await at("#/settings");
     const nav = await screen.findByRole("navigation", { name: "Screens" });
     const links = within(nav).getAllByRole("link");
-    expect(links[0]).toHaveTextContent("All projects");
+    // keel 0.28 the six main places come first (All projects is in the project switcher and All pages)
+    expect(links[0]).toHaveTextContent("Home");
     expect(within(nav).getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
   });
 });

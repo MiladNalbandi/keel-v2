@@ -3,6 +3,9 @@
 // Flow page. The list follows the app's event stream (gate events send project.changed to every tab).
 // #/inbox/<project> opens it filtered to one project (the Answer link on All projects). Long details fold with
 // "Show more"; after you answer, the focus moves to the next item so the keyboard can go on.
+// keel 0.28 (the redesign) a list on the left (kind, project, age, title, one line) and the selected item's card on the
+// right; keys answer it (J K move, A approve, R to the reason box, 1–9 a choice, O open the flow, L later on a task),
+// and after an answer the next item is selected. The filters are chips with counts.
 // A part shows the items of its own kinds with its own card (the slot inbox.card: the Tasks plugin's task items).
 // v0.16.0 an agent's (or a workflow's) request to install a plugin is keel's own card: Approve and install, or Deny.
 
@@ -19,6 +22,8 @@ import { GateDetail } from "./Flow";
 import { InstallRequestCard } from "../components/InstallRequestCard";
 import { ApprovalCard } from "../components/ApprovalCard";
 import { ErrorBox, Loading, PageHead, Pill, Since, Ticks } from "../components/ui";
+import { Key } from "../components/Key";
+import { isTyping, modalOpen } from "../keys";
 import { inboxApi, type InboxAnswer, type InboxItem } from "../inboxApi";
 import { useHasPage, useSlot } from "../sdk/registry";
 import { SLOTS, type InboxCardItem, type InboxFill, type InboxNoteItem } from "../sdk/slots";
@@ -129,14 +134,14 @@ function PermissionInboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: stri
       <pre className="code inbox-cmd">{q.command}</pre>
       <div className="field">
         <label htmlFor={`${hid}-why`}>Why not (optional, {who} reads it)</label>
-        <input id={`${hid}-why`} value={why} onChange={(e) => setWhy(e.target.value)} />
+        <input id={`${hid}-why`} value={why} aria-keyshortcuts="R" onChange={(e) => setWhy(e.target.value)} />
       </div>
       <div className="row inbox-actions">
-        <button className="btn sm warn" type="button" disabled={busy} onClick={() => void answer("once")}>{mcp ? "Allow" : "Allow once"}</button>
+        <button className="btn sm warn" type="button" disabled={busy} aria-keyshortcuts="A" onClick={() => void answer("once")}>{mcp ? "Allow" : "Allow once"} <Key k="A" /></button>
         {!mcp && <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("always")}>Always for this command</button>}
         <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("deny")}>Deny</button>
         {!mcp && chat && <button className="btn sm ghost inbox-open" type="button" onClick={() => { setProjectId(it.project_id); go(chat); }}
-          aria-label={`Open KeelBot in ${it.project_name}`}>Open KeelBot ▸</button>}
+          aria-label={`Open KeelBot in ${it.project_name}`} aria-keyshortcuts="O">Open KeelBot ▸ <Key k="O" /></button>}
       </div>
       {err && <ErrorBox error={err} />}
     </article>
@@ -174,7 +179,7 @@ function StackSetupCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) =
       {p.warning && <p className="hint" role="note">{p.warning}</p>}
       <pre className="code inbox-cmd">{commands}</pre>
       <div className="row inbox-actions">
-        <button className="btn sm warn" type="button" disabled={busy} onClick={() => void answer("once")}>Approve once</button>
+        <button className="btn sm warn" type="button" disabled={busy} aria-keyshortcuts="A" onClick={() => void answer("once")}>Approve once <Key k="A" /></button>
         <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("always")}>Always for these commands</button>
         <button className="btn sm" type="button" disabled={busy} onClick={() => void answer("deny")}>Deny</button>
       </div>
@@ -281,35 +286,82 @@ function InboxCard({ it, onDone }: { it: InboxItem; onDone: (msg: string) => Pro
       {!info && (askWhy || !b.needWhy) && (
         <div className="field">
           <label htmlFor={whyId}>{b.whyLabel}</label>
-          <textarea id={whyId} rows={2} value={why} onChange={(e) => setWhy(e.target.value)} />
+          <textarea id={whyId} rows={2} value={why} aria-keyshortcuts="R" onChange={(e) => setWhy(e.target.value)} />
         </div>
       )}
       {info && (
-        <ChoiceForm key={choiceForm} id={hid} choices={info} busy={busy} draft={place}
+        <ChoiceForm key={choiceForm} id={hid} choices={info} busy={busy} draft={place} sendKey="A"
           onSend={(choice, said) => act("approve", { choice }, `${it.project_name}: ${info.find((c) => c.name === choice)?.label || choice}.`, said)} />
       )}
       <div className="row inbox-actions">
         {info ? null : NAMED.has(it.kind) && choices.length ? (
           <>
             {choices.map((c, n) => (
-              <button key={c} className={`btn sm${n === 0 ? " warn" : ""}`} type="button" disabled={busy}
-                onClick={() => act("approve", { choice: c }, `${it.project_name}: ${c}.`)}>{c}</button>
+              <button key={c} className={`btn sm${n === 0 ? " warn" : ""}`} type="button" disabled={busy} aria-keyshortcuts={n < 9 ? String(n + 1) : undefined}
+                onClick={() => act("approve", { choice: c }, `${it.project_name}: ${c}.`)}>{c}{n < 9 && <> <Key k={String(n + 1)} /></>}</button>
             ))}
-            {it.options.includes("reject") && <button className="btn sm" type="button" disabled={busy} onClick={() => act("reject")}>{b.reject}</button>}
+            {it.options.includes("reject") && <button className="btn sm" type="button" disabled={busy} aria-keyshortcuts="R" onClick={() => act("reject")}>{b.reject} <Key k="R" /></button>}
           </>
         ) : (
           <>
-            {it.options.includes("approve") && <button className="btn warn sm" type="button" disabled={busy} onClick={() => act("approve")}>{b.approve}</button>}
-            {it.options.includes("reject") && <button className="btn sm" type="button" disabled={busy} onClick={() => act("reject")}>{b.reject}</button>}
+            {it.options.includes("approve") && <button className="btn warn sm" type="button" disabled={busy} aria-keyshortcuts="A" onClick={() => act("approve")}>{b.approve} <Key k="A" /></button>}
+            {it.options.includes("reject") && <button className="btn sm" type="button" disabled={busy} aria-keyshortcuts="R" onClick={() => act("reject")}>{b.reject} <Key k="R" /></button>}
           </>
         )}
-        <button className="btn sm ghost inbox-open" type="button" onClick={openFlow} aria-label={`Open flow ${it.flow} in ${it.project_name}`}>Open flow ▸</button>
+        <button className="btn sm ghost inbox-open" type="button" onClick={openFlow} aria-label={`Open flow ${it.flow} in ${it.project_name}`}
+          aria-keyshortcuts="O">Open flow ▸ <Key k="O" /></button>
       </div>
       <DraftKept shown={keptWhy || keptPicked || keptTyped} />
       {err && <ErrorBox error={err} />}
     </article>
   );
 }
+
+/** keel 0.28 how each kind looks in the list: a mark and a tone (the redesign's Inbox). */
+const KIND_LOOK: Record<string, { mark: string; tone: "warn" | "acc" | "bad" | "run" }> = {
+  gate: { mark: "◆", tone: "warn" }, clarify: { mark: "?", tone: "acc" }, fix: { mark: "!", tone: "bad" }, crash: { mark: "!", tone: "bad" },
+  budget: { mark: "$", tone: "bad" }, usage: { mark: "$", tone: "bad" }, dependency: { mark: "+", tone: "warn" }, permission: { mark: "›", tone: "warn" },
+  "plugin-install": { mark: "↓", tone: "run" }, "stack-setup": { mark: "#", tone: "warn" }, "product-jira-send": { mark: "↗", tone: "acc" },
+};
+const lookOf = (it: InboxItem) => KIND_LOOK[it.kind] ?? (it.task ? { mark: "☐", tone: "run" as const } : isApproval(it) ? { mark: "✓", tone: "acc" as const } : { mark: "•", tone: "acc" as const });
+
+/** The row's one line: the command, the plugin's summary, or the first line of the detail (without Markdown marks). */
+function lineOf(it: InboxItem): string {
+  const p = (it.payload ?? {}) as { command?: string; summary?: string; reason?: string };
+  if (it.permission) return it.permission.command;
+  if (it.kind === STACK_SETUP && p.command) return p.command.split("\n")[0];
+  if (it.kind === PLUGIN_INSTALL) return p.summary || p.reason || "";
+  if (it.task) return it.task.key ? `${it.task.key} · ${it.task.title}` : it.task.title;
+  const first = (it.detail ?? "").split("\n").map((l) => l.replace(/^[#>*\-\s]+|[`*_]/g, "").trim()).find(Boolean);
+  return first ?? it.flow ?? "";
+}
+
+/** Where it comes from, after the project: the flow, or who asks (none for a part's own kind: its card says). */
+function whereOf(it: InboxItem, partKind: boolean): string {
+  if (it.permission) return it.permission.session === "mcp" ? "Claude Code" : "KeelBot";
+  if (partKind || it.kind === PLUGIN_INSTALL || it.kind === STACK_SETUP || it.task) return "";
+  return it.flow ?? "";
+}
+
+/** How long it waits, for the list: "now", "4 min", "2 h", "3 d" (the card says it to the second). */
+function ageOf(since: string, now: number): string {
+  const s = Math.max(0, (now - Date.parse(since)) / 1000);
+  if (Number.isNaN(s)) return "";
+  if (s < 60) return "now";
+  if (s < 3600) return `${Math.floor(s / 60)} min`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h`;
+  return `${Math.floor(s / 86400)} d`;
+}
+
+/** The Inbox keys a page-wide handler reads (they go to the selected item's card, by its aria-keyshortcuts). */
+const KEY_ROWS: { label: string; keys: string[] }[] = [
+  { label: "Next / previous", keys: ["J", "K"] },
+  { label: "Approve", keys: ["A"] },
+  { label: "Send back: to the reason box", keys: ["R"] },
+  { label: "Pick a choice", keys: ["1–9"] },
+  { label: "Open the flow", keys: ["O"] },
+  { label: "Later (a task)", keys: ["L"] },
+];
 
 export function InboxPage() {
   const { toast, reloadProjects, projects: known } = useApp();
@@ -326,8 +378,10 @@ export function InboxPage() {
   const [project, setProject] = useState(arg ?? "");
   useEffect(() => setProject(arg ?? ""), [arg]);
   const [kind, setKind] = useState("");
+  const all = r.data?.items ?? [];
   const items = useMemo(
-    () => (r.data?.items ?? []).filter((it) => (!project || it.project_id === project) && (!kind || it.kind === kind)),
+    () => all.filter((it) => (!project || it.project_id === project) && (!kind || it.kind === kind)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [r.data, project, kind],
   );
   // v0.7.x: when several flows of one project wait at once, each flow's items sit under its own heading
@@ -350,42 +404,153 @@ export function InboxPage() {
       return { key: g, items: by.get(g)!, title: g.startsWith("other:") ? `${first.project_name} · tasks and KeelBot` : `${first.project_name} · ${first.flow}` };
     });
   }, [items]);
+  // the list's order (the groups' order when there are groups); a task's item whose part has not loaded yet has no card
+  // and no row (it shows when its card registers)
+  const rows = useMemo(() => (groups ? groups.flatMap((g) => g.items) : items).filter((it) => !it.task || !!cardOf(it.kind)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [groups, items, cards]);
   const total = r.data?.count ?? 0;
   // a project from the link that has nothing waiting still shows in the filter
   const projectOpts = useMemo(() => {
     const l = r.data?.projects ?? [];
     return project && !l.some((p) => p.id === project) ? [...l, { id: project, name: known.find((p) => p.id === project)?.name ?? project, count: 0 }] : l;
   }, [r.data, project, known]);
+  // keel 0.28 the kind filter says how many wait of each kind (in the project picked)
+  const kindCount = (k: string) => all.filter((it) => it.kind === k && (!project || it.project_id === project)).length;
 
-  // after an answer: focus the item that came after it (or before it, or the empty state)
+  // keel 0.28 one item is selected: its card shows on the right. The others stay mounted (what you typed in them is
+  // kept while you move), and only the selected one is shown.
+  const [sel, setSel] = useState<string | null>(null);
+  const lastIndex = useRef(0);
+  const selIndex = (() => {
+    const i = sel ? rows.findIndex((x) => keyOf(x) === sel) : -1;
+    return i >= 0 ? i : rows.length ? Math.min(lastIndex.current, rows.length - 1) : -1;
+  })();
+  const current = selIndex >= 0 ? rows[selIndex] : null;
+  const curKey = current ? keyOf(current) : null;
+  useEffect(() => {
+    if (selIndex >= 0) lastIndex.current = selIndex;
+  }, [selIndex]);
+
+  // the rows' ages move on each half minute
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
   const emptyRef = useRef<HTMLDivElement>(null);
+  const cardEl = (key: string | null) =>
+    key ? [...(detailRef.current?.querySelectorAll<HTMLElement>("[data-testid=inbox-item]") ?? [])].find((el) => el.dataset.key === key) ?? null : null;
+  const rowEl = (key: string | null) =>
+    key ? [...(listRef.current?.querySelectorAll<HTMLElement>("[data-row-key]") ?? [])].find((el) => el.dataset.rowKey === key) ?? null : null;
+
+  // after an answer: select and focus the item that came after it (or before it, or the empty state)
   const focusNext = useRef<{ key: string | null; index: number } | null>(null);
   useEffect(() => {
     const f = focusNext.current;
     if (!f) return;
     focusNext.current = null;
-    const els = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-testid=inbox-item]") ?? [])];
-    const target = els.find((el) => el.dataset.key === f.key) ?? els[Math.min(f.index, els.length - 1)] ?? emptyRef.current;
+    const target = cardEl(f.key) ?? (rows.length ? cardEl(keyOf(rows[Math.min(f.index, rows.length - 1)])) : null) ?? emptyRef.current;
     target?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
+
+  // J / K moved the selection: its row takes the focus (so the next key goes on from there)
+  const focusRow = useRef<string | null>(null);
+  useEffect(() => {
+    const k = focusRow.current;
+    if (!k) return;
+    focusRow.current = null;
+    const el = rowEl(k);
+    el?.focus();
+    el?.scrollIntoView?.({ block: "nearest" });
+  });
 
   useEffect(() => {
     if (!wanted || shown.current === wanted) return;
-    const it = items.find((x) => x.id === wanted);
-    const el = it && [...(listRef.current?.querySelectorAll<HTMLElement>("[data-testid=inbox-item]") ?? [])].find((e) => e.dataset.key === keyOf(it));
+    const it = rows.find((x) => x.id === wanted);
+    if (!it) return;
+    if (sel !== keyOf(it)) {
+      setSel(keyOf(it));
+      return;
+    }
+    const el = cardEl(keyOf(it));
     if (!el) return;
     shown.current = wanted;
+    rowEl(keyOf(it))?.scrollIntoView?.({ block: "nearest" });
     el.scrollIntoView?.({ block: "center" });
     el.focus();
-  }, [items, wanted]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, wanted, sel]);
 
   const done = async (msg: string, key: string) => {
-    const i = items.findIndex((x) => keyOf(x) === key);
-    const next = items[i + 1] ?? items[i - 1] ?? null;
+    const i = rows.findIndex((x) => keyOf(x) === key);
+    const next = rows[i + 1] ?? rows[i - 1] ?? null;
     focusNext.current = { key: next ? keyOf(next) : null, index: Math.max(0, i) };
+    if (next) setSel(keyOf(next));
     toast(msg);
     await Promise.all([r.reload(), reloadProjects()]);
+  };
+
+  const pick = (it: InboxItem) => {
+    setSel(keyOf(it));
+    // stacked (a phone): the card is under the list, so it comes into view
+    if (window.matchMedia?.("(max-width: 900px)").matches) {
+      window.setTimeout(() => cardEl(keyOf(it))?.scrollIntoView?.({ behavior: "smooth", block: "start" }), 0);
+    }
+  };
+  const move = (by: number) => {
+    if (!rows.length) return;
+    const to = rows[Math.max(0, Math.min(rows.length - 1, (selIndex < 0 ? 0 : selIndex) + by))];
+    setSel(keyOf(to));
+    focusRow.current = keyOf(to);
+  };
+
+  // the Inbox keys, while the focus is on this page (not in a text field, not under a dialog): J K move, and the rest
+  // presses the selected card's control that carries that key (aria-keyshortcuts), so a part's card can take them too
+  const keys = useRef<(e: KeyboardEvent) => void>(() => {});
+  keys.current = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || e.repeat || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || isTyping(e.target) || modalOpen()) return;
+    const t = e.target as HTMLElement | null;
+    const root = rootRef.current;
+    if (!root || !t || !(root.contains(t) || t === document.body || t.id === "main")) return;
+    const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+    if (k === "J" || k === "K") {
+      e.preventDefault();
+      move(k === "J" ? 1 : -1);
+      return;
+    }
+    const card = cardEl(curKey);
+    if (!card || !/^[AROL1-9]$/.test(k)) return;
+    const all = [...card.querySelectorAll<HTMLElement>(`[aria-keyshortcuts="${k}"]`)].filter((el) => !(el as HTMLButtonElement).disabled);
+    if (!all.length) return;
+    e.preventDefault();
+    // R goes to the reason box when there is one (it never sends by itself); else it presses Send back, which opens it
+    const field = k === "R" ? all.find((el) => isTyping(el)) : undefined;
+    if (field) {
+      field.focus();
+      return;
+    }
+    const el = all[0];
+    el.click();
+    if (/^[1-9]$/.test(k)) el.focus();
+  };
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => keys.current(e);
+    document.addEventListener("keydown", on);
+    return () => document.removeEventListener("keydown", on);
+  }, []);
+  // ↓ ↑ on the list do what J K do
+  const onListKey = (e: React.KeyboardEvent) => {
+    if (e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target)) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      move(e.key === "ArrowDown" ? 1 : -1);
+    }
   };
 
   const card = (it: InboxItem) => {
@@ -399,47 +564,105 @@ export function InboxPage() {
     if (it.task) return null;
     return <InboxCard key={keyOf(it)} it={it} onDone={(msg) => done(msg, keyOf(it))} />;
   };
+  // each card in a box that shows only while it is selected
+  const slot = (it: InboxItem) => {
+    const c = card(it);
+    return c && <div key={keyOf(it)} className={`rdinbox-card${keyOf(it) === curKey ? " on" : ""}`}>{c}</div>;
+  };
+
+  const row = (it: InboxItem, grouped = false) => {
+    const k = keyOf(it);
+    const look = lookOf(it);
+    const on = k === curKey;
+    // under a group's heading (project · flow) the row does not say the flow again
+    const where = grouped ? "" : whereOf(it, !!cardOf(it.kind));
+    // the line, unless it only says the title again (a request whose title is its first words)
+    const raw = lineOf(it);
+    const line = raw && !raw.startsWith(it.title.replace(/…$/, "").slice(0, 40)) ? raw : "";
+    return (
+      <li key={k}>
+        <button type="button" className={`rdinbox-row${on ? " on" : ""}`} data-testid="inbox-row" data-row-key={k} aria-current={on ? "true" : undefined}
+          tabIndex={on ? 0 : -1} onClick={() => pick(it)}>
+          <span className={`rdinbox-mark t-${look.tone}`} aria-hidden="true">{look.mark}</span>
+          <span className="rdinbox-row-b">
+            <span className="rdinbox-row-m">
+              <span className={`rdinbox-kind t-${look.tone}`}>{labelOf(it.kind)}</span>
+              <span className="rdinbox-proj">{it.project_name}{where ? ` · ${where}` : ""}</span>
+              {it.since && <span className="rdinbox-age">{ageOf(it.since, now)}</span>}
+            </span>
+            <span className="rdinbox-row-t"><Ticks text={it.title} /></span>
+            {line && <span className="rdinbox-row-l">{line}</span>}
+          </span>
+        </button>
+      </li>
+    );
+  };
+
+  const filters = (
+    <div className="rdinbox-filters" role="group" aria-label="Filters">
+      <label className={`rdinbox-chip${project ? " on" : ""}`} htmlFor="inbox-project"><span className="rdinbox-chip-d">In project</span>
+        <select id="inbox-project" value={project} onChange={(e) => setProject(e.target.value)}>
+          <option value="">All projects ({total})</option>
+          {projectOpts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.count})</option>)}
+        </select>
+      </label>
+      <label className={`rdinbox-chip${kind ? " on" : ""}`} htmlFor="inbox-kind"><span className="rdinbox-chip-d">Kind</span>
+        <select id="inbox-kind" value={kind} onChange={(e) => setKind(e.target.value)}>
+          <option value="">All kinds</option>
+          {(r.data?.kinds ?? []).map((k) => <option key={k} value={k}>{labelOf(k)} ({kindCount(k)})</option>)}
+        </select>
+      </label>
+      {r.data && <span className="hint rdinbox-count" aria-live="polite">{items.length === total ? `${total} waiting` : `${items.length} of ${total} waiting`}</span>}
+    </div>
+  );
 
   return (
-    <>
+    <div className="rdinbox">
       <PageHead title="Inbox" sub="Everything that waits for you, in every project: gates, questions, and tasks to confirm. Answer it here or open its flow or task." />
-      <div className="row inbox-filters" role="group" aria-label="Filters">
-        <label className="row" htmlFor="inbox-project"><span className="sub">In project</span>
-          <select id="inbox-project" value={project} onChange={(e) => setProject(e.target.value)}>
-            <option value="">All projects</option>
-            {projectOpts.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.count})</option>)}
-          </select>
-        </label>
-        <label className="row" htmlFor="inbox-kind"><span className="sub">Kind</span>
-          <select id="inbox-kind" value={kind} onChange={(e) => setKind(e.target.value)}>
-            <option value="">All kinds</option>
-            {(r.data?.kinds ?? []).map((k) => <option key={k} value={k}>{labelOf(k)}</option>)}
-          </select>
-        </label>
-        {r.data && <span className="hint" aria-live="polite">{items.length === total ? `${total} waiting` : `${items.length} of ${total} waiting`}</span>}
-      </div>
       {r.error && !r.data ? <ErrorBox error={r.error} onRetry={() => void r.reload()} />
         : !r.data ? <Loading what="Loading the inbox" />
-          : !items.length ? (
-            <div className="panel">
-              <EmptyState ref={emptyRef} className="inbox-empty" title="Nothing is waiting for you"
-                action={total ? <button className="btn sm" type="button" onClick={() => { setProject(""); setKind(""); }}>Show everything</button>
-                  : <a className="btn sm" href="#/projects">See your projects</a>}>
-                {total ? "Nothing matches these filters." : "When a flow stops at a gate or needs a decision, it shows up here."}
-              </EmptyState>
-            </div>
-          ) : (
-            <div className="inbox-list" ref={listRef}>
-              {groups
-                ? groups.map((g) => (
-                  <section key={g.key} className="inbox-group" aria-label={g.title}>
-                    <h2 className="inbox-group-h">{g.title} <span className="sub">{g.items.length}</span></h2>
-                    {g.items.map(card)}
-                  </section>
-                ))
-                : items.map(card)}
+          : (
+            <div className={`rdinbox-split${rows.length ? "" : " is-empty"}`} ref={rootRef}>
+              <section className="rdinbox-list rise r1" aria-label="Waiting for you" ref={listRef} onKeyDown={onListKey}>
+                {filters}
+                {!rows.length ? (
+                  <EmptyState ref={emptyRef} className="inbox-empty" title="Nothing is waiting for you"
+                    action={total ? <button className="btn sm" type="button" onClick={() => { setProject(""); setKind(""); }}>Show everything</button>
+                      : <a className="btn sm" href="#/projects">See your projects</a>}>
+                    {total ? "Nothing matches these filters." : "When a flow stops at a gate or needs a decision, it shows up here."}
+                  </EmptyState>
+                ) : groups ? (
+                  groups.map((g) => {
+                    const shownRows = g.items.filter((it) => rows.includes(it));
+                    return shownRows.length ? (
+                      <div key={g.key} className="rdinbox-grp">
+                        <h2 className="rdinbox-grp-h">{g.title} <span>{shownRows.length}</span></h2>
+                        <ul className="rdinbox-rows" aria-label={g.title}>{shownRows.map((it) => row(it, true))}</ul>
+                      </div>
+                    ) : null;
+                  })
+                ) : (
+                  <ul className="rdinbox-rows" aria-label="Waiting items">{rows.map((it) => row(it))}</ul>
+                )}
+                {rows.length > 0 && <div className="rdinbox-keys" aria-label="Inbox keys" role="note">
+                  <span className="rdinbox-keys-h">Inbox keys</span>
+                  {KEY_ROWS.map((k) => (
+                    <span key={k.label} className="rdinbox-key">{k.label} <span>{k.keys.map((x) => <kbd key={x}>{x}</kbd>)}</span></span>
+                  ))}
+                </div>}
+              </section>
+              {/* nothing to show (all answered, or nothing matches the filters): the list's empty state says it */}
+              <section className="rdinbox-detail rise r2" aria-label="The selected item" ref={detailRef} hidden={!rows.length}>
+                {groups ? (
+                  groups.map((g) => (
+                    <section key={g.key} className="inbox-group" aria-label={g.title}>{g.items.map(slot)}</section>
+                  ))
+                ) : (
+                  items.map(slot)
+                )}
+              </section>
             </div>
           )}
-    </>
+    </div>
   );
 }

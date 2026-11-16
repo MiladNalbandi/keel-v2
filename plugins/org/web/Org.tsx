@@ -7,7 +7,8 @@ import {
   CodeEditor, EmptyState, ErrorBox, errorParts, get, go, hashForScreen, kfmt, Loading, Note, PageHead, Panel, Pill, post, put,
   Since, Tabs, useApp, useLoad, useNarrow, useRoute, type PillTone,
 } from "@keel/web-sdk";
-import { AUTONOMY, Chart } from "./Chart";
+import { AUTONOMY, Chart, pairs, says } from "./Chart";
+import { usePageKey } from "./keys";
 import { TemplateCards, templatesApi, type OrgTemplate } from "./Templates";
 
 export type Role = { id: string; title: string; human: boolean; agent: string | null; workflows: string[]; plan: string | null;
@@ -57,6 +58,10 @@ function parseArg(arg?: string): { org?: string; mission?: string } {
 }
 
 export function OrgPage() {
+  return <div className="rdw rdw-org"><OrgRoutes /></div>;
+}
+
+function OrgRoutes() {
   const { arg } = useRoute();
   const { org: oid, mission } = parseArg(arg);
   const orgs = useLoad("org:list", orgApi.orgs, { live: false });
@@ -110,41 +115,103 @@ function NewOrg({ first, template, taken, onSaved }: { first: boolean; template?
 }
 
 function OrgHome({ org, orgs, onSaved }: { org: OrgView; orgs: OrgView[]; onSaved: () => void }) {
-  const [tab, setTab] = useState<"missions" | "chart" | "yaml">("missions");
+  const [tab, setTab] = useState<"missions" | "chart" | "yaml">("chart");
   const missions = useLoad(`org:missions:${org.id}`, () => orgApi.missions(org.id), { live: true });
+  const firstAgent = org.roles.find((r) => !r.human) ?? org.roles[0];
+  const [picked, setPicked] = useState<string | null>(firstAgent?.id ?? null);
+  // Give a mission (M): the Missions tab with its form, to the role the chart shows when it takes work from you
+  const [to, setTo] = useState<{ role?: string; n: number }>({ n: 0 });
+  const give = (role?: string) => {
+    setTab("missions");
+    setTo((t) => ({ role, n: t.n + 1 }));
+    window.setTimeout(() => document.getElementById("orgTitle")?.focus(), 0);
+  };
+  usePageKey("m", () => give(), !org.problems.length);
+  const waiting = missions.data?.filter((m) => m.waiting || m.status === "proposed" || m.status === "reported").length ?? 0;
   return (
     <>
       <PageHead title={org.name || org.id}
         sub="Your org of agents. Work goes down the links; reports come back up. You are called only where a role may not decide."
-        actions={<div className="row" style={{ gap: 6 }}>
+        actions={<>
           {orgs.length > 1 && (
-            <select aria-label="Org" value={org.id} onChange={(e) => go("org", e.target.value)}>
+            <select className="org-pick" aria-label="Org" value={org.id} onChange={(e) => go("org", e.target.value)}>
               {orgs.map((o) => <option key={o.id} value={o.id}>{o.name || o.id}</option>)}
             </select>
           )}
-          <a className="btn sm ghost" href={hashForScreen("org", "new")}>New org</a>
-        </div>} />
+          <a className="btn ghost" href={hashForScreen("org", "new")}>New org</a>
+          {!org.problems.length && <button className="btn primary" type="button" onClick={() => give()} aria-keyshortcuts="M">Give a mission <kbd aria-hidden="true">M</kbd></button>}
+        </>} />
       {org.problems.length > 0 && <Note tone="warn">This org has problems, so it cannot take missions: {org.problems.join("; ")}</Note>}
-      <Tabs label="Org" value={tab} onChange={setTab}
-        options={[["missions", "Missions"], ["chart", "Chart"], ["yaml", "YAML"]]} />
+      <div className="org-tabs rise r1">
+        <Tabs label="Org" value={tab} onChange={setTab}
+          options={[["chart", "Chart"], ["missions", <>Missions{missions.data?.length ? <span className={`org-count${waiting ? " warn" : ""}`}>{missions.data.length}</span> : null}</>], ["yaml", "YAML"]]} />
+      </div>
       {tab === "missions" && (
-        <div className="grid org-cols">
+        <div className="grid org-cols rise r2">
           <Panel title={<h2>Missions</h2>} body={false}>
             {missions.error ? <ErrorBox error={missions.error} onRetry={() => void missions.reload()} />
               : !missions.data ? <Loading what="Loading the missions" />
               : !missions.data.length ? <EmptyState compact title="No missions yet">Give the first one to a role with the form.</EmptyState>
               : <MissionList org={org} rows={missions.data} />}
           </Panel>
-          <Panel title={<h2>Give a mission</h2>}><Assign org={org} onDone={(m) => go("org", `${org.id}~${m.id}`)} /></Panel>
+          <Panel title={<h2>Give a mission</h2>}><Assign key={to.n} org={org} role={to.role} onDone={(m) => go("org", `${org.id}~${m.id}`)} /></Panel>
         </div>
       )}
-      {tab === "chart" && <Panel title={<h2>Chart</h2>}><Chart roles={org.roles} links={org.links} /></Panel>}
+      {tab === "chart" && (
+        <div className="org-chart-cols rise r2">
+          <section className="panel org-canvas" aria-label="Chart">
+            <Chart roles={org.roles} links={org.links} picked={picked} onPick={setPicked} />
+          </section>
+          <RolePanel org={org} id={picked} onPick={setPicked} onGive={give} />
+        </div>
+      )}
       {tab === "yaml" && (
-        <Panel title={<h2>The org's YAML</h2>}>
+        <Panel title={<h2>The org's YAML</h2>} className="rise r2">
           <YamlEditor id={org.id} text={org.yaml} onSaved={onSaved} />
         </Panel>
       )}
     </>
+  );
+}
+
+/** The chart's side panel: one role, what it runs, who it works with, and a mission for it when it takes work from you. */
+function RolePanel({ org, id, onPick, onGive }: { org: OrgView; id: string | null; onPick: (id: string) => void; onGive: (role?: string) => void }) {
+  const r = org.roles.find((x) => x.id === id);
+  if (!r) return null;
+  const title = (x: string) => roleTitle(org, x);
+  const me = org.roles.filter((x) => x.human).map((x) => x.id);
+  const takesFromMe = !r.human && (me.length === 0 || (r.boss !== null && me.includes(r.boss)));
+  const lines = pairs(org.roles, org.links).filter((p) => p.a === r.id || p.b === r.id).map((p) => says(p, title));
+  const kv = (k: string, v: ReactNode) => <><dt>{k}</dt><dd>{v}</dd></>;
+  return (
+    <aside className="panel org-rolepanel" aria-label="A role">
+      <div className="rdw-bar">
+        <label className="lbl" htmlFor="orgRolePick">A role</label>
+        <span className="grow" />
+        <select id="orgRolePick" className="org-pick sm" value={r.id} onChange={(e) => onPick(e.target.value)}>
+          {org.roles.map((x) => <option key={x.id} value={x.id}>{x.title}</option>)}
+        </select>
+      </div>
+      <h2 className="org-role-title">{r.human ? "👤 " : ""}{r.title} <span className="sub mono">{r.id}</span></h2>
+      <p className="sub" style={{ margin: 0 }}>{r.human ? "A person: gets reports and calls." : `${r.title} ${AUTONOMY[r.autonomy]}.`}</p>
+      <dl className="org-kv">
+        {r.agent && kv("Agent", <span className="mono">{r.agent}</span>)}
+        {r.workflows.length > 0 && kv("Workflows", r.workflows.join(", "))}
+        {r.plan && kv("Plans with", <span className="mono">{r.plan}</span>)}
+        {r.review && kv("Checks with", <span className="mono">{r.review}</span>)}
+        {r.team.length > 0 && kv("Team", r.team.map(title).join(", "))}
+        {r.boss && kv("Reports to", title(r.boss))}
+      </dl>
+      {lines.length > 0 && (
+        <>
+          <h3 className="lbl">Links</h3>
+          <ul className="org-links">{lines.map((l) => <li key={l}>{l}</li>)}</ul>
+        </>
+      )}
+      {takesFromMe && !org.problems.length && (
+        <button className="btn primary" type="button" onClick={() => onGive(r.id)}>Give {r.title} a mission</button>
+      )}
+    </aside>
   );
 }
 
@@ -187,12 +254,12 @@ function MissionList({ org, rows }: { org: OrgView; rows: MissionRow[] }) {
   );
 }
 
-function Assign({ org, onDone }: { org: OrgView; onDone: (m: Mission) => void }) {
+function Assign({ org, role: wanted, onDone }: { org: OrgView; role?: string; onDone: (m: Mission) => void }) {
   const { projects } = useApp();
   const me = org.roles.filter((r) => r.human).map((r) => r.id);
   const mine = org.roles.filter((r) => !r.human && (me.length === 0 || (r.boss !== null && me.includes(r.boss))));
   const shown = projects.filter((p) => !org.projects?.length || org.projects.includes(p.id));
-  const [role, setRole] = useState(mine[0]?.id ?? "");
+  const [role, setRole] = useState((wanted && mine.some((x) => x.id === wanted) ? wanted : mine[0]?.id) ?? "");
   const [project, setProject] = useState(shown[0]?.id ?? "");
   const [title, setTitle] = useState("");
   const [request, setRequest] = useState("");

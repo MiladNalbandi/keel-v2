@@ -322,6 +322,16 @@ async function main(): Promise<void> {
     return w;
   }
 
+  // keel 0.28 the menus reach keel's own places: a page link, or an event keel's web listens for (New flow, All
+  // pages). Only while keel's page is in the window; on the app's own pages they do nothing.
+  function inKeel(js: string): void {
+    const w = parent();
+    if (!w || !isKeel(w.webContents.getURL())) return;
+    void w.webContents.executeJavaScript(js).catch((e: unknown) => log("menu:", e));
+  }
+  const goTo = (hash: string) => inKeel(`location.hash = ${JSON.stringify(hash)}`);
+  const sendEvent = (name: string) => inKeel(`window.dispatchEvent(new CustomEvent(${JSON.stringify(name)}, { detail: {} }))`);
+
   function menu(): void {
     const mac = process.platform === "darwin";
     const t: MenuItemConstructorOptions[] = [];
@@ -329,6 +339,8 @@ async function main(): Promise<void> {
     t.push({
       label: "File",
       submenu: [
+        // keel's web opens Start a flow on this event (its menu's New flow and the N key do the same)
+        { label: "New Flow…", accelerator: "CmdOrCtrl+N", click: () => sendEvent("keel:start-flow") },
         { label: "Add Project Folder…", accelerator: "CmdOrCtrl+O", click: () => void addProject() },
         {
           label: "Open in Browser",
@@ -351,6 +363,22 @@ async function main(): Promise<void> {
         { type: "separator" },
         { role: "togglefullscreen" },
         ...(app.isPackaged && !process.env.KEEL_DESKTOP_DEBUG ? [] : [{ role: "toggleDevTools" } as MenuItemConstructorOptions]),
+      ],
+    });
+    // the redesigned menu's places. No key on them: keel's page has its own (⌘K, ⌃⌥1–9), and a menu key would take them
+    t.push({
+      label: "Go",
+      submenu: [
+        { label: "Home", click: () => goTo("#/home") },
+        { label: "Inbox", click: () => goTo("#/inbox") },
+        { label: "Flow", click: () => goTo("#/flow") },
+        { label: "Code", click: () => goTo("#/code") },
+        { label: "KeelBot", click: () => goTo("#/keelbot") },
+        { label: "Live Agents", click: () => goTo("#/live") },
+        { type: "separator" },
+        { label: "All Pages…", click: () => sendEvent("keel:all-pages") },
+        { label: "Add Features", click: () => goTo("#/features") },
+        { label: "Settings", click: () => goTo("#/settings") },
       ],
     });
     t.push({ role: "windowMenu" });

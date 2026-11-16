@@ -89,7 +89,7 @@ export function NewTaskDrawer({ pid, onClose, onMade }: { pid: string; onClose: 
     }
   };
   return (
-    <Drawer title="New task" onClose={onClose}
+    <Drawer title="New task" onClose={onClose} className="tkn-drawer tkn-new"
       footer={<><button className="btn" type="button" onClick={onClose}>Cancel</button>
         <button className="btn primary" type="button" onClick={make} disabled={busy || !title.trim()}>{busy ? "Creating…" : "Create task"}</button></>}>
       <div className="field">

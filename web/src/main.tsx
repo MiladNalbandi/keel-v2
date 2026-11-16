@@ -35,6 +35,18 @@ import "./styles/settings.css";
 // first-run welcome (its own dark look, from the approved mockup).
 import "./styles/help.css";
 import "./styles/welcome.css";
+// keel 0.28 the redesign (menu, top bar, Home, Add features): last, so it wins over the older menu rules
+import "./styles/shell.css";
+import "./styles/rd-code.css";
+import "./styles/rd-inbox.css";
+import "./styles/rd-work.css";
+// keel 0.28 the redesign, the watch pages (Live agents, Jobs, Flow doctor, All projects)
+import "./styles/rd-watch.css";
+// keel 0.28 the redesign, the Build pages (Workflows … Settings, Start here)
+import "./styles/rd-build.css";
+// keel 0.28 the redesign, Product and more: Jobs › Pipelines (CI/CD) and Jobs › Supervisor
+import "./styles/rd-product.css";
+import "./styles/rd-flow.css";
 
 // Plugins' web parts load at run time and use this React and @keel/web-sdk: the import map in index.html points their
 // bare imports to small shims that read window.__keel (src/sdk/shared.ts). So it is set before anything renders.

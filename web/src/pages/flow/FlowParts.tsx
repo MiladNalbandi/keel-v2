@@ -50,7 +50,7 @@ export function useThreadBits(pid: string, thread: ThreadState, workflow: Workfl
       .map((t) => Date.parse(t)).filter((t) => !Number.isNaN(t));
     return times.length ? Math.min(...times) : null;
   }, [history.data, runs.data]);
-  return { history, est, job, jobs, actual, facts, totals, perAc, visited, started };
+  return { history, est, job, jobs, runs, actual, facts, totals, perAc, visited, started };
 }
 
 const STATUS_PILL: Record<string, [PillTone, string]> = {
@@ -125,10 +125,12 @@ export function NowLine({ thread, workflow, started, onJump }: { thread: ThreadS
   );
 }
 
-export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra, readOnly, branch }: {
+export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, extra, readOnly, branch, details }: {
   thread: ThreadState; workflow: Workflow; estimate: number | null; started: number | null; onStart: () => void; onJump?: () => void; extra?: React.ReactNode;
   /** v0.15.4 an earlier run: no Stop, Start or run mode here, and its own branch */
   readOnly?: boolean; branch?: string | null;
+  /** keel 0.28 the Details drawer's button (D folds it too): open or folded */
+  details?: { open: boolean; onToggle: () => void };
 }) {
   const { project, toast } = useApp();
   const chips = useSlot<FlowChipItem>(SLOTS.flowChip);
@@ -145,11 +147,13 @@ export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, 
     <header className="fl-bar" role="region" aria-label="This flow">
       <div className="fl-bar-main">
         <div className="crumb">{project?.name ?? thread.project_id} › Work</div>
-        <h1>{thread.title || workflow.name}</h1>
+        <div className="fl-title">
+          <h1>{thread.title || workflow.name}</h1>
+          <Pill tone={tone}>{label}</Pill>
+        </div>
         <div className="fl-facts">
           <span><b>{workflow.name}</b> v{workflow.version}</span>
           <span>phase <b>{phaseTitle(thread.phase)}</b>{phaseAt(workflow, thread) ? <span className="sub"> ({phaseAt(workflow, thread)})</span> : null}</span>
-          <Pill tone={tone}>{label}</Pill>
           {(() => {
             const b = (readOnly ? branch : project?.branch) ?? "—";
             return <span>branch <span className="mono fl-branch" title={b}>{b}</span></span>;
@@ -171,8 +175,8 @@ export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, 
       <div className="actions">
         {extra}
         {!readOnly && <>
-        {onJump && live && <button className="btn" type="button" onClick={onJump} aria-label="Jump to current">
-          <span className="fl-long">Jump to current</span><span className="fl-short" aria-hidden="true">Jump</span></button>}
+        {onJump && live && <button className="btn" type="button" onClick={onJump} aria-label="Jump to current" aria-keyshortcuts={details ? "G" : undefined}>
+          <span className="fl-long">Jump to current</span><span className="fl-short" aria-hidden="true">Jump</span>{details && <kbd aria-hidden="true">G</kbd>}</button>}
         {live && <RunModeSwitch compact pid={thread.project_id} threadId={thread.thread_id} mode={thread.run_mode} />}
         {live ? (
           <button className="btn" type="button" disabled={busy} onClick={() => setConfirmStop(true)}>Stop flow</button>
@@ -180,6 +184,12 @@ export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, 
         {live && <button className="btn ghost" type="button" onClick={onStart}
           title="It runs next to this one, in a worktree of its own">Start another flow</button>}
         </>}
+        {details && (
+          <button className="btn icon-btn rdfl-dbtn" type="button" aria-label="Details panel" aria-keyshortcuts="D" aria-pressed={details.open}
+            title={details.open ? "Fold the Details panel (D)" : "Open the Details panel (D)"} onClick={details.onToggle}>
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M15 4v16" fill="none" stroke="currentColor" strokeWidth="1.8" /></svg>
+          </button>
+        )}
       </div>
       {confirmStop && (
         <ConfirmStop title={thread.title} busy={busy} onCancel={() => setConfirmStop(false)} onStop={async () => {
@@ -199,11 +209,13 @@ export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, 
   );
 }
 
-export type FlowSide = "now" | "step" | "decisions" | "checkpoints";
+/** keel 0.28 the Details drawer's tabs: the old side panel's four, and the budget, criteria and Before ship that were
+ *  panels under the page (`more`: the add-ons' flow panels, when there are any). */
+export type FlowSide = "now" | "step" | "decisions" | "checkpoints" | "budget" | "criteria" | "ship" | "more";
 
 /** The live canvas: the workflow's blocks with each one's state and tokens; the waiting gate's card sits under its
  * block, so you act where the flow stopped. */
-export function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, perAc, visited, waiting, canvas, onOpen, selected, still, onJump, job }: {
+export function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, perAc, visited, waiting, canvas, onOpen, selected, still, onJump, job, fold }: {
   thread: ThreadState; workflow: Workflow; tokens?: Record<string, number>; actual?: Record<string, number>; visited: Set<string>;
   /** keel 0.18.11 what each step really did (its block's facts line, result and tries), each step over every round,
    *  and each criterion over the loop */
@@ -217,6 +229,8 @@ export function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, pe
   waiting: React.ReactNode; canvas: React.RefObject<BlocksHandle | null>; onOpen: (id: string) => void; selected: string | null;
   /** v0.15.4 an earlier run: the page does not scroll to its last block (its banner stays in view) */
   still?: boolean;
+  /** keel 0.28 the rail's fold button, in the head next to the view switch */
+  fold?: React.ReactNode;
 }) {
   const [view, setView] = useMapView("flow");
   const waitAt = thread.status === "waiting" ? (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "") : null;
@@ -246,6 +260,7 @@ export function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, pe
       <div className="panel-head">
         <h2>Steps</h2>
         <ViewToggle value={view} onChange={setView} />
+        {fold}
       </div>
       {waiting && !onCanvas && <div className="panel-body" style={{ paddingBottom: 0 }}>{waiting}</div>}
       <div className={`panel-body sx-scroll fl-scroll${view === "blocks" ? " is-blocks" : ""}`}>
@@ -298,7 +313,7 @@ export function WaitsCard({ thread, onJump }: { thread: ThreadState; onJump: () 
   return (
     <div className="interrupt fl-waits">
       <b><Pill tone="warn">waiting for you</Pill> {thread.waiting?.title}</b>
-      <span className="sub">The flow stopped here. Your answer goes in the card under its block.</span>
+      <span className="sub">The flow stopped here. Your answer goes in its card, at the end of What happens.</span>
       <div className="row"><button className="btn warn" type="button" onClick={onJump}>Go to it</button></div>
     </div>
   );

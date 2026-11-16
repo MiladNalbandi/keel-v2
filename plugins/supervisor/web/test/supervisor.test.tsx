@@ -10,7 +10,7 @@ import { AppProvider } from "../../../../web/src/state";
 import { slotItems, SLOTS } from "../../../../web/src/sdk";
 import { server } from "../../../../web/src/test/setup";
 import plugin from "../index";
-import { outcomeText, type Decision, type Defaults, type FlowStatus, type Note } from "../Supervisor";
+import { outcomeText, supervisorStats, type Decision, type Defaults, type FlowStatus, type Note } from "../Supervisor";
 import { SupervisorChip, SupervisorNote, SupervisorSettingsRow } from "../SupervisorParts";
 
 const row = (over: Partial<Decision>): Decision => ({
@@ -87,6 +87,24 @@ describe("the Supervisor plugin's web part", () => {
     expect(within(table).getByText("Spec says 410, test 404.")).toBeInTheDocument();
   });
 
+  it("keel 0.28 counts today's looks, filters the log, and opens one decision", async () => {
+    const yesterday = new Date(Date.now() - 2 * 86_400_000).toISOString();
+    expect(supervisorStats([row({}), row({ id: "d2", outcome: "escalated" }), row({ id: "d3", at: yesterday })])).toEqual({
+      looked: 2, applied: 1, called: 1 });
+    api([row({}), row({ id: "d2", step: "g2", outcome: "escalated", code: "low-confidence", summary: "Spec says 410, test 404." })]);
+    const user = userEvent.setup();
+    location.hash = "#/jobs/supervisor";
+    render(<App />);
+    const table = await screen.findByRole("table", { name: "Supervisor decisions" });
+    expect(screen.getByText("Looked today")).toBeInTheDocument();
+    await user.click(within(screen.getByRole("group", { name: "Show" })).getByRole("button", { name: /^Called you/ }));
+    expect(within(table).queryByText("answered approve")).toBeNull();
+    await user.click(within(table).getByRole("button", { name: "Spec says 410, test 404." }));
+    const d = await screen.findByRole("dialog", { name: "One decision" });
+    expect(d).toHaveTextContent("Why it did not answer: low-confidence.");
+    expect(d).toHaveTextContent("src/a.ts:3");
+  });
+
   it("shows a suggested own_fix's commands and sends them as your answer", async () => {
     // 0.18.64 a setup rung whose fix failed: the Supervisor's better fix is one click away
     const resumed: unknown[] = [];
@@ -123,14 +141,15 @@ describe("the Supervisor plugin's web part", () => {
     expect(await within(sw).findByText("The Supervisor runs in this project.")).toBeInTheDocument();
     expect(await within(box).findByText("It supervises this flow.")).toBeInTheDocument();
 
-    await user.selectOptions(within(sw).getByRole("combobox", { name: "This project" }), "off");
+    // keel 0.28 the redesign: the switches are segmented buttons (follows / on / off), the mode too
+    await user.click(within(within(sw).getByRole("group", { name: "This project" })).getByRole("button", { name: "off" }));
     await waitFor(() => expect(posted).toContainEqual({ project: false }));
     expect(await within(box).findByText(/does not supervise this flow: it is off for this project/)).toBeInTheDocument();
 
-    await user.selectOptions(within(box).getByRole("combobox", { name: "This flow" }), "on");
+    await user.click(within(within(box).getByRole("group", { name: "This flow" })).getByRole("button", { name: "on" }));
     await waitFor(() => expect(posted).toContainEqual({ on: true }));
     expect(await within(box).findByText("It supervises this flow.")).toBeInTheDocument();
-    await user.selectOptions(within(box).getByRole("combobox", { name: "Mode" }), "act");
+    await user.click(within(within(box).getByRole("group", { name: "Mode" })).getByRole("button", { name: "act" }));
     await waitFor(() => expect(posted).toContainEqual({ mode: "act" }));
 
     await user.click(within(sw).getByRole("checkbox", { name: "On for the whole keel" }));

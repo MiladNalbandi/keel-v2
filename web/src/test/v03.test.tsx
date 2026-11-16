@@ -332,6 +332,8 @@ describe("already met", () => {
   it("shows an already-met AC like done, with its own label, in the list and the loop's rows", async () => {
     db.flows["ludus-engine"].thread!.acs[2].status = "already-met";
     render(<App />);
+    // keel 0.28 the criteria are a tab of the Details drawer
+    await userEvent.setup().click(await screen.findByRole("tab", { name: "Criteria" }));
     const list = (await screen.findByText("Acceptance criteria")).closest(".panel") as HTMLElement;
     const pill = within(list).getByText("already met");
     expect(pill).toHaveClass("p-met");

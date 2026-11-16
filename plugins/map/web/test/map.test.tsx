@@ -23,6 +23,7 @@ import { restorePlugins, withoutPages } from "../../../../web/src/test/coreOnly"
 import { db, server } from "../../../../web/src/test/setup";
 import plugin from "../index";
 import { missingWhy } from "../Map";
+import { allPageNames } from "../../../../web/src/test/menu";
 
 const schema = shop as unknown as DbSchema;
 const main = () => within(document.getElementById("main")!);
@@ -50,10 +51,8 @@ describe("the Map plugin's web part", () => {
     expect(typeof plugin.setup).toBe("function");
     location.hash = "#/flow";
     render(<App />);
-    const nav = await screen.findByRole("navigation", { name: "Screens" });
-    const links = within(nav)
-      .getAllByRole("link")
-      .map((l) => l.textContent?.trim());
+    // keel 0.28 every page is in All pages, by group
+    const links = await allPageNames();
     expect(links.indexOf("Map")).toBe(links.indexOf("Review") + 1);
     expect(links.indexOf("Graph")).toBe(links.indexOf("Map") + 1);
   });
@@ -117,6 +116,25 @@ describe("Map page", () => {
       }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Legend")).toHaveTextContent("primary key");
+  });
+
+  it("Rebuild is in the page head; R rebuilds the map", async () => {
+    localStorage.setItem("keel2.project", "ludus-engine");
+    localStorage.setItem("keel2.map.ludus-engine.tab", "er");
+    let rebuilt = 0;
+    server.use(
+      http.get("/api/projects/:pid/map", () => HttpResponse.json(withSchema)),
+      http.post("/api/projects/:pid/map/rebuild", () => {
+        rebuilt++;
+        return HttpResponse.json(withSchema);
+      }),
+    );
+    location.hash = "#/map";
+    render(<App />);
+    const btn = await main().findByRole("button", { name: "Rebuild" });
+    expect(btn).toHaveAttribute("aria-keyshortcuts", "R");
+    await userEvent.keyboard("r");
+    await waitFor(() => expect(rebuilt).toBe(1));
   });
 
   it("an older map (only levels.er) still draws, and says a rebuild adds the details", async () => {

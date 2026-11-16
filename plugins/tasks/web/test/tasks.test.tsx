@@ -2,7 +2,7 @@
 // plugin's setup()): the Tasks board and drawer, and the task items in the Inbox (the slot inbox.card). Moved from
 // web/src/test/tasks.test.tsx with the page; Connections › Jira and the MCP catalog are the Jira plugin's tests.
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "../../../../web/src/App";
 import type { InboxItem, InboxView } from "../../../../web/src/inboxApi";
 import { db, server } from "../../../../web/src/test/setup";
+import { allPageNames, sideMenu } from "../../../../web/src/test/menu";
 
 const calls = (method: string, path: string) => db.calls.filter((c) => c.method === method && c.path === path);
 
@@ -27,10 +28,11 @@ async function openTasks(hash = "#/tasks") {
 describe("Tasks board", () => {
   it("is in the Run group and shows the tasks as columns with their key, type, flow, PR and reviewers", async () => {
     await openTasks();
-    const nav = screen.getByRole("navigation", { name: "Screens" });
-    const run = within(nav).getAllByRole("link").map((a) => a.textContent);
+    // keel 0.28 Tasks is one of the menu's first pins, and in All pages right after Flow (the Work group)
+    expect(within(sideMenu()).getByRole("link", { name: "Tasks" })).toHaveAttribute("aria-current", "page");
+    const run = await allPageNames();
     expect(run.indexOf("Tasks")).toBe(run.indexOf("Flow") + 1);
-    expect(within(nav).getByRole("link", { name: "Tasks" })).toHaveAttribute("aria-current", "page");
+    fireEvent.keyDown(document, { key: "Escape" });
 
     const todo = await screen.findByTestId("col-todo");
     expect(within(todo).getByRole("button", { name: "ABC-1: Rank players weekly" })).toBeInTheDocument();

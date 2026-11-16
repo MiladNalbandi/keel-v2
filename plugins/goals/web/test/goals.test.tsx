@@ -48,6 +48,10 @@ beforeEach(() => {
       calls.push({ what: "skip" });
       return HttpResponse.json(view);
     }),
+    http.post("/api/projects/:pid/goals/:id/limits", async ({ request }) => {
+      calls.push({ what: "limits", body: await request.json() });
+      return HttpResponse.json(view.goal);
+    }),
     http.post("/api/projects/:pid/goals/:id/status/:status", ({ params }) => {
       calls.push({ what: `status:${String(params.status)}` });
       view = { ...view, goal: { ...view.goal, status: params.status as Goal["status"] } };
@@ -59,8 +63,9 @@ beforeEach(() => {
 describe("Goals", () => {
   it("lists goals and adds one with its limits, and starts nothing", async () => {
     open("#/goals");
-    const table = await main().findByRole("table", { name: "Goals" });
-    expect(within(table).getByRole("link", { name: "Export invoices" }).getAttribute("href")).toBe("#/goals/g1");
+    // the redesign: the goals are a list of cards beside the open goal (they were a table)
+    const list = await main().findByRole("list", { name: "Goals" });
+    expect(within(list).getByRole("link", { name: /^Export invoices/ }).getAttribute("href")).toBe("#/goals/g1");
     const form = main().getByRole("form", { name: "Add a goal" });
     // #97 text fields say so: keel's field style is for text inputs (it looked like the browser's own boxes before)
     for (const f of within(form).getAllByRole("textbox")) expect(f).toHaveAttribute("type", "text");
@@ -108,6 +113,32 @@ describe("Goals", () => {
     open("#/goals/g1");
     await userEvent.click(await main().findByRole("button", { name: "It is done" }));
     await waitFor(() => expect(calls).toEqual([{ what: "status:done" }]));
+  });
+
+  it("shows the goals beside the open one; N opens the add form and P plans", async () => {
+    open("#/goals/g1");
+    const list = await main().findByRole("list", { name: "Goals" });
+    expect(within(list).getByRole("link", { name: /^Export invoices/ }).getAttribute("aria-current")).toBe("page");
+    expect(main().queryByRole("form", { name: "Add a goal" })).toBeNull();
+    await main().findByRole("button", { name: "Plan it" });
+    await userEvent.keyboard("n");
+    expect(await main().findByRole("form", { name: "Add a goal" })).toBeTruthy();
+    (document.activeElement as HTMLElement | null)?.blur();
+    await userEvent.keyboard("p");
+    expect(await main().findByRole("list", { name: "Proposed steps" })).toBeTruthy();
+    expect(calls).toEqual([{ what: "plan" }]);
+  });
+
+  it("changes the limits", async () => {
+    view = { ...view, goal: { ...GOAL, status: "active" } };
+    open("#/goals/g1");
+    await userEvent.click(await main().findByRole("button", { name: "Change limits" }));
+    const form = main().getByRole("form", { name: "Change the limits" });
+    const flows = within(form).getByLabelText("Most flows");
+    await userEvent.clear(flows);
+    await userEvent.type(flows, "5");
+    await userEvent.click(within(form).getByRole("button", { name: "Save the limits" }));
+    await waitFor(() => expect(calls).toEqual([{ what: "limits", body: { cap_tokens: 100000, max_flows: 5 } }]));
   });
 
   it("has its card in the Inbox", () => {
