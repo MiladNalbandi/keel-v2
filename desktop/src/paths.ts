@@ -46,6 +46,8 @@ export type Bundle = {
   bin: string;
   engine: string;
   front: string;
+  /** the Copilot SDK's runtime (GitHub Copilot, your plan) */
+  copilot: string;
 };
 
 /** The keel and the runtimes inside the app (resources/), or KEEL_DESKTOP_RESOURCES (a dev build: desktop/build/stage). */
@@ -59,5 +61,6 @@ export function bundleIn(resources: string): Bundle {
     bin,
     engine: path.join(bin, "keel-engine"),
     front: path.join(bin, "keel-api"),
+    copilot: path.join(rt, "copilot", "copilot-runtime"),
   };
 }
