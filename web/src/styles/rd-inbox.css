@@ -2,11 +2,14 @@
    on the right, the filters as chips, the keys drawn as keys. Everything is under .rdinbox (or .rdinbox-…), so the
    cards keep their old look on any other page. Colours are keel's tokens (styles.css :root): both themes follow. */
 
-.rdinbox { --rdinbox-gate: #f5c142; --rdinbox-gate-ink: #2b1d00; }
+.rdinbox { --rdinbox-gate: #f5c142; --rdinbox-gate-ink: #2b1d00;
+  /* the split follows the width the page really has (the window minus the menu), not the window: see the @container below */
+  container: rdinbox / inline-size; }
 .rdinbox .top { margin-bottom: 14px; }
 
-/* the split: list | the selected item (stacks at phone width) */
-.rdinbox-split { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); border-top: 1px solid var(--border);
+/* the split: list | the selected item (stacks at phone width, and when the page is too narrow for both: the @container
+   below). The list gives up width first (380 px down to its 300 px), so the card keeps room to read. */
+.rdinbox-split { display: grid; grid-template-columns: clamp(300px, 34%, 380px) minmax(0, 1fr); border-top: 1px solid var(--border);
   margin: 0 -4px; min-height: 60vh; }
 .rdinbox-list { border-right: 1px solid var(--border); padding: 14px 12px 16px 4px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .rdinbox-detail { padding: 20px 10px 40px 28px; min-width: 0; display: flex; flex-direction: column; }
@@ -60,8 +63,8 @@
 /* the keys, at the list's foot */
 .rdinbox-keys { margin-top: auto; border-top: 1px solid var(--border); padding: 10px 8px 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--dim); }
 .rdinbox-keys-h { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
-.rdinbox-key { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
-.rdinbox-key > span { display: inline-flex; gap: 4px; }
+.rdinbox-key { display: flex; justify-content: space-between; gap: 10px; align-items: center; min-width: 0; }
+.rdinbox-key > span { display: inline-flex; gap: 4px; flex: none; }
 .rdinbox kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
   border-radius: 5px; border: 1px solid var(--rail); border-bottom-width: 2px; background: var(--panel-2); color: var(--dim);
   font: 500 11px/1 var(--f-mono); }
@@ -69,7 +72,7 @@
 
 /* the selected item: only its card shows (the others stay mounted, so what you typed in them is kept) */
 .rdinbox-card:not(.on) { display: none; }
-.rdinbox-card.on { animation: k-rise .26s cubic-bezier(.2,.7,.2,1) both; max-width: 800px; }
+.rdinbox-card.on { animation: k-rise .26s cubic-bezier(.2,.7,.2,1) both; max-width: 800px; min-width: 0; }
 .rdinbox-detail .inbox-group { display: contents; }
 .rdinbox-split.is-empty { grid-template-columns: minmax(0, 1fr); min-height: 0; }
 .rdinbox-split.is-empty .rdinbox-list { border-right: 0; }
@@ -77,6 +80,13 @@
 
 /* the card, as the detail: no box, room to read */
 .rdinbox-detail .inbox-item { background: transparent; border: 0; border-radius: 0; padding: 0; gap: 14px; outline: none; }
+/* nothing in the card is wider than the card: the grids' one column may shrink (an auto column takes the widest word of
+   its items, and a long path in a pick card pushed the card past the detail, which then scrolled sideways), long words
+   break, and code blocks and tables keep their own scroll strip */
+.rdinbox-detail .inbox-item, .rdinbox-detail .inbox-detail-wrap, .rdinbox-detail .clarify, .rdinbox-detail .clarify-opts,
+.rdinbox-detail .choice-form, .rdinbox-detail .choice-opts { grid-template-columns: minmax(0, 1fr); }
+.rdinbox-detail .clarify-opt, .rdinbox-detail .clarify-q legend { min-width: 0; overflow-wrap: anywhere; }
+.rdinbox-detail .inbox-actions { flex-wrap: wrap; }
 .rdinbox-detail .inbox-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 8px; }
 .rdinbox-detail .inbox-meta { font-size: 13px; color: var(--dim); gap: 6px 8px; }
 .rdinbox-detail .inbox-meta .sub b { color: var(--fg); font-weight: 600; }
@@ -122,6 +132,17 @@
   .rdinbox-card { scroll-margin-top: 160px; }
   .rdinbox-detail .inbox-title { font-size: 19px; }
   .rdinbox-chip select { max-width: 150px; }
+}
+/* keel 0.28 (fix) the page is too narrow for the list and a readable card (a mid-size window with the menu open: 1000 px
+   left the card about 280 px): they stack, as on a phone. The list keeps its whole width, the keys wrap in rows. */
+@container rdinbox (max-width: 759.98px) {
+  .rdinbox-split { grid-template-columns: minmax(0, 1fr); margin: 0; border-top: 0; }
+  .rdinbox-list { border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 14px; }
+  .rdinbox-detail { position: static; max-height: none; overflow: visible; padding: 18px 0 32px; }
+  .rdinbox-card { scroll-margin-top: 160px; }
+  .rdinbox-keys { flex-direction: row; flex-wrap: wrap; gap: 6px 18px; margin-top: 4px; }
+  .rdinbox-keys-h { flex-basis: 100%; }
+  .rdinbox-key { justify-content: flex-start; gap: 6px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .rdinbox-row, .rdinbox-card.on { animation: none; }

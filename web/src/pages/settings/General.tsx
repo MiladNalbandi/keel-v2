@@ -26,6 +26,7 @@ import {
 import { useStored } from "../../storage";
 import { useApp } from "../../state";
 import { SettingsFrame } from "./frame";
+import { ReleaseCheckRow } from "./ReleaseCheck";
 import {
   SettingControl,
   SettingLine,
@@ -105,6 +106,8 @@ export const GENERAL_SECTIONS: GeneralSection[] = [
         help: "The test coverage the ship flow needs before it pushes.",
       },
     ],
+    // the whole test suite before a push: one project's own, in its .keel/config.yml (release.required)
+    after: ReleaseCheckRow,
   },
   {
     id: "git",

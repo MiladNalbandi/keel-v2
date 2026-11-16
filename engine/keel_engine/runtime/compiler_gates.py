@@ -325,7 +325,8 @@ class GateMixin:
         lenses, its triage's finding) and, for a gate with menus: true, the skip menus it decides."""
         out = [dict(q) for q in (state.get("data") or {}).get(f"{step.id}_questions") or [] if isinstance(q, dict)]
         if step.menus:
-            units = [u for j in self._menu_steps(i) for u in ship_mod.skip_units(self.wf.steps, j)]
+            off = ship_mod.off_actions(self.ctx.root)
+            units = [u for j in self._menu_steps(i) for u in ship_mod.skip_units(self.wf.steps, j, off)]
             if units:
                 out.append(ship_mod.skip_question(units))
             if any(ship_mod.has_loop(self.wf.steps, j) for j in self._menu_steps(i)):
@@ -338,9 +339,10 @@ class GateMixin:
     def _folded_menus(self, i: int) -> str:
         """The skip menus after gate i, for its own text (a gate with menus: true)."""
         out = ["Optional steps (decided here with this approval, so the flow does not stop again to ask):"]
+        off = ship_mod.off_actions(self.ctx.root)
         for j in self._menu_steps(i):
-            out += ["", f"— {self.wf.steps[j].name} —", ship_mod.skip_menu_detail(self.wf.steps, j)]
-            if any(u["name"] == "e2e" for u in ship_mod.skip_units(self.wf.steps, j)) and (note := self._e2e_note()):
+            out += ["", f"— {self.wf.steps[j].name} —", ship_mod.skip_menu_detail(self.wf.steps, j, off)]
+            if any(u["name"] == "e2e" for u in ship_mod.skip_units(self.wf.steps, j, off)) and (note := self._e2e_note()):
                 out.append(note)
         return "\n".join(out)
 
@@ -369,8 +371,10 @@ class GateMixin:
     def _skip_menu(self, i: int, step: Step, state: FlowState, gates: dict):
         """keel v1 ship's opening question: which skippable steps after this gate run this time. Every skip needs a
         reason; skips land in data.ship_skipped (the PR body and the final review show them) and the gate log."""
-        units = ship_mod.skip_units(self.wf.steps, i)
-        detail = ship_mod.skip_menu_detail(self.wf.steps, i)
+        # a step the project's settings turn off (the whole test suite: release.required false) is not offered
+        off = ship_mod.off_actions(self.ctx.root)
+        units = ship_mod.skip_units(self.wf.steps, i, off)
+        detail = ship_mod.skip_menu_detail(self.wf.steps, i, off)
         if step.phase == "ship":
             # 0.18.57 before ship: a local base behind or diverged from its remote is said first (keel compares with
             # the remote one; the audit once read upstream commits as this branch's)

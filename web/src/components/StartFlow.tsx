@@ -11,6 +11,7 @@ import { Drawer, ErrorBox } from "./ui";
 import { WorkspaceDoctor } from "./WorkspaceDoctor";
 import { SIZE_FLOWS, suggestFlow } from "../flowSize";
 import { InitAsk, isInitFlow, needsInit, useStartInit } from "./InitAsk";
+import { SESSION_SENTENCE, seenWords, sinceWords, useSessions } from "./Session";
 
 const ON_CAP: [OnCap, string][] = [["pause", "pause and ask me"], ["cheaper", "switch to cheaper models"], ["stop", "stop"]];
 
@@ -94,6 +95,14 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   }, [p, wid]);
   const init = useStartInit(proj, onClose);
   const dirtyRefused = !!err && /uncommitted changes/i.test(err.message);
+  // 0.29 Run with: keel's harness (API key) or the person's connected Claude Code / OpenCode session, for the harness
+  // flow and the build flows it stands in for (the MCP's keel_start_flow engine "session" does the same)
+  const sessionFit = wid === "harness" || (Object.prototype.hasOwnProperty.call(HARNESS_INTENTS, wid) && !!wfs?.some((w) => w.id === "harness"));
+  const sessions = useSessions(sessionFit && p ? p : null);
+  const connected = sessions.data?.connected ?? null;
+  const [runWith, setRunWith] = useState<"keel" | "session">("keel");
+  const bySession = sessionFit && runWith === "session" && !!connected;
+  useEffect(() => { if (!connected && runWith === "session") setRunWith("keel"); }, [connected, runWith]);
 
   useEffect(() => {
     setCheck(null);
@@ -206,8 +215,13 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
     setErr(null);
     try {
       const capTokens = parseTokens(cap);
+      // 0.29 the connected session does the harness flow; a build flow runs as the harness flow with its intent
+      const session = bySession && connected ? {
+        runner: "session", session: connected.id, session_client: connected.client,
+        ...(wid !== "harness" ? { intent: HARNESS_INTENTS[wid], requested_workflow: wid } : {}),
+      } : null;
       const state = await api.startFlow(p, {
-        workflow_id: wid, title: title.trim() || `${wid} · ${new Date().toLocaleDateString()}`,
+        workflow_id: session ? "harness" : wid, title: title.trim() || `${wid} · ${new Date().toLocaleDateString()}`,
         // the cap belongs to this flow only; project settings stay as they are
         ...(capTokens > 0 ? { cap_tokens: capTokens } : {}), on_cap: onCap,
         ...(allowFake ? { allow_fake: true } : {}), ...(allowDirty ? { allow_dirty: true } : {}),
@@ -217,7 +231,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         run_mode: runMode,
         // the lint flow reads its scope from the flow's data (docs/CONTRACT.md, v0.4.1); a flow from a spec its path
         ...(wid === "lint" ? { options: { scope: lintScope } }
-          : spec ? { options: { spec: spec.path } } : {}),
+          : spec || session ? { options: { ...(spec ? { spec: spec.path } : {}), ...(session ?? {}) } } : {}),
         // 0.18.57 auto with a chat in the folder: the worktree this form recommends (the api's auto knows only flows)
         ...(where !== "auto" ? { where } : inWorktree && !folderBusy ? { where: "worktree" as const } : {}),
         ...(!inWorktree && offBase ? { branch: branchMode } : {}),
@@ -271,6 +285,31 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
           {wfs?.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
         </select>
       </div>
+      {sessionFit && (
+        <div className="field" data-testid="sf-runwith">
+          <label htmlFor="sf-run">Run with</label>
+          <select id="sf-run" value={bySession ? "session" : "keel"} onChange={(e) => setRunWith(e.target.value as "keel" | "session")}>
+            <option value="keel">{wid === "harness" ? "keel's harness · API key" : `keel's ${wid} flow · API key`}</option>
+            <option value="session" disabled={!connected}>
+              {connected ? `Connected session · ${connected.client}` : "Connected session · none connected now"}
+            </option>
+          </select>
+          {bySession && connected ? (
+            <span className="hint" data-testid="sf-session">
+              <b>{connected.client}</b> connected {sinceWords(connected.connected_since)} · {seenWords(connected)}. It does the harness
+              flow{wid !== "harness" ? ` for this ${wid}` : ""} (plan, you approve, build) with its own login and tools: no API tokens for
+              its steps. It runs its own tools, so keel checks the change after each step, runs the tests and makes the commits.
+            </span>
+          ) : !connected ? (
+            <span className="hint" data-testid="sf-session-how">
+              No session is connected. To use your own Claude Code or OpenCode: add keel's MCP server (<span className="mono">keel2 mcp --write</span>)
+              and tell it “{SESSION_SENTENCE}” <a href="#/help">How to connect</a>
+            </span>
+          ) : (
+            <span className="hint">keel's own agents work on the model's API with your API key.</span>
+          )}
+        </div>
+      )}
       {spec && (
         <div className="wbar" role="note" data-testid="sf-spec">
           <span>From the spec <b className="mono">{spec.path}</b>: the flow starts from it and keeps its criteria{spec.acs ? ` (${spec.acs})` : ""}.</span>
@@ -374,7 +413,12 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         <label htmlFor="sf-acs">About how many acceptance criteria</label>
         <div className="row"><input type="range" id="sf-acs" min={1} max={10} value={acs} onChange={(e) => setAcs(Number(e.target.value))} style={{ flex: "1 1 140px" }} /><b className="num">{acs}</b></div>
       </div>}
-      {model && (
+      {bySession && connected ? (
+        <div className="wbar" role="note" data-testid="sf-session-note">
+          <span>The plan and the build are done by <b>{connected.client}</b>, your connected session. keel's own agents run only if you
+            choose “Run this step on keel's harness” for a step.</span>
+        </div>
+      ) : model && (
         <div className={model.provider === "fake" && !isDemo ? "wbar warn" : "wbar"} role="note">
           <span>Agents use <b>{model.provider === "fake" ? "the fake model" : `${model.provider} · ${model.model}${model.effort ? ` · ${model.effort}` : ""}`}</b>
             {model.provider === "fake" ? (isDemo ? " — fine for the demo." : ": it writes example files, not real code. Pick a real model in Settings › Models & keys › Use for all agents.") : "."}
@@ -471,6 +515,11 @@ function ProjectCaps({ left }: { left: CapsLeft }) {
     </span>
   );
 }
+
+/** 0.29 the build flows the harness flow stands in for, and the intent its planner is told (engine mcp_server.HARNESS_INTENTS). */
+export const HARNESS_INTENTS: Record<string, string> = {
+  change: "change", quick: "change", small: "change", implement: "change", feature: "feature", fix: "bug",
+};
 
 /** Templates that build nothing, so "what to build" is optional for them. */
 const BASES = new Set(["main", "master"]);

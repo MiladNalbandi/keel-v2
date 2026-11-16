@@ -45,9 +45,13 @@ def plan_show(a):
     opened = _open_line(a.data)
     if opened:
         parts.append(md.section("This session", opened))
+    session = a.data.get("runner") == "session"
+    who = "the connected session" if session else "the same harness session"
+    if session:
+        parts.append(md.section("Who planned it", _session_line(a.data, "plan")))
     parts.append(md.section("Your choice", md.bullets([
-        "**approve**: the same harness session builds this plan",
-        "**change**: your note goes back to the same session, which plans again",
+        f"**approve**: {who} builds this plan",
+        f"**change**: your note goes back to {who}, which plans again",
         "**goldfish**: fresh reviewers read the plan in a flow of their own (design review); this gate waits here",
         "**reject**: stop here; nothing was changed"])))
     return _ok("plan ready for your look", update={"show": md.doc(*parts)})
@@ -83,9 +87,14 @@ def done_show(a):
 
     diff = show_diff(a)
     summary = str(a.state.get("last_answer") or "").strip()
+    session = a.data.get("runner") == "session"
     parts = []
     if summary:
-        parts.append(md.section("What the harness says it did", md.demote(summary[:4000])))
+        parts.append(md.section("What the connected session says it did" if session else "What the harness says it did",
+                                md.demote(summary[:4000])))
+    if session:
+        parts.append(md.section("Who built it", _session_line(a.data, "build")))
+        parts.append(md.section("What keel checked after the session's steps", _findings(a.data)))
     dirty = git.dirty(a.root) if git.is_repo(a.root) else {}
     if not dirty:
         parts.append(md.section("Change", "The harness changed no file."))
@@ -95,9 +104,37 @@ def done_show(a):
         parts.append(md.section("This session", opened))
     parts.append(md.section("Your choice", md.bullets([
         "**commit**: keel commits the change (secret scan first), then the PR steps",
-        "**more**: your note goes back to the same session, which changes the code again",
+        f"**more**: your note goes back to {'the connected session' if session else 'the same session'}, which changes "
+        "the code again",
         "**reject**: stop here; the change stays in the folder, not committed"])))
     return _ok(f"{len(dirty)} file(s) changed", update={"show": md.doc(*[p for p in parts if p])})
+
+
+def _session_line(data: dict, kind: str) -> str:
+    """0.29 the connected session's turn for this kind of step: who did it, and what it said it did."""
+    log = [x for x in data.get("session_log") or [] if (x.get("kind") == "plan") == (kind == "plan")]
+    if not log:
+        return "The connected session (no report yet)."
+    last = log[-1]
+    todos = last.get("todos") or []
+    done = sum(1 for t in todos if t.get("status") == "done")
+    line = f"**{last.get('by') or 'the connected session'}**, reported {last.get('at') or ''}".rstrip(", ")
+    if last.get("status") == "blocked":
+        line += " · **blocked**"
+    if todos:
+        line += f" · its list: {done} of {len(todos)} done"
+    return line + (". keel cannot check a session's tools before they run; it checks the change after each step, and "
+                   "keel makes the commits.")
+
+
+def _findings(data: dict) -> str:
+    """0.29 what keel's checks after the connected session's steps found (session_steps.py): files put back, edit-tool
+    findings, a HEAD that moved."""
+    found = data.get("session_findings") or []
+    if not found:
+        return ("Nothing: every file it changed is allowed in its step's phase, and HEAD did not move (keel's diff guard and "
+                "the project's edit tools ran after each step).")
+    return md.bullets([f"{f.get('step')}: {f.get('text')}" for f in found[-30:]])
 
 
 def _open_line(data: dict) -> str:

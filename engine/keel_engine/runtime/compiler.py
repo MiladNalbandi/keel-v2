@@ -586,10 +586,18 @@ class Compiler(AgentMixin, FindingsMixin, CodeMixin, GateMixin):
         return node
 
     def _skipped(self, i: int, step: Step, state: FlowState) -> tuple | None:
-        """(why, where to[, state update]) when this step does not run: turned off at the opening skip menu (the whole
-        unit of steps that share its group is passed over), an e2e step in a project an end-to-end test cannot drive,
-        or a retry_only step that nothing sent work back to."""
+        """(why, where to[, state update]) when this step does not run: ship's verify release in a project that turned
+        the whole test suite off for pushes, turned off at the opening skip menu (the whole unit of steps that share
+        its group is passed over), an e2e step in a project an end-to-end test cannot drive, or a retry_only step that
+        nothing sent work back to."""
         unit = ship_mod.unit_of(step)
+        if step.kind == "code" and step.action == "verify_release" and push_gates.gates_off(self.ctx.root):
+            # the person turned the whole test suite off for pushes (release.required: false): ship's verify release
+            # does not run, and the PR body and the final review say why (the feature/fix flows' own suite steps stay)
+            data = state.get("data") or {}
+            kept = [x for x in data.get("ship_skipped") or [] if x.get("step") != unit]
+            return f"{step.name} skipped: {push_gates.RELEASE_OFF}", self.nav.after(i), {"data": {**data, "ship_skipped": [
+                *kept, {"step": unit, "band": "off", "reason": push_gates.RELEASE_OFF}]}}
         if step.skippable:
             skip = next((s for s in (state.get("data") or {}).get("ship_skipped") or [] if s.get("step") == unit), None)
             if skip:

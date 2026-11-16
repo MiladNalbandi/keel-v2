@@ -4,6 +4,9 @@ keel_rules: true
 version: 1
 # Ported from keel v1 ship. The opening gate asks which skippable steps run (deferred: the push gate still waits for a fresh
 # verdict; optional: a real choice). Every skip needs a reason (data.ship_skipped: final review + PR body).
+# Off in the project's settings (band off): release, when .keel/config.yml says release: {required: false} (CI runs the
+# whole suite; Settings › Flow and gates). The menu does not offer it, the step is skipped with that reason, and the push
+# does not wait for a release verdict (a warning instead).
 # Fixes leave the ship phase: verify / release failures go to the implementer in review-fix (2 rounds, then keel asks),
 # coverage runs the cover steps (coverage-fix), a review finding is fixed in review-fix, coverage-fix or red (payload
 # route), and the flow goes on from verify again. keel never pushes: open_pr only opens a PR for a pushed branch, after

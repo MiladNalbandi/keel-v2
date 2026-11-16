@@ -235,4 +235,31 @@ def test_github_models_gets_the_makers_name_for_a_model_saved_for_the_copilot_cl
 
     assert api_model("copilot", "gpt-5") == "openai/gpt-5" and api_model("copilot", "o3-mini") == "openai/o3-mini"
     assert api_model("copilot", "openai/gpt-4.1") == "openai/gpt-4.1" and api_model("copilot", "") == "openai/gpt-5"
-    assert api_model("copilot", "claude-sonnet-4.5") == "claude-sonnet-4.5"    # not on GitHub Models: its answer says so
+    assert api_model("copilot", "claude-sonnet-4.5") == "claude-sonnet-4.5"    # not on GitHub Models: resolve says so
+
+
+def test_github_models_says_plainly_when_the_saved_model_is_a_copilot_plan_model():
+    from keel_engine.harness.providers import GITHUB_MODELS_PICK
+
+    with pytest.raises(ProviderError, match="GitHub Models has no model called 'claude-sonnet-4.5'") as err:
+        resolve({"provider": "copilot", "model": "claude-sonnet-4.5"}, "gho_x")
+    assert err.value.hint == GITHUB_MODELS_PICK and "only in GitHub's own apps" in err.value.hint
+    assert resolve({"provider": "copilot", "model": "gpt-5"}, "gho_x").model == "openai/gpt-5"
+
+
+def test_github_models_refusals_say_what_to_do():
+    import httpx
+    import openai
+
+    from keel_engine.harness.providers.openai_compat import GITHUB_HINTS, _error
+
+    def status(cls, code):
+        res = httpx.Response(code, request=httpx.Request("POST", "https://models.github.ai/inference/chat/completions"))
+        return cls("no", response=res, body=None)
+
+    assert _error(status(openai.AuthenticationError, 401), "GitHub Models").hint == GITHUB_HINTS[401]
+    assert "models:read" in _error(status(openai.PermissionDeniedError, 403), "GitHub Models").hint
+    assert _error(status(openai.NotFoundError, 404), "GitHub Models").hint == GITHUB_HINTS[404]
+    # other providers keep their own words
+    assert _error(status(openai.AuthenticationError, 401), "OpenAI").hint == "Check the key in Settings › Models & keys."
+    assert _error(status(openai.PermissionDeniedError, 403), "OpenAI").hint == ""

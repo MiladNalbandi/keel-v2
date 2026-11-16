@@ -8,6 +8,7 @@ import { useStartInit } from "../components/InitAsk";
 import { Markdown } from "../components/Markdown";
 import { RdPage } from "../components/rdBuild";
 import { FIRST_FLOWS, McpSetup, McpWaiting, STEP_TITLES, useStartStatus, type StepStatus } from "../components/StartSteps";
+import { SessionConnect } from "../components/Session";
 import { StartFlowDrawer } from "../components/StartFlow";
 import { openWelcome } from "../components/welcomeState";
 import { GUIDES, guideById, longGuideUrl, searchGuides } from "../guides";
@@ -116,6 +117,11 @@ function StartHerePage() {
             ) : (
               <McpSetup tools={st.mcp} />
             )}
+            {/* 0.29 the person's own session does the harness flow for keel (Start a flow › Run with) */}
+            <details className="hs-fold" id="connect-session">
+              <summary>Connect your session: your Claude Code or OpenCode does the harness flow for keel</summary>
+              <SessionConnect />
+            </details>
           </StepCard>
           <StepCard s={by.init} current={current === "init"}>
             <p className="hs-line">

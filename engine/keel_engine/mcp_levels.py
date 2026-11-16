@@ -13,7 +13,9 @@ CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_pause", "keel_stop_flows",
            "keel_rule_edit", "keel_keelbot_keep", "keel_keelbot_undo",
            "keel_workflow_create", "keel_rule_create", "keel_agent_create", "keel_agent_model",
            "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install",
-           "keel_start_options"}
+           "keel_start_options",
+           # turning the whole test suite before push off (turning it on asks nothing: the tool passes confirm itself)
+           "keel_release_check"}
 CONFIRM_ACTIONS = {"open_pr", "pr"}        # keel_run_action actions that publish something: the person is asked first
 
 
@@ -104,7 +106,11 @@ TOOLS: dict[str, tuple[str, ...]] = {
               # 0.18.65 keel runs the project's CI jobs on CI's versions in throw-away containers
               "keel_ci_run",
               # 0.18.65 the base branch and the canonical remote: a choice is the person's (asks first)
-              "keel_base_branch"),
+              "keel_base_branch",
+              # the whole test suite before push: off needs the person's approval in keel's Inbox, on asks nothing
+              "keel_release_check",
+              # 0.29 a connected session (the person's own Claude Code / OpenCode) does the harness flow's work orders
+              "keel_session_open", "keel_session_next", "keel_session_plan", "keel_session_todo", "keel_session_done"),
     "admin": ("keel_delete_run", "keel_add_project", "keel_remove_project",
               # 0.19.x what the dashboard and keel TUI do with projects: pause a flow, switch the focused project
               "keel_pause", "keel_focus",

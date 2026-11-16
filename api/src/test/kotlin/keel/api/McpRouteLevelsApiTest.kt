@@ -53,7 +53,7 @@ class McpRouteLevelsApiTest : ApiTest() {
             "PUT /api/projects/p/agents/a", "POST /api/projects/p/workflows/import", "POST /api/projects/p/rules/packs",
             "POST /api/projects/p/skills/import", "POST /api/projects/p/skills/market/install", "PUT /api/projects/p/skills/s",
             "POST /api/projects/p/stacks/save", "POST /api/projects/p/stacks/market/install", "PUT /api/projects/p/stacks/s/off",
-            "DELETE /api/projects/p/stacks/s",
+            "DELETE /api/projects/p/stacks/s", "PUT /api/projects/p/release-check",
         )
         val read = listOf(
             "POST /api/diagrams/ascii", "POST /api/projects/p/citations/check", "POST /api/projects/p/specs/check",

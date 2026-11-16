@@ -1,7 +1,8 @@
 """The Rules page and "Rules now" (v0.17.2): every rule a project has, in plain words, and changes to them.
 
     view(root)                    built-in rules, the project's lists (.keel/config.yml), its rule packs, the engines
-    set_config(root, patch)       change guards / mcp / rules / boundaries in .keel/config.yml (only those blocks)
+    set_config(root, patch)       change guards / mcp / rules / boundaries / knowledge / release in .keel/config.yml
+                                  (only those blocks)
     library()                     the shipped rule packs (content/rules/*.yaml)
     save_pack(root, text, ...)    add or replace .keel/rules/<id>.yaml;  remove_pack(root, id)
     dry_run(text, calls)          which of these recent tool calls the pack would have refused
@@ -28,8 +29,9 @@ from . import explain
 # call before it runs (the coding-agent apps and their hooks or command wrappers are gone)
 ENGINES = ["harness"]
 CONFIG = ".keel/config.yml"
-# the top-level blocks the Rules page may rewrite; 0.18.57 knowledge: the project notes on or off (the Wiki's switch)
-OWNED = ("guards", "mcp", "rules", "boundaries", "knowledge")
+# the top-level blocks the Rules page may rewrite; 0.18.57 knowledge: the project notes on or off (the Wiki's switch);
+# release: the whole test suite before a push, required or off (Settings › Flow and gates, runtime/blockers.py)
+OWNED = ("guards", "mcp", "rules", "boundaries", "knowledge", "release")
 
 
 class RulesError(Exception):
@@ -183,6 +185,9 @@ def _check_patch(patch: dict) -> dict:
     if k is not None and (not isinstance(k, dict) or set(k) - {"build"} or
                           str(k.get("build")).strip().lower() not in ("on", "off")):
         raise RulesError(400, "knowledge.build is on or off (the project notes).")
+    rel = patch.get("release")
+    if rel is not None and (not isinstance(rel, dict) or set(rel) != {"required"} or not isinstance(rel["required"], bool)):
+        raise RulesError(400, "release.required is true or false (the whole test suite before a push).")
     g = patch.get("guards")
     if g is not None:
         if not isinstance(g, dict):

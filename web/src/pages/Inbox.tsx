@@ -6,6 +6,7 @@
 // keel 0.28 (the redesign) a list on the left (kind, project, age, title, one line) and the selected item's card on the
 // right; keys answer it (J K move, A approve, R to the reason box, 1–9 a choice, O open the flow, L later on a task),
 // and after an answer the next item is selected. The filters are chips with counts.
+// keel 0.28 (fix) the two columns follow the page's own width (the window minus the menu): too narrow for both, they stack.
 // A part shows the items of its own kinds with its own card (the slot inbox.card: the Tasks plugin's task items).
 // v0.16.0 an agent's (or a workflow's) request to install a plugin is keel's own card: Approve and install, or Deny.
 
@@ -34,10 +35,12 @@ import "../components/inbox.css";
 const KIND_LABEL: Record<string, string> = {
   gate: "gate", clarify: "questions", fix: "needs a fix", crash: "step failed", budget: "budget", dependency: "new dependency",
   permission: "may it run?", "plugin-install": "install request", "stack-setup": "stack setup", "product-jira-send": "send to Jira",
+  session: "session gone",
 };
 const kindLabel = (k: string) => KIND_LABEL[k] ?? k;
-/** The pauses keel answers with named choices: a gate, a stuck step (fix) and, #116, a step that crashed (crash). */
-const NAMED = new Set(["gate", "fix", "crash"]);
+/** The pauses keel answers with named choices: a gate, a stuck step (fix), #116 a step that crashed (crash) and, 0.29, a
+ *  step whose connected session is gone (session: keep waiting, keel's harness, stop). */
+const NAMED = new Set(["gate", "fix", "crash", "session"]);
 const PLUGIN_INSTALL = "plugin-install";
 const STACK_SETUP = "stack-setup";
 /** P4 an approval keel or a part asks itself (no flow behind it): answered at /approvals/{id}/decide. */
@@ -90,6 +93,8 @@ function buttonsFor(it: InboxItem): Buttons {
   if (it.kind === "fix") return { approve: l.approve ?? "Try again", reject: l.reject ?? "Stop the flow", needWhy: false, whyLabel: "Note (optional)" };
   // #116 the flow doctor's pause for a step that crashed (not an agent step): Retry the step / Stop the flow
   if (it.kind === "crash") return { approve: l.approve ?? "Retry the step", reject: l.reject ?? "Stop the flow", needWhy: false, whyLabel: "Note (optional)" };
+  // 0.29 a step that waits for a connected session that is gone: no reason needed to stop
+  if (it.kind === "session") return { approve: l.approve ?? "Keep waiting", reject: l.reject ?? "Stop the flow", needWhy: false, whyLabel: "Note (optional)" };
   if (it.kind === "clarify") return { approve: l.approve ?? "Send my answers", reject: "Send back", needWhy: false, whyLabel: "Anything else the explorer should know (optional)" };
   // a commit check asks whether to escalate; keeping the change flow is a send back, which needs a reason
   if (/escalat/i.test(it.title)) return { approve: "Yes, switch to a feature flow", reject: "No, keep the change flow", needWhy: true, whyLabel: "Why (needed to keep the change flow)" };
@@ -496,10 +501,17 @@ export function InboxPage() {
     await Promise.all([r.reload(), reloadProjects()]);
   };
 
+  // the list and the card stack on a phone and when the page is too narrow for both (rd-inbox.css, the @container):
+  // the card is under the list then
+  const stacked = () => {
+    const l = listRef.current?.getBoundingClientRect();
+    const d = detailRef.current?.getBoundingClientRect();
+    return !!l && !!d && l.height > 0 && d.top >= l.bottom - 1;
+  };
   const pick = (it: InboxItem) => {
     setSel(keyOf(it));
-    // stacked (a phone): the card is under the list, so it comes into view
-    if (window.matchMedia?.("(max-width: 900px)").matches) {
+    // stacked: the card is under the list, so it comes into view
+    if (stacked()) {
       window.setTimeout(() => cardEl(keyOf(it))?.scrollIntoView?.({ behavior: "smooth", block: "start" }), 0);
     }
   };

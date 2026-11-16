@@ -670,7 +670,8 @@ IndexStatus = { project, root?, status: idle|indexing|ready|failed, files, symbo
 - Code actions: `knowledge_check` (old name `memory_check`) writes the `memory` verdict; `verify_release` and a
   whole-suite `verify_green` write `release`; `verify_coverage` runs `commands.coverage` and writes `coverage`.
   Simulated runs write no verdict. Push blockers read these; `deps` and `security` are "not run" warnings unless
-  `.keel/config.yml` sets `security.required: true` (or a list of gates).
+  `.keel/config.yml` sets `security.required: true` (or a list of gates). `release` blocks unless `.keel/config.yml`
+  sets `release: {required: false}` (then it is a warning; see "the whole test suite before push" below).
 
 ### Api
 ```
@@ -700,7 +701,9 @@ Workflows `cover` and `ship` (content/workflows; ORDER = feature, change, fix, i
   (optional unit `reviewers`: one reviewer per lens from review_lenses, rounds 2, redo verify) → `spec_walk` (optional:
   behaviour no criterion asks for) → `final_review` (report: verdicts; reject → verify_fix with the user's words) →
   `memory` → `memory_check` → `memory_commit` → `pr` → `pr_gate` → `open_pr` (never pushes).
-- **Skip menu** (`skip_menu: true` gate): lists the steps after it as always runs / deferred / optional. Answer:
+- **Skip menu** (`skip_menu: true` gate): lists the steps after it as always runs / deferred / optional, and a step
+  the project's settings turn off (`release.required: false`: ship's verify release) as "Off in this project's
+  settings" instead of offering it. Answer:
   approve, payload `{skip: {<unit>: "<reason>"}, lenses?: ["correctness", ...]}`; a skip without a reason or of an
   unknown unit asks again. Skips go to `data.ship_skipped` `[{step, band, reason}]` (PR body "Ship steps skipped",
   final review "Exceptions"), lenses to `data.lenses_chosen`. A unit is a step id or a `group`.
@@ -4029,3 +4032,35 @@ A step that fails no longer ends the flow by itself, and every crash is kept so 
   head commit. `AiState.fixed: {thread id: AiRun}` (kind `fixcheck:<thread>`), result `{fixed, why, still_open, sha,
   commits, context, …}`. The web shows "Fixed in <short sha> · Resolve" or "Still open: …" (nothing while the run is
   stale); Resolve calls the existing `POST …/threads/{id}/resolve`. keel never resolves by itself.
+
+## Next: the whole test suite before push can be off (CI runs it)
+
+- **The config key**: `.keel/config.yml` `release: {required: true | false}`. Without a `release` block (every older
+  config) it is required, as before. `runtime/blockers.py release_required(cfg)` reads it; keel writes it with
+  `rules_view.set_config` (the `release` block only; the other lines stay), and `release` is one of the blocks that
+  writer owns (`release.required` must be true or false, else 400).
+- **Required** (the default): unchanged. Ship's `release` step (verify_release) runs the whole suite and `push_blockers`
+  blocks a push without a fresh, passing release verdict.
+- **Off**: `push_blockers` (and `for_agents`, the agent push gate) no longer has a `release` entry; `push_warnings`
+  starts with `{gate: release, why: "the whole test suite is off for pushes in this project", fix}`. Ship's code step
+  with `action: verify_release` is skipped with the note `verify release skipped: off in this project's settings: CI
+  runs the whole suite` and `data.ship_skipped` gets `{step, band: "off", reason}` (PR body, final review); the skip
+  menu does not offer it. A release verdict that exists still shows in the final review's table. The feature/fix flows'
+  own whole-suite steps (verify_green) are not changed.
+- **Where it is said**: thread state `gates_off: [{gate, why, fix}]` (only when a gate is off; the Flow page's Before
+  ship lists it as "release: off" and says it does not block a push), `keel_status` ("gate off") and `keel_next` ("off
+  for a push (not blocking)"), the step explainer (`off`, and its `skippable.text`), action docs of verify_release.
+- **Routes**: engine `GET /release-check?root=` → `{configured, required, setting: true | false | null, why}`, `PUT
+  /release-check {root, required}` → the same (409 without `.keel/config.yml`; nothing is created). api `GET|PUT
+  /api/projects/{pid}/release-check {required}` (MCP level write, `McpLevels.WRITE`).
+- **Web**: Settings › General › Flow and gates, one project's own: "Whole test suite before push" required | off (CI
+  runs it), with a one-line explanation and "saved in .keel/config.yml (release.required)". Every project says it is
+  set per project.
+- **MCP** `keel_release_check {required?}` (write): without `required` it says the setting. `required: false` asks the
+  person first (it is in `CONFIRM` and in `mcp_confirm.OUT_OF_BAND`: a form, else a one-time token plus a question in
+  keel's Inbox, and only the person's approval there turns it off); `required: true` asks nothing.
+- **Agents**: `.keel/config.yml` stays on the never-touch list (`keel-rules-files`: no edit outside init's setup
+  phase, no shell write in any phase). Even in setup an edit whose new text turns a push gate off (`required: false`)
+  is refused (`rules.checks.check_content`).
+- **Fix**: the api's `PUT /api/projects/{pid}/rules/config` called the engine's `/rules/config` with POST; the engine
+  route is a PUT, so it now sends PUT.

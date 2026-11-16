@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from . import memory as memory_mod
 from . import branch_sync, db, doc_history, flow_doc, migrate, prompts, run_mode, spec_check
 from . import choices as choices_mod
 from . import finding_decisions, thread_models
+from . import blockers as push_gates
 from .compiler import FINISH, answer_problem, compile_workflow, running_usage
 from .state import ThreadContext, initial_state, merge_unlocks, normalize_unlocks
 
@@ -77,6 +79,12 @@ class Engine:
         self.mcp_env: dict[str, dict] = {}
         self.sources: dict[str, str] = {}     # thread -> what a started flow works on ("pr:20"), until POST /threads answers
         self.base_notes: dict[str, str] = {}  # 0.18.64 thread -> its base against the remotes, until POST /threads answers
+        # 0.29 connected sessions (the person's own Claude Code / OpenCode doing the harness flow): presence, the work
+        # orders that wait, live todo lists (runtime/sessions.py, session_service.py); in memory, found again after a restart
+        from .sessions import Hub as _SessionHub
+
+        self.sessions = _SessionHub()
+        self._session_watch: asyncio.Task | None = None
 
     # ------------------------------------------------------------ lifecycle
 
@@ -105,6 +113,9 @@ class Engine:
         await self.conn.commit()
         await migrate.migrate(self.conn)
         await self._strip_stored_env()
+        from . import session_service
+
+        self._session_watch = asyncio.create_task(session_service.watch(self))   # 0.29 a gone session: the Inbox asks
         if resume_running:
             # Threads that were running when keel stopped continue once the api has sent their logins (they live in
             # memory only) and their folder: POST /threads/{id}/continue. Without that call they continue by
@@ -160,6 +171,8 @@ class Engine:
         self._closing = True
         if self._grace:
             self._grace.cancel()
+        if self._session_watch:
+            self._session_watch.cancel()
         for t in list(self.tasks.values()):
             t.cancel()
         for t in list(self.tasks.values()):
@@ -238,6 +251,12 @@ class Engine:
             if waiting:
                 await self._set_status(tid, "waiting")
                 kind = waiting.get("kind")
+                if kind == "session":
+                    # 0.29 a work order for the connected session: nobody is asked yet (no gate.waiting, no Inbox item)
+                    from . import session_service
+
+                    session_service.paused(self, ctx, waiting)
+                    return
                 data = {"kind": kind, "title": waiting.get("title"), "detail": waiting.get("detail"), **self._notice(ctx, waiting)}
                 if kind == "budget":
                     ctx.emit("budget.warn", step=waiting.get("step"), data={**data, "paused": True})
@@ -640,10 +659,26 @@ class Engine:
             # 0.18.57 the branch or ref the flow's file:line citations are about (the Code page opens them there)
             "source_ref": await asyncio.to_thread(source_ref.flow_source_ref, row["root"], v.get("data")),
         }
+        # the push gates the person turned off for this project (the whole test suite: release.required false): the
+        # Flow page's Before ship and keel_next say so, and they block nothing
+        try:
+            off = await asyncio.to_thread(push_gates.gates_off, row["root"])
+        except Exception:  # noqa: BLE001 an unreadable config: no line, as before
+            off = []
+        if off:
+            out["gates_off"] = off
         # 0.22.0 the flow started behind its base's remote (or a fetch failed): said on the page, not only at the start
         behind = branch_sync.behind_note((v.get("data") or {}).get("base_check"))
         if behind:
             out["base_behind"] = behind
+        data_now = v.get("data") or {}
+        if data_now.get("runner") == "session":
+            # 0.29 the connected session that does this flow's harness steps: who, the work order, its todo list, its turns
+            from . import session_service
+
+            out["runner"] = "session"
+            out["session"] = session_service.view(self, tid, row["project_id"], data_now,
+                                                  waiting if status == "waiting" else None)
         harness = (v.get("data") or {}).get("harness")
         if harness:
             # 0.19.0 the one session of keel's harness this flow keeps (#101: no app to open it in)
@@ -670,6 +705,22 @@ class Engine:
                 out["waiting"]["person"] = True     # a workflow's person: true: only a person answers it
             if waiting.get("gate_kind"):
                 out["waiting"]["gate_kind"] = waiting["gate_kind"]      # run_mode.KINDS: what kind of pause this is
+            if waiting.get("kind") == "session":
+                # 0.29 a work order for the connected session (runtime/session_steps.py): what it asks, without the long
+                # texts (the session reads those with keel_session_next); gone: the Inbox's question
+                order = dict(waiting.get("order") or {})
+                out["waiting"]["order"] = {k: order.get(k) for k in ("id", "kind", "said", "step", "step_name", "published_at",
+                                                                     "root", "branch", "head") if order.get(k)}
+                out["waiting"]["order"]["instructions"] = str(order.get("instructions") or "")[:12000]
+                for k in ("plan", "notes", "failure"):
+                    if order.get(k):
+                        out["waiting"]["order"][k] = str(order[k])[:6000]
+                if (out.get("session") or {}).get("gone"):
+                    from .session_service import GONE_TITLE, gone_detail
+
+                    since = (self.sessions.waits.get(tid).since if self.sessions.waits.get(tid) else None)
+                    mins = int((time.time() - since) // 60) if since else 10
+                    out["waiting"].update(title=GONE_TITLE, detail=gone_detail(mins), gone=True)
             if waiting.get("ac"):
                 # 0.18.64 an AC gate names its criterion: the web loads its code (GET /threads/{tid}/ac-code)
                 out["waiting"]["ac"] = waiting["ac"]
@@ -798,6 +849,9 @@ class Engine:
             raise EngineError(400, *problem)
         await self._set_status(tid, "running")
         await self._import_legacy_unlocks(tid)
+        from . import session_service
+
+        session_service.ended(self, tid)       # 0.29 a work order that waited for a connected session is answered
         asked = self._waiting(snap).get("id")
         # The user answers this question: a run mode changed while it waited does not answer it instead (Compiler._ask).
         (await self._context(tid)).resume_qid = asked
@@ -909,6 +963,9 @@ class Engine:
             except BaseException:
                 pass
         await self._set_status(tid, "stopped")
+        from . import session_service
+
+        session_service.ended(self, tid)
         ctx = await self._context(tid)
         snap = await (await self._graph(tid)).aget_state(self._cfg(tid))
         await self._hunt_link(ctx, dict(snap.values or {}), "stopped")

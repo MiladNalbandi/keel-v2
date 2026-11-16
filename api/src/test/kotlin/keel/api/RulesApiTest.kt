@@ -41,6 +41,27 @@ class RulesApiTest : ApiTest() {
 
         put("/api/projects/$pid/rules/config", mapOf("rules" to mapOf("off" to listOf("read-twice")))).andExpect(status().isOk)
         assertThat(engine.lastBody("/rules/config")!!["patch"]["rules"]["off"][0].asText()).isEqualTo("read-twice")
+        // the engine's route is a PUT
+        assertThat(engine.calls.last { it.path == "/rules/config" }.method).isEqualTo("PUT")
+    }
+
+    @Test
+    fun `the whole test suite before a push is read and switched with the project's folder`() {
+        val (pid, root) = newProject("rules-release")
+        engine.extraRoutes["/release-check"] = { b ->
+            200 to mapOf("configured" to true, "required" to (b?.path("required")?.asBoolean() ?: true), "setting" to null)
+        }
+        assertThat(get("/api/projects/$pid/release-check").andExpect(status().isOk).json()["required"].asBoolean()).isTrue()
+        val query = engine.calls.last { it.path == "/release-check" }.query ?: ""
+        assertThat(java.net.URLDecoder.decode(query, Charsets.UTF_8)).isEqualTo("root=$root")
+        val off = put("/api/projects/$pid/release-check", mapOf("required" to false)).andExpect(status().isOk).json()
+        assertThat(off["required"].asBoolean()).isFalse()
+        val call = engine.calls.last { it.path == "/release-check" }
+        assertThat(call.method).isEqualTo("PUT")
+        assertThat(call.body!!["root"].asText()).isEqualTo(root.toString())
+        assertThat(call.body!!["required"].asBoolean()).isFalse()
+        put("/api/projects/$pid/release-check", emptyMap<String, Any>()).andExpect(status().isBadRequest)
+        engine.extraRoutes.remove("/release-check")
     }
 
     @Test

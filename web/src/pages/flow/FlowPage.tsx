@@ -45,6 +45,7 @@ import {
 } from "./FlowParts";
 import { BeforeShipPanel, GateCard, type GateSaid } from "./Gate";
 import { FlowFeed } from "./FlowFeed";
+import { SessionLine, SessionNow, SessionWaitCard, waitsForSession } from "./SessionParts";
 import { isTyping, modalOpen } from "../../keys";
 import { InitFlow } from "./InitFlow";
 import { DockBar, DockClose, JobFeed, StepPanel, useStepDock } from "./StepPanel";
@@ -222,9 +223,11 @@ function FlowSidePanel({ pid, thread, workflow, job, running, side, setSide, sel
       <div className="rdfl-details-b" key={at}>
       {at === "now" ? (
         <div className="grid" style={{ gap: 12 }}>
-          {thread.status === "waiting" && thread.waiting ? <WaitsCard thread={thread} onJump={onJump} />
+          {waitsForSession(thread) ? <SessionNow thread={thread} onJump={onJump} />
+            : thread.status === "waiting" && thread.waiting ? <WaitsCard thread={thread} onJump={onJump} />
             : <StatusCard pid={pid} thread={thread} workflow={workflow} job={job} onDone={onDone} onCheckpoints={readOnly ? undefined : () => setSide("checkpoints")}
               noResume={readOnly && !readOnly.resumable ? "Only the last stopped flow can be resumed." : undefined} />}
+          {thread.runner === "session" && !waitsForSession(thread) && <SessionLine thread={thread} compact />}
           {job && <JobFeed job={job} />}
           <RulesNowPanel thread={thread} />
           <EventsPanel pid={pid} thread={thread} workflow={workflow} history={history.error ? [] : history.data} onAll={() => setSide("checkpoints")} readOnly={!!readOnly} />
@@ -242,7 +245,7 @@ function FlowSidePanel({ pid, thread, workflow, job, running, side, setSide, sel
       ) : at === "criteria" ? (
         <AcsPanel thread={thread} />
       ) : at === "ship" ? (
-        <BeforeShipPanel blockers={thread.blockers} />
+        <BeforeShipPanel blockers={thread.blockers} off={thread.gates_off} pid={pid} />
       ) : (
         <div className="grid" style={{ gap: 12 }}>
           {panels.map((p) => <p.component key={p.id} pid={pid} thread={thread} readOnly={!!readOnly} />)}
@@ -356,7 +359,8 @@ function ThreadView({ pid, thread, workflow, reload, onStart, readOnly }: {
     return () => window.removeEventListener("keydown", on);
   }, []);
   const gate = !readOnly && thread.status === "waiting" && thread.waiting
-    ? <GateCard thread={thread} workflow={workflow} onDone={reload} onDecided={setSaid} /> : null;
+    ? (waitsForSession(thread) ? <SessionWaitCard thread={thread} workflow={workflow} onDone={reload} onDecided={setSaid} />
+      : <GateCard thread={thread} workflow={workflow} onDone={reload} onDecided={setSaid} />) : null;
   // v0.15.4 an earlier run changes nothing, except Resume of the last stopped one: then the page shows it live
   const done = readOnly ? readOnly.onResumed : reload;
   // 0.18.57 the flow's file:line citations open the Code page at the branch or ref the flow looked at (its worktree's
