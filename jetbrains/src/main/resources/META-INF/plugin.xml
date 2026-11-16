@@ -1,7 +1,7 @@
 <idea-plugin>
   <id>dev.keel.jetbrains</id>
   <name>keel</name>
-  <vendor>keel</vendor>
+  <vendor url="https://github.com/MiladNalbandi/keel-v2">keel</vendor>
   <description><![CDATA[
     <p>keel inside the IDE: answer the questions your keel flows wait at, review pull request threads in the editor with
     keel's "Is the reviewer right?" check, start a flow from a selection, and chat with KeelBot (Ask / Fix / Edit).</p>
@@ -12,6 +12,7 @@
       <li><b>KeelBot</b>: a chat with file links; its changed lines show in the editor with Keep / Undo / Diff.</li>
     </ul>
     <p>Connect in Settings › Tools › keel: use keel2 on this computer, or pair with a code like the phone app.</p>
+    <p>Source, releases and issues: <a href="https://github.com/MiladNalbandi/keel-v2">github.com/MiladNalbandi/keel-v2</a></p>
   ]]></description>
   <depends>com.intellij.modules.platform</depends>
 
@@ -61,11 +62,17 @@
       <action id="keel.StartFlowFromSelection" class="dev.keel.jetbrains.actions.StartFlowFromSelectionAction"
               text="keel: Start a Flow from Selection" description="Start a keel flow; the request starts with the selected code"/>
       <action id="keel.AddReviewComment" class="dev.keel.jetbrains.editor.AddReviewCommentAction"
-              text="keel: Comment on This Line" description="A pending comment of your review on this line of the pull request"/>
+              text="keel: Comment on This Line" description="A pending comment of your review on this line of the pull request">
+        <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt shift C"/>
+        <keyboard-shortcut keymap="Mac OS X" first-keystroke="ctrl alt shift C" replace-all="true"/>
+      </action>
       <action id="keel.AskWhatChanged" class="dev.keel.jetbrains.ui.AskWhatChangedAction" text="Ask KeelBot What Changed Here"
               description="Review mode: KeelBot explains this changed block of the pull request"/>
-      <action id="keel.CommentOnChange" class="dev.keel.jetbrains.ui.CommentOnChangeAction" text="Comment on This Change"
-              description="Review mode: a pending comment of your review on this changed block"/>
+      <action id="keel.CommentOnChange" class="dev.keel.jetbrains.ui.CommentOnChangeAction" text="keel: Comment on This Line"
+              description="Review mode: a pending comment of your review on this line or changed block">
+        <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt shift C"/>
+        <keyboard-shortcut keymap="Mac OS X" first-keystroke="ctrl alt shift C" replace-all="true"/>
+      </action>
       <add-to-group group-id="EditorPopupMenu" anchor="last"/>
     </group>
     <action id="keel.ReviewPill" class="dev.keel.jetbrains.ui.ReviewPillAction" text="Reviewing"

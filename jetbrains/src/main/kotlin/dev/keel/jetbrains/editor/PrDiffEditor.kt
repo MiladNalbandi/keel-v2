@@ -159,10 +159,6 @@ class AddReviewCommentAction : AnAction("keel: Comment on This Line") {
         val pf = e.getData(CommonDataKeys.VIRTUAL_FILE)?.getUserData(PrDiffEditor.KEY) ?: return
         val row = pf.rows.getOrNull(editor.caretModel.logicalPosition.line) as? DiffRow.Line ?: return
         val (line, side) = if (row.new != null) row.new to "RIGHT" else row.old!! to "LEFT"
-        val text = Messages.showMultilineInputDialog(project, "A comment on ${pf.path}:$line (pending until you submit the review):", "Comment", "", null, null)
-            ?.trim()?.ifEmpty { null } ?: return
-        ReviewSession.of(project).call({ api, pid, key -> api.addDraft(pid, key, pf.path, line, side, text) }) { r ->
-            r.onFailure { KeelNotifier.error(project, "Could not keep the comment", KeelProjectService.say(it)) }
-        }
+        dev.keel.jetbrains.core.ReviewComments.add(project, pf.path, line, side)
     }
 }

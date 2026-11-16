@@ -74,6 +74,20 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
     private val summary = KeelUi.muted("")
     private val markViewed = com.intellij.ui.components.JBCheckBox("Mark a file viewed when I open it")
     private val mode = dev.keel.jetbrains.core.ReviewMode.of(project)
+    private val submit = JButton("Submit review")
+    private val approve = JButton("Approve")
+
+    private fun busy(on: Boolean) {
+        submit.isEnabled = !on
+        approve.isEnabled = !on
+    }
+
+    /** The open PR's Pending tab (after a comment is kept). */
+    fun showPending() {
+        if (session.key == null) return
+        show(PR)
+        tabs.selectedIndex = 2
+    }
 
     init {
         add(listCard(), LIST)
@@ -118,6 +132,9 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
             return
         }
         val f = filter.selectedItem as String
+        prs.removeAll()
+        prList.emptyText.text = "Loading pull requests…"
+        listNote.text = ""
         svc.io({ it.prs(pid, f) }) { r ->
             r.onSuccess {
                 prs.replaceAll(it.prs)
@@ -130,7 +147,14 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
     private fun openPr(n: Int) {
         session.open("pr:$n")
         mode.enter("pr:$n")
-        prTitle.text = "#$n …"
+        prTitle.text = "#$n"
+        prSub.text = ""
+        summary.text = ""
+        prNote.text = "Loading the pull request…"
+        files.removeAll()
+        threads.removeAll()
+        fileList.emptyText.text = "Loading…"
+        threadList.emptyText.text = "Loading…"
         show(PR)
     }
 
@@ -138,11 +162,11 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
     private fun prCard(): JPanel {
         val p = JPanel(BorderLayout())
         val head = KeelUi.stack().apply { border = JBUI.Borders.empty(6, 8) }
-        head.add(KeelUi.row(KeelUi.link("← Pull requests") { show(LIST); loadPrs() }, ci, KeelUi.link("Refresh") { session.reload(refresh = true) }).full())
+        head.add(KeelUi.row(KeelUi.link("← Pull requests") { show(LIST); loadPrs() }, ci, KeelUi.link("Refresh") { prNote.text = "Refreshing…"; session.reload(refresh = true) }).full())
         head.add(prTitle.full())
         head.add(prSub.full())
-        val submit = JButton("Submit review").apply { addActionListener { submitReview(null) } }
-        val approve = JButton("Approve").apply { addActionListener { submitReview("APPROVE") } }
+        submit.addActionListener { submitReview(null) }
+        approve.addActionListener { submitReview("APPROVE") }
         val checkout = JButton("Check out").apply { addActionListener { checkout() } }
         head.add(summary.full())
         val next = JButton("Next change ↓").apply { addActionListener { ReviewModeText.nextChange(project) } }
@@ -202,9 +226,11 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
         val v = session.view
         if (session.key == null) return
         if (v == null) {
-            prNote.text = session.error.orEmpty()
+            prNote.text = session.error ?: "Loading the pull request…"
             return
         }
+        fileList.emptyText.text = "No changed files"
+        threadList.emptyText.text = "No threads here"
         prTitle.text = "#${v.number ?: ""} ${v.title}"
         prSub.text = listOfNotNull(v.author, "${v.base} ← ${v.branch}", if (v.draft) "draft" else null).joinToString(" · ")
         ci.text = ciSummary(v.checks)
@@ -229,7 +255,13 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
 
     private fun fillPending(v: ReviewView) {
         pending.removeAll()
-        if (v.drafts.isEmpty()) pending.add(KeelUi.muted("No pending comments. In a file's diff, right-click a line: keel: Comment on This Line.").full())
+        if (v.drafts.isEmpty()) {
+            pending.add(KeelUi.bold("No pending comments yet").full())
+            pending.add(KeelUi.prose(
+                "To add one: open a changed file (Changed files tab), put the caret on a line, then right-click › " +
+                    "keel: Comment on This Line, or press Ctrl+Alt+Shift+C. It waits here, seen only by you, until you press Submit review.",
+            ).full())
+        }
         v.drafts.forEach { d ->
             pending.add(KeelUi.row(KeelUi.bold("${d.path ?: "PR"}${d.line?.let { ":$it" } ?: ""}"), KeelUi.link("Delete") {
                 session.call({ api, pid, _ -> api.deleteDraft(pid, d.id) })
@@ -289,7 +321,9 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
             return
         }
         prNote.text = "Sending…"
+        busy(true)
         session.call({ api, pid, key -> api.submitReview(pid, key, event, body) }) { r ->
+            busy(false)
             prNote.text = r.fold({ "Sent (${it.posted} comment(s))." }, { KeelProjectService.say(it) })
         }
     }
