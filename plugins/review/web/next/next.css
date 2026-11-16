@@ -1271,6 +1271,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  container: rvn-page / inline-size;
 }
 .rvn-pagewrap .rvn-phead p {
   max-width: 720px;
@@ -1314,14 +1315,19 @@ a.rvn-btn {
 }
 .rvn-pagewrap .rvn-page-side {
   border-right: 0;
+  min-width: 0;
 }
 /* keel's own rule for <main> pads the app's main column; this one is a column of the page */
 .rvn-pagewrap .rvn-page-main {
   padding: 0;
 }
+/* the page scrolls as one, so the list does not clip; without overflow: hidden a flex item's minimum width is its
+   content's (a long branch line), and the list would run past its column under the pull request: min-width: 0 keeps it
+   in its track and lets the long lines end in "…" */
 .rvn-pagewrap .rvn-side,
 .rvn-pagewrap .rvn-side-in {
   overflow: visible;
+  min-width: 0;
 }
 .rvn-pagewrap .rvn-side-in {
   padding: 0;
@@ -1334,6 +1340,8 @@ a.rvn-btn {
 .rvn-pagewrap .rvn-review-in {
   padding: 0 0 40px;
   gap: 14px;
+  /* the column's whole width, so the card, the tabs and the tab's body end where the head's buttons do */
+  max-width: none;
 }
 .rvn-pagewrap .rvn-page-empty {
   margin: 0;
@@ -1398,7 +1406,8 @@ a.rvn-btn {
 .rvn-pagewrap .rvn-search input {
   min-height: 36px;
   border-radius: 9px;
-  padding: 0 11px;
+  /* room on the left for the search icon the work pages draw in it (.rdw input[type="search"], rd-watch.css) */
+  padding: 0 11px 0 34px;
   font-size: 14px;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
@@ -1481,22 +1490,43 @@ a.rvn-btn {
 .rvn-prmeta {
   gap: 4px 6px;
 }
+/* keel's overview: a fold at the card's foot, under a hairline; its text lines up with the summary's words */
 .rvn-overview {
-  padding: 4px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg);
-}
-.rvn-overview[open] {
-  padding-bottom: 12px;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
 }
 .rvn-overview summary {
+  margin: 0 -8px;
+  padding: 0 8px;
+  border-radius: 8px;
   color: var(--fg);
   font-weight: 600;
+  transition: background 0.16s ease;
+}
+.rvn-overview summary::-webkit-details-marker {
+  display: none;
+}
+.rvn-overview summary:hover {
+  background: var(--panel-2);
+}
+.rvn-overview summary:focus {
+  outline: 0;
+}
+.rvn-overview summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
 }
 .rvn-overview summary::before {
-  color: var(--dim);
+  flex: none;
   width: 12px;
+  color: var(--dim);
+}
+.rvn-overview > .rvn-stack {
+  gap: 10px;
+  padding: 6px 0 4px 18px;
+  font-size: 13.5px;
+  line-height: 1.5;
 }
 
 /* the tabs: counts as small badges */
@@ -1540,6 +1570,24 @@ a.rvn-btn {
   }
   .rvn-btn:active:not(:disabled) {
     transform: none;
+  }
+}
+
+/* the tabs wrap to a second row on the page, so none hides behind a scroll it does not show (a phone swipes them) */
+.rvn-pagewrap .rvn-tabs {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+@media (max-width: 720px) {
+  .rvn-pagewrap .rvn-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+}
+/* a narrow page (a laptop window with keel's menu open): a narrower list, so the pull request keeps room */
+@container rvn-page (max-width: 760px) {
+  .rvn-pagewrap .rvn-page {
+    grid-template-columns: minmax(220px, 250px) minmax(0, 1fr);
   }
 }
 
