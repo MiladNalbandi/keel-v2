@@ -8,7 +8,7 @@ there too. Nothing sends work to it by a setting any more: you start it by name.
 keel (dashboard, flow page, review panel)
    │  "plan this"  "build the plan"  "review this change"
    ▼
-keel's harness ── one session per flow ── the default model's API (Anthropic, OpenAI, GitHub Models, Vertex, local)
+keel's harness ── one session per flow ── the default model's API (Anthropic, OpenAI, GitHub Copilot, Vertex, local)
 ```
 
 ## What runs where

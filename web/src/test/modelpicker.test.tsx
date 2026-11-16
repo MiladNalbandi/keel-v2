@@ -59,7 +59,7 @@ describe("model picker: one dropdown", () => {
     ]);
     // every group is reached through the provider's API
     expect(within(list).getByRole("group", { name: "Claude" })).toHaveTextContent("API key");
-    expect(groups[2]).toHaveTextContent("API key (GitHub Models)");
+    expect(groups[2]).toHaveTextContent("Your Copilot plan");
     expect(list).not.toHaveTextContent(/Subscription|OpenCode|Copilot CLI/);
     expect(within(groups[2]).getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["GPT-5 (GitHub Models)"]);
     expect(within(groups[3]).getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["DeepSeek R1 (GitHub Models)"]);
@@ -171,7 +171,7 @@ describe("model picker: one dropdown", () => {
     await user.click(button());
     const chosen = screen.getByRole("option", { name: "GPT-5 (GitHub Models)" });
     expect(chosen).toHaveAttribute("aria-selected", "true");
-    expect(chosen.closest('[role="group"]')).toHaveTextContent("API key (GitHub Models)");
+    expect(chosen.closest('[role="group"]')).toHaveTextContent("Your Copilot plan");
     await user.click(screen.getByRole("option", { name: "DeepSeek R1 (GitHub Models)" }));
     expect(changes).toEqual([{ provider: "copilot", mode: "api", model: "deepseek/deepseek-r1" }]);
   });

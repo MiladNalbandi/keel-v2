@@ -65,6 +65,15 @@ uvp=(uv pip install -q --python "$py" --system --break-system-packages)
 "${uvp[@]}" --require-hashes -r "$work/engine.txt"
 "${uvp[@]}" --no-deps "$rel/engine" "$rel/api-py"
 uv pip check -q --python "$py" --system
+# GitHub Copilot (your plan): the Copilot SDK's runtime for this platform, in the app (its files are read-only, so the
+# SDK never downloads it at run time: keelenv.ts sets COPILOT_CLI_PATH and COPILOT_SKIP_CLI_DOWNLOAD)
+echo "Copilot runtime…"
+COPILOT_CLI_EXTRACT_DIR="$work/copilot" "$py" -m copilot download-runtime >/dev/null
+cr="$(find "$work/copilot" -type f -name copilot-runtime | head -1)"
+[ -n "$cr" ] || { echo "the Copilot runtime did not download" >&2; exit 1; }
+rm -rf -- "$out/runtime/copilot"
+cp -a "$(dirname "$cr")" "$out/runtime/copilot"
+"$out/runtime/copilot/copilot-runtime" --version >/dev/null 2>&1 || echo "note: copilot-runtime --version did not answer (it may need the SDK's arguments)"
 # the installed copies are the ones that run: no sources beside them
 rm -rf -- "$rel/engine" "$rel/api-py"
 # what keel never runs: pip (keel installs nothing into its own Python), Tk and IDLE (no windows), the 2to3/pydoc tools

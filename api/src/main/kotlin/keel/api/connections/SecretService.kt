@@ -144,19 +144,19 @@ class SecretService(
         apiKey(provider)?.let { mapOf(provider to it) } ?: emptyMap()
 
     /**
-     * #101 the key keel's harness calls a model with: the provider's API key. GitHub Models also takes another GitHub
-     * token (GitHub's own `gh models` uses it the same way): see [copilotToken].
+     * #101 the key keel's harness calls a model with: the provider's API key. GitHub Copilot (your plan) takes a GitHub token
+     * (GitHub's Copilot SDK makes Copilot requests with it, on the person's plan): see [copilotToken].
      */
     fun apiKey(provider: String): String? = if (provider == "copilot") copilotToken()?.first else keyForProvider(provider)
 
-    /** #101 where GitHub Models' token comes from, as Connections shows it: a saved key's hint, or where it was found. */
+    /** #101 where GitHub Copilot's token comes from, as Connections shows it: a saved key's hint, or where it was found. */
     fun copilotKeyHint(): String? = copilotToken()?.second
 
     /**
-     * #101 GitHub Models' token and its hint: GITHUB_TOKEN (saved, else the environment), else the token of keel's GitHub
+     * #101 GitHub Copilot's token and its hint: GITHUB_TOKEN (saved, else the environment), else the token of keel's GitHub
      * sign-in when it is for github.com (keel sends an Enterprise host's token to that host only), else GH_TOKEN (saved by
      * the old Copilot CLI login before 0.26, else the environment). The sign-in comes before the old login's token: that
-     * token is often expired or not allowed to call GitHub Models, and it must not hide a fresh sign-in.
+     * token is often expired or not allowed to use Copilot, and it must not hide a fresh sign-in.
      */
     private fun copilotToken(): Pair<String, String?>? {
         fun named(name: String): Pair<String, String?>? =
@@ -175,7 +175,7 @@ class SecretService(
 
     companion object {
         val KEY_NAMES = mapOf("claude" to "ANTHROPIC_API_KEY", "codex" to "OPENAI_API_KEY", "copilot" to "GITHUB_TOKEN")
-        /** #101 the old Copilot CLI login's GitHub token: GitHub Models' token when no GITHUB_TOKEN is set. */
+        /** #101 the old Copilot CLI login's GitHub token: GitHub Copilot's token when no GITHUB_TOKEN is set. */
         const val GH_TOKEN = "GH_TOKEN"
         /** The token of keel's GitHub sign-in (GitHubLoginService.TOKEN). */
         private const val GITHUB_SIGN_IN = "GITHUB_REPO_TOKEN"

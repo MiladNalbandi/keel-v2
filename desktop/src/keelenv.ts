@@ -64,6 +64,9 @@ export function keelEnv(base: NodeJS.ProcessEnv, o: StartOptions): NodeJS.Proces
     KEEL_FRONT: "1",
     KEEL_FRONT_EXE: o.bundle.front,
     KEEL_PYTHON: o.bundle.python,
+    // GitHub Copilot (your plan): the app's own Copilot runtime; the app's files are read-only, so no download
+    COPILOT_CLI_PATH: o.bundle.copilot,
+    COPILOT_SKIP_CLI_DOWNLOAD: "1",
     KEEL_MCP_PYTHON: o.bundle.python,
     KEEL_API_JAR: path.join(o.bundle.keel, "api.jar"),
     KEEL_JAVA: o.bundle.java,

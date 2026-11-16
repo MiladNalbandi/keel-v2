@@ -118,7 +118,8 @@ def test_the_catalog_lists_api_models_only(no_clis):
     assert cat["claude"]["label"] == "Anthropic (Claude)" and cat["claude"]["efforts"] == ["low", "medium", "high", "xhigh", "max"]
     assert {"opus", "sonnet", "haiku", "claude-opus-5-5"} <= {m["id"] for m in cat["claude"]["modes"]["api"]}
     assert cat["codex"]["label"] == "OpenAI" and cat["codex"]["efforts"] == ["minimal", "low", "medium", "high"]
-    assert cat["copilot"]["label"] == "GitHub Models" and cat["copilot"]["efforts"] == []
+    assert cat["copilot"]["label"] == "GitHub Copilot (your plan)" and cat["copilot"]["efforts"] == []
+    assert cat["copilot"]["modes"]["api"][0]["id"] == "auto"
     assert cat["fake"]["modes"] == {"api": catalog.MODELS["fake"]}
 
 

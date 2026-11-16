@@ -150,18 +150,18 @@ describe("Models & keys: the providers (#101 API keys only)", () => {
     expect(screen.queryByText("Saved and encrypted.")).not.toBeInTheDocument();
   });
 
-  it("GitHub Copilot runs on GitHub Models: a GitHub token works, and so does Connections › GitHub's sign-in", async () => {
+  it("GitHub Copilot runs on your Copilot plan: a GitHub token works, and so does Connections › GitHub's sign-in", async () => {
     const copilot = (key_set: boolean, key_hint?: string) => ({ id: "copilot", label: "GitHub Copilot", selected: "api", key_set, key_hint,
-      modes: [{ id: "api", label: "GitHub Models (token)", ready: key_set, detail: "GITHUB_TOKEN" }] });
+      modes: [{ id: "api", label: "GitHub Copilot (your plan)", ready: key_set, detail: "GITHUB_TOKEN" }] });
     server.use(http.get("/api/connections", () => HttpResponse.json({ ...fx.connections, providers: [copilot(false)] })));
     location.hash = "#/settings/models";
     render(<App />);
-    const row = await main().findByRole("group", { name: "GitHub Copilot" });
+    const row = await main().findByRole("group", { name: "GitHub Copilot (your plan)" });
     expect(within(row).getByText("No GitHub token")).toBeInTheDocument();
     expect(within(row).getByTestId("copilot-token-line")).toHaveTextContent("A GitHub token works, or the token of Connections › GitHub's “Sign in with GitHub”");
     expect(within(row).getByRole("link", { name: "Connections › GitHub" })).toHaveAttribute("href", "#/settings/connections");
-    expect(within(row).getByTestId("way-copilot")).toHaveTextContent("GitHub Models (token)");
-    expect(within(row).getByLabelText(/^GitHub token for GitHub Models/)).toHaveAttribute("id", "key-copilot");
+    expect(within(row).getByTestId("way-copilot")).toHaveTextContent("GitHub Copilot (your plan)");
+    expect(within(row).getByLabelText(/^GitHub token for your Copilot plan/)).toHaveAttribute("id", "key-copilot");
     // signed in with GitHub, no GITHUB_TOKEN: ready, and the key field has nothing of its own to remove
     expect(connState(copilot(true, "from the GitHub sign-in") as never)).toMatchObject({ tone: "ok", text: "Ready, GitHub sign-in" });
     expect(connState(copilot(true, "…x9Z") as never)).toMatchObject({ tone: "ok", text: "API key saved" });
@@ -185,7 +185,7 @@ describe("Agents", () => {
     expect(impl).toHaveTextContent("green");
     expect(impl).toHaveTextContent("gpt-5");
     // saved as the Copilot CLI before #101: it runs on GitHub Models, and shows so
-    expect(impl).toHaveTextContent("Copilot · API key (GitHub Models)");
+    expect(impl).toHaveTextContent("Copilot · Your Copilot plan");
     expect(impl).not.toHaveTextContent("Copilot CLI");
     expect(within(impl).getByText("keel", { selector: ".chip" })).toHaveClass("c-mcp");
     expect(within(impl).getByText("this project")).toBeInTheDocument();

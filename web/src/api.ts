@@ -664,7 +664,7 @@ export type CustomAgent = {
   skills: string[];
   prompt: string;
 };
-export type TestResult = { ok: boolean; text?: string; ms: number; error?: string };
+export type TestResult = { ok: boolean; text?: string; ms: number; error?: string; note?: string; models?: string[]; login?: string };
 
 export type SkillSource = "keel" | "keel pack" | "EGM (Google)" | "claude" | "yours" | "marketplace" | "repo";
 /** 0.18.6 where a skill from the marketplace came from; edited: its text was changed here since. */
@@ -993,7 +993,7 @@ export type ProjectSettings = { general: Settings; overrides: Partial<Settings>;
   /** B15 the General keys someone saved (the others are keel's defaults). */
   general_saved?: string[] };
 
-/** `GET /api/connections` (#101): each provider has only its API mode (copilot's is GitHub Models, ready with a
+/** `GET /api/connections` (#101): each provider has only its API mode (copilot's is GitHub Copilot (your plan), ready with a
  *  GITHUB_TOKEN or the token of Connections › GitHub's sign-in), and `machine` the programs keel finds (node, git, java,
  *  docker). */
 export type Connections = {

@@ -62,7 +62,7 @@ class SecretsApiTest : ApiTest() {
             assertThat(p["modes"].map { it["id"].asText() }).describedAs(p["id"].asText()).containsExactly("api")
             assertThat(p["selected"].asText()).isEqualTo("api")
         }
-        assertThat(c["providers"].first { it["id"].asText() == "copilot" }["modes"][0]["label"].asText()).isEqualTo("GitHub Models (token)")
+        assertThat(c["providers"].first { it["id"].asText() == "copilot" }["modes"][0]["label"].asText()).isEqualTo("GitHub Copilot (your plan)")
         // keel v1 is not part of keel v2 (0.4.1), and no coding-agent app is listed any more (#101)
         assertThat(c["machine"].map { it["name"].asText() }).containsExactly("node", "git", "java", "docker")
         put("/api/connections/copilot", mapOf("mode" to "api")).andExpect(status().isOk)

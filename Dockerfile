@@ -192,6 +192,12 @@ COPY engine/ ./
 # CPU for each agent tool call (the PreToolUse hook, python -m keel_engine.hook) and ~3 s at each start. Compile it here.
 RUN uv sync --no-dev --python /usr/bin/python3 $( [ -f uv.lock ] && echo --frozen ) \
     && /opt/engine/.venv/bin/python -m compileall -q -j 0 /opt/engine/keel_engine
+# GitHub Copilot (your plan): the Copilot SDK's runtime (a native binary), fetched at build time into a fixed place every
+# user can read, so keel's user never downloads it (harness/providers/copilot_sdk.py)
+RUN /opt/engine/.venv/bin/python -m copilot download-runtime \
+    && rt="$(find /root/.cache/github-copilot-sdk -type f -name copilot-runtime | head -1)" && test -n "$rt" \
+    && cp -r "$(dirname "$rt")" /opt/copilot && chmod -R a+rX /opt/copilot && rm -rf /root/.cache/github-copilot-sdk
+ENV COPILOT_CLI_PATH=/opt/copilot/copilot-runtime COPILOT_SKIP_CLI_DOWNLOAD=1
 
 # 0.24.0 the Python api (api-py/): the front door on :8080, in its own venv; the Kotlin api behind it on 127.0.0.1:8081
 # (docker/keel-start, docs/plans/python-api.md). It serves the web app from /opt/web.

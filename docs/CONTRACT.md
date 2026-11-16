@@ -3872,7 +3872,7 @@ harness's provider directly (one turn, no tools). A model saved with mode `subsc
 (`models.effective`), and the api's `SecretService.engineKeys` sends the provider's API key whatever the mode
 (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GITHUB_TOKEN`; Vertex and local as their connections). `Harness.isHarness` is
 false: no flow is handed to a coding-agent app. The catalog (`GET /providers/models`) lists mode `api` only: Anthropic
-(Claude), OpenAI, GitHub Models (models.github.ai), Vertex AI, local servers, fake. `haiku` is `claude-haiku-5-5`.
+(Claude), OpenAI, GitHub Copilot (the person's plan, through GitHub's Copilot SDK), Vertex AI, local servers, fake. `haiku` is `claude-haiku-5-5`.
 
 **Providers** (`harness/providers`):
 - **`claude`** goes through the official `anthropic` SDK on the beta Messages stream.
@@ -3884,7 +3884,9 @@ false: no flow is handed to a coding-agent app. The catalog (`GET /providers/mod
   - Web search: the `web_search_20260209` server tool for an agent whose file names WebSearch.
   - Vertex AI's Claude uses `AsyncAnthropicVertex`.
 - **`codex`, `copilot`, `local` and Vertex's Gemini** go through the official `openai` SDK (chat completions, streamed, function tools).
-  - `copilot` means GitHub Models: `https://models.github.ai/inference` with a GitHub token.
+  - `copilot` means GitHub Copilot (your plan): GitHub's Copilot SDK with a GitHub token (sign-in, gho_/ghu_, or a
+    fine-grained token with Copilot Requests; classic ghp_ is refused). keel's tools are the SDK session's only tools.
+    GitHub Models (models.github.ai) was retired by GitHub on 2026-07-30.
 
 Usage counts new input, cache writes and cache reads apart. Cost is keel's price table, with cache writes at 1.25x and
 cache reads at 0.1x of the input price.
@@ -3931,9 +3933,10 @@ crash. Read-only tools of one turn run side by side.
   every 10 turns when its task list has open items. `usage` is sent after every turn (`agent.usage` while it runs).
 
 **Keys**: `SecretService.apiKey(provider)` is the key for a flow (`engineKeys`), Connections › Test and an agent's
-Test: the provider's API key, and for GitHub Models also the GitHub sign-in's token when no `GITHUB_TOKEN` is saved.
-Both Test buttons send `mode: api`. A model saved for the Copilot CLI as `gpt-5` / `o3-mini` goes to GitHub Models as
-`openai/gpt-5` / `openai/o3-mini`. GitHub Models gets no effort.
+Test: the provider's API key, and for GitHub Copilot also the GitHub sign-in's token when no `GITHUB_TOKEN` is saved.
+Both Test buttons send `mode: api`. GitHub Copilot's Test also says who is signed in and lists the plan's models
+(`login`, `models`, `note`); those fill its model list. A saved GitHub Models name (`openai/gpt-5`) or none runs as `auto`;
+a model the plan does not have runs as `auto` with a note.
 
 **The git-settings guard** (`tools/guard.py`): keel shares the project folder with the agents' user before every command
 an agent runs (`agent_user.share`: group rw, and group x where the owner has x). The harness runs commands inside the

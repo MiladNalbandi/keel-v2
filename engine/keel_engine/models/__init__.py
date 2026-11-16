@@ -39,7 +39,7 @@ def runner_for(model: dict) -> Runner:
 
 def key_for(provider: str, keys: dict | None = None) -> str | None:
     return (keys or {}).get(provider) or os.environ.get(ENV_KEYS.get(provider, "")) or \
-        (os.environ.get("GH_TOKEN") if provider == "copilot" else None)
+        ((os.environ.get("COPILOT_GITHUB_TOKEN") or os.environ.get("GH_TOKEN")) if provider == "copilot" else None)
 
 
 async def _one_answer(m: dict, system: str, prompt: str, key: str | None) -> tuple[str, int, int]:
@@ -104,6 +104,8 @@ async def test_provider(provider: str, mode: str, model: str, key: str | None = 
         if m["provider"] == "fake":
             res: AgentResult = await runner_for(m).run(_fake_request(m), lambda *a, **k: None)
             text = res.text
+        elif m["provider"] == "copilot":
+            return await _test_copilot(m, key or key_for("copilot"), ms)
         else:
             text, _i, _o = await asyncio.wait_for(_one_answer(m, "", "Reply with exactly: OK", key or key_for(m["provider"])), 120)
         return {"ok": "OK" in (text or ""), "text": (text or "")[:200], "ms": ms()}
@@ -111,6 +113,32 @@ async def test_provider(provider: str, mode: str, model: str, key: str | None = 
         return {"ok": False, "ms": ms(), "error": f"{exc}{(' ' + exc.hint) if exc.hint else ''}"}
     except Exception as exc:
         return {"ok": False, "ms": ms(), "error": f"{type(exc).__name__}: {str(exc)[:300]}"}
+
+
+async def _test_copilot(m: dict, key: str | None, ms) -> dict:
+    """GitHub Copilot (your plan): who is signed in, the models the plan has (they fill the model list), one answer."""
+    import asyncio
+
+    from ..harness.providers import copilot_sdk
+    from ..harness.providers.base import ProviderError
+
+    try:
+        copilot_sdk.sdk()
+        who = await asyncio.wait_for(copilot_sdk.auth_status(key), 60)
+        if not who["ok"]:
+            return {"ok": False, "ms": ms(), "error": f"GitHub Copilot: not signed in ({who.get('message') or 'no login'}). "
+                                                       f"{copilot_sdk.HINT_TOKEN}"}
+        found = await asyncio.wait_for(copilot_sdk.list_models(key, fresh=True), 60)
+        text, _i, _o = await asyncio.wait_for(_one_answer(m, "", "Reply with exactly: OK", key), 120)
+    except ProviderError as exc:
+        return {"ok": False, "ms": ms(), "error": f"{exc}{(' ' + exc.hint) if exc.hint else ''}"}
+    except ModelError as exc:
+        return {"ok": False, "ms": ms(), "error": f"{exc}{(' ' + exc.hint) if exc.hint else ''}"}
+    ok = "OK" in (text or "")
+    names = [x["id"] for x in found]
+    return {"ok": ok, "text": (text or "")[:200], "ms": ms(), "login": who.get("login"), "models": names,
+            "note": (f"Signed in as {who.get('login')}. Your plan's models: {', '.join(names)}."
+                     + ("" if len(names) > 1 else " Copilot lists no models for this login: auto picks one your plan has."))}
 
 
 def _fake_request(m: dict) -> AgentRequest:

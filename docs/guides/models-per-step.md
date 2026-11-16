@@ -51,7 +51,7 @@ is quicker and cheaper. **default** leaves it to the engine.
 | Claude API key | low, medium, high, xhigh, max (not Haiku) |
 | Codex CLI and OpenAI key | what each model offers |
 | Copilot through OpenCode | low, medium, high (newer GPT also xhigh; Gemini none) |
-| Copilot CLI, GitHub Models key | none |
+| GitHub Copilot | none |
 
 A model without an effort setting shows "no effort setting", and keel ignores an effort it cannot pass on.
 

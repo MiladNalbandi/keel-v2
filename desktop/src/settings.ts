@@ -10,9 +10,15 @@ export type Settings = {
   /** keel's port, kept so open browser tabs and paired phones keep working */
   port?: number;
   bounds?: { x?: number; y?: number; width: number; height: number };
+  /** closing the window keeps keel running (its flows, its MCP, the notifications); Quit keel stops it. Default on */
+  keepRunning: boolean;
+  /** keel starts (in the background, its icon only) when the person logs in. Default off */
+  startAtLogin: boolean;
+  /** no "waits for you" notifications from the app while this is set */
+  quiet: boolean;
 };
 
-export const DEFAULTS: Settings = { accepted: false, folders: [] };
+export const DEFAULTS: Settings = { accepted: false, folders: [], keepRunning: true, startAtLogin: false, quiet: false };
 
 export function readSettings(file: string): Settings {
   try {
@@ -22,6 +28,9 @@ export function readSettings(file: string): Settings {
       folders: Array.isArray(raw.folders) ? raw.folders.filter((f): f is string => typeof f === "string" && path.isAbsolute(f)) : [],
       port: Number.isInteger(raw.port) && (raw.port as number) > 1023 && (raw.port as number) < 65536 ? raw.port : undefined,
       bounds: raw.bounds && typeof raw.bounds.width === "number" && typeof raw.bounds.height === "number" ? raw.bounds : undefined,
+      keepRunning: raw.keepRunning !== false,
+      startAtLogin: raw.startAtLogin === true,
+      quiet: raw.quiet === true,
     };
   } catch {
     return { ...DEFAULTS, folders: [] };

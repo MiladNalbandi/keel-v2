@@ -1,4 +1,4 @@
-// v0.10.0 Connections › GitHub: the token keel's Git plugin pushes and opens pull requests with. #101 GitHub Models
+// v0.10.0 Connections › GitHub: the token keel's Git plugin pushes and opens pull requests with. #101 GitHub Copilot (your plan)
 // (the GitHub Copilot row of Settings › Models & keys) uses it too when no GITHUB_TOKEN is saved there. Saved encrypted; only its last 3 characters are ever shown. It is keel's core (step 3): a flow's ship
 // step opens the pull request with it too, with or without the Git plugin (corePages.ts puts it in Connections).
 // v0.18.30 "Sign in with GitHub": a one-time code and a link (the device flow) instead of a

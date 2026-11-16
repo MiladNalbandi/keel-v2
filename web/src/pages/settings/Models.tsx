@@ -3,8 +3,8 @@
 // login. One row per provider (Claude, GPT / Codex, GitHub Copilot, Vertex AI, Local models, Fake): its state ("API key
 // saved", "No API key"), Add the key / Set up, and Test; open, it shows how agents reach it (the provider's API), its
 // key (stored encrypted, only the last characters shown: add, change, remove), the model servers or the Google Cloud
-// project, and "Use for all agents". GitHub Copilot runs on GitHub Models: a GitHub token works, and so does the token
-// of Connections › GitHub's "Sign in with GitHub". Then the model of each kind of agent with its effort, "Local models
+// project, and "Use for all agents". GitHub Copilot runs on the person's Copilot plan through GitHub's Copilot SDK
+// (GitHub Models was retired): the token of Connections › GitHub's "Sign in with GitHub" works, or a pasted token. Then the model of each kind of agent with its effort, "Local models
 // only", and This machine (the programs keel finds).
 
 import { useEffect, useState } from "react";
@@ -25,7 +25,7 @@ import { useApp, useLoad } from "../../state";
 import { SettingsFrame, setSettingsHint } from "./frame";
 import { GeneralRow, useScopedSettings, type Row } from "./rows";
 
-/** The secret that holds each provider's API key (GitHub Models: a GitHub token). */
+/** The secret that holds each provider's API key (GitHub Copilot: a GitHub token). */
 const SECRET: Record<string, string> = {
   claude: "ANTHROPIC_API_KEY",
   codex: "OPENAI_API_KEY",
@@ -36,8 +36,8 @@ const KEY_HELP: Record<string, { label: string; how: string }> = {
   claude: { label: "Anthropic API key", how: "Create one at console.anthropic.com › API keys." },
   codex: { label: "OpenAI API key", how: "Create one at platform.openai.com › API keys." },
   copilot: {
-    label: "GitHub token for GitHub Models",
-    how: "A GitHub token that may use GitHub Models (github.com › Settings › Developer settings › Tokens). Without one, keel uses the token of Connections › GitHub's “Sign in with GitHub”.",
+    label: "GitHub token for your Copilot plan",
+    how: "A fine-grained token with the Copilot Requests permission (github.com › Settings › Developer settings › Fine-grained tokens), or a gho_/ghu_ token. Classic ghp_ tokens do not work with Copilot. Without one, keel uses the token of Connections › GitHub's “Sign in with GitHub”.",
   },
 };
 
@@ -54,7 +54,7 @@ const CONFIGURED = new Set(["vertex", "local"]);
 const NAME: Record<string, string> = {
   claude: "Claude",
   codex: "GPT / Codex",
-  copilot: "GitHub Copilot",
+  copilot: "GitHub Copilot (your plan)",
   vertex: "Vertex AI",
   local: "Local models",
   fake: "Fake",
@@ -63,7 +63,7 @@ const NAME: Record<string, string> = {
 type Conn = Connections["providers"][number];
 const PILL_TONE: Record<string, Tone> = { ok: "ok", warn: "warn", bad: "bad" };
 
-/** GitHub Models is ready with the token of Connections › GitHub's sign-in when no GITHUB_TOKEN is saved. */
+/** GitHub Copilot is ready with the token of Connections › GitHub's sign-in when no GITHUB_TOKEN is saved. */
 const fromSignIn = (p: Pick<Conn, "id" | "key_set" | "key_hint">) =>
   p.id === "copilot" && p.key_set && /github sign-in/i.test(p.key_hint ?? "");
 
@@ -232,7 +232,7 @@ function ProviderRow({
   const state = connState(now);
   const signIn = fromSignIn(now);
   const name = NAME[p.id] ?? p.label;
-  // #101 one way only: the provider's API (copilot: GitHub Models; vertex: Google Cloud; local: the model servers)
+  // #101 one way only: the provider's API (copilot: the Copilot plan; vertex: Google Cloud; local: the model servers)
   const way = p.modes.find((m) => m.id === "api") ?? p.modes[0];
   const wayLabel = way?.label ?? modeLabel(p.id);
   const useForAll = async () => {
@@ -264,7 +264,7 @@ function ProviderRow({
         r.ok
           ? {
               ok: true,
-              text: `${r.text ?? "OK"} · ${(r.ms / 1000).toFixed(1)}s`,
+              text: `${r.text ?? "OK"} · ${(r.ms / 1000).toFixed(1)}s${r.note ? ` · ${r.note}` : ""}`,
             }
           : { ok: false, text: r.error ?? "no answer" },
       );
@@ -361,7 +361,7 @@ function ProviderRow({
           <span className="ss-help ss-full" data-testid="copilot-token-line">
             {signIn ? "Ready with the token of " : "A GitHub token works, or the token of "}
             <a href="#/settings/connections">Connections › GitHub</a>'s “Sign in with GitHub”
-            {signIn ? "." : ": either one runs GitHub Models."}
+            {signIn ? "." : ": either one runs on your Copilot plan."}
           </span>
         )}
         {p.id !== "fake" && fake.length > 0 && state.tone === "ok" && (

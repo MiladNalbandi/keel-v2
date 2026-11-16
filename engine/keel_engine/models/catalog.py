@@ -22,8 +22,8 @@ MODELS: dict[str, list[dict]] = {
              {"id": "fake-lab", "label": "Fake with an ORDER in the spec and an AMEND loop (real checks)"}],
     "claude": [{"id": "opus", "label": "Claude Opus"}, {"id": "sonnet", "label": "Claude Sonnet"}, {"id": "haiku", "label": "Claude Haiku"}],
     "codex": [{"id": "gpt-5.5", "label": "GPT-5.5"}, {"id": "gpt-5.5-mini", "label": "GPT-5.5 mini"}, {"id": "gpt-5-codex", "label": "GPT-5 Codex"}],
-    # GitHub Models (models.github.ai) has no Claude: Claude in Copilot works only in GitHub's own apps
-    "copilot": [{"id": "openai/gpt-5", "label": "GitHub Models: OpenAI GPT-5"}, {"id": "openai/gpt-4.1", "label": "GitHub Models: OpenAI GPT-4.1"}],
+    # GitHub Copilot (your plan): the models come live from the person's plan (harness/providers/copilot_sdk.py)
+    "copilot": [{"id": "auto", "label": "Auto (Copilot picks a model your plan has)"}],
 }
 
 # provider:model -> {in, out, premium}. `premium` = Copilot premium requests per agent call.
@@ -162,11 +162,6 @@ CODEX_BUILTIN = [{"id": "gpt-5.5", "label": "GPT-5.5", "efforts": CODEX_EFFORTS}
                  {"id": "gpt-5.5-mini", "label": "GPT-5.5 mini", "efforts": CODEX_EFFORTS},
                  {"id": "gpt-5-codex", "label": "GPT-5 Codex", "efforts": CODEX_EFFORTS}]
 
-GITHUB_MODELS = [{"id": "openai/gpt-5", "label": "OpenAI GPT-5"}, {"id": "openai/gpt-5-mini", "label": "OpenAI GPT-5 mini"},
-                 {"id": "openai/gpt-4.1", "label": "OpenAI GPT-4.1"}, {"id": "openai/gpt-4.1-mini", "label": "OpenAI GPT-4.1 mini"},
-                 {"id": "deepseek/deepseek-r1", "label": "DeepSeek R1"}, {"id": "meta/llama-4-maverick-17b-128e-instruct-fp8",
-                                                                         "label": "Llama 4 Maverick"}]
-
 _cache: dict[tuple, tuple[float, object]] = {}
 _lock = threading.Lock()
 
@@ -211,7 +206,7 @@ def efforts_for(provider: str, mode: str, model_id: str) -> list[str] | None:
 
         return vertex.efforts(model_id)
     if provider == "copilot":
-        return []           # GitHub Models takes no effort keel knows of
+        return []           # Copilot picks the effort of the model it runs
     return []
 
 
@@ -223,6 +218,12 @@ def effort_for(model: dict | None) -> str | None:
         return None
     allowed = efforts_for(str(model.get("provider") or ""), str(model.get("mode") or "api"), str(model.get("model") or ""))
     return effort if allowed is None or effort in allowed else None
+
+
+def _copilot_models() -> list[dict]:
+    from ..harness.providers.copilot_sdk import cached_models
+
+    return cached_models()
 
 
 def build_catalog(keys: dict | None = None) -> dict:
@@ -241,8 +242,9 @@ def build_catalog(keys: dict | None = None) -> dict:
                    "default": {"mode": "api", "model": "sonnet", "effort": "high"}, "source": "builtin"},
         "codex": {"label": "OpenAI", "modes": {"api": CODEX_BUILTIN}, "efforts": CODEX_EFFORTS,
                   "default": {"mode": "api", "model": "gpt-5.5", "effort": "medium"}, "source": "builtin"},
-        "copilot": {"label": "GitHub Models", "modes": {"api": GITHUB_MODELS}, "efforts": [],
-                    "default": {"mode": "api", "model": GITHUB_MODELS[0]["id"]}, "source": "builtin"},
+        # GitHub Copilot (your plan): the models the plan has, as the last Test or call listed them; auto always works
+        "copilot": {"label": "GitHub Copilot (your plan)", "modes": {"api": _copilot_models()}, "efforts": [],
+                    "default": {"mode": "api", "model": "auto"}, "source": "builtin"},
     }
     vx = vertex.catalog_entry(keys.get("vertex"))
     if vx:
