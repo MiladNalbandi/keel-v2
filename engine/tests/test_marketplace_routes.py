@@ -253,7 +253,7 @@ def test_the_command_line_finds_installs_updates_rolls_back_and_removes(market, 
     assert "removed hello 1.0.0; its data was deleted" in capsys.readouterr().out
     assert not (state.plugins_dir() / "data" / "hello").exists()
     assert main(["get", "nope"]) == 1
-    assert "no plugin nope in the catalogs keel reads. Refresh the catalogs (Control" in capsys.readouterr().err
+    assert "no plugin nope in the catalogs keel reads. Refresh the catalogs (Settings" in capsys.readouterr().err
 
 
 # ------------------------------------------------------------------ the MCP tools

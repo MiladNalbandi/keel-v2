@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { Provider } from "../api";
+import { api, errorParts, type Provider } from "../api";
 import { dur, PROV } from "../format";
 import { canOpen, groupOf, type ScreenId } from "../routes";
 import { usePagesVersion } from "../sdk/registry";
@@ -79,13 +79,46 @@ export function Tabs<T extends string>({ value, options, onChange, label }: {
   );
 }
 
+/** "The Code Review plugin is off for this project" (api Plugins.require): the plugin's name, or null. */
+const OFF_PLUGINS: Record<string, string> = { Database: "db", Git: "git", "CI/CD": "ci", "Code Review": "review" };
+export function pluginOffIn(message: string): { title: string; name: string } | null {
+  const m = /^The (.+) plugin is off for this project/.exec(message);
+  return m ? { title: m[1], name: OFF_PLUGINS[m[1]] ?? m[1].toLowerCase() } : null;
+}
+
+/** 0.31 a page of a plugin that is off for this project: one button turns it on here, then the page loads. */
+function TurnPluginOn({ title, name, onDone }: { title: string; name: string; onDone?: () => void }) {
+  const { pid, toast } = useApp();
+  const [busy, setBusy] = useState(false);
+  if (!pid) return null;
+  const turnOn = async () => {
+    setBusy(true);
+    try {
+      await api.setPlugin(pid, name, true, "project");
+      toast(`${title} is on for this project.`);
+      onDone?.();
+    } catch (e) {
+      toast(errorParts(e).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <button className="btn sm primary" type="button" disabled={busy} onClick={() => void turnOn()}>{busy ? "Turning it on…" : `Turn ${title} on for this project`}</button>;
+}
+
 export function ErrorBox({ error, onRetry }: { error: { message: string; hint?: string; details?: string[] }; onRetry?: () => void }) {
+  const off = pluginOffIn(error.message);
   return (
     <div className="errbox" role="alert">
       <b>{error.message}</b>
       {error.hint && <span className="sub">{error.hint}</span>}
       {!!error.details?.length && <ul className="errlist">{error.details.map((d, i) => <li key={i}>{d}</li>)}</ul>}
-      {onRetry && <div><button className="btn sm" type="button" onClick={onRetry}>Try again</button></div>}
+      {(onRetry || off) && (
+        <div className="row">
+          {off && <TurnPluginOn title={off.title} name={off.name} onDone={onRetry} />}
+          {onRetry && <button className="btn sm" type="button" onClick={onRetry}>Try again</button>}
+        </div>
+      )}
     </div>
   );
 }
