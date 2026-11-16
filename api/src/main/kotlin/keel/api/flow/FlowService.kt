@@ -73,6 +73,15 @@ data class ThreadSettings(
 val READ_ONLY_PHASES = setOf("review")
 
 /** The engine's StartThread (CONTRACT "Shared types"). */
+/** The agents of [start] that would run on the fake model, except [byOthers] (they call no model of keel's). */
+fun fakeAgents(start: StartThread, byOthers: Set<String> = emptySet()): List<String> =
+    start.workflow.steps.flatMap { st -> listOfNotNull(st.agent) + st.lanes.orEmpty().filter { it.kind == "agent" }.mapNotNull { it.sub } }
+        .distinct().filter { it !in byOthers }
+        .filter { (start.models[it] ?: start.models["default"])?.provider == "fake" }
+
+/** The harness agents a connected session stands in for (engine runtime/sessions.py SESSION_AGENTS). */
+val SESSION_AGENTS = setOf("harness-planner", "harness-builder")
+
 data class StartThread(
     val projectId: String,
     val root: String,
@@ -295,7 +304,7 @@ class FlowService(
         // B7 a start that named no branch mode: ship and the other flows that finish the folder's branch continue it
         val mode = if (branch == DEFAULT_BRANCH) defaultBranch(workflowId, start.workflow.basedOn) else branch
         val root = Paths.get(start.root)
-        refuseFake(start, root, allowFake)
+        refuseFake(start, root, allowFake, if (options?.get("runner") == "session") SESSION_AGENTS else emptySet())
         val overlap = if (force == false) refuseOwners(pid, root, title, request, options, if (mode == "continue") projects.branch(root) else null) else null
         // 0.18.57 a read-only flow (review, review-pr: every step in a phase that may edit nothing) reads refs and works
         // in throwaway worktrees the engine removes: it never gets a branch or a worktree of its own, never checks
@@ -450,10 +459,14 @@ class FlowService(
     private fun isDemo(root: Path) = root.toAbsolutePath().normalize() == props.dataDir.resolve("demo").toAbsolutePath().normalize()
 
     /** The fake model writes example files and commits them; on a real project that must be a conscious choice. */
-    private fun refuseFake(start: StartThread, root: Path, allowFake: Boolean) {
+    /**
+     * [byOthers] the agents that call no model of keel's in this flow: 0.29.1 with a connected session (options.runner
+     * "session") the session plans and builds (engine runtime/sessions.py SESSION_AGENTS), so a keel without any key
+     * (the first start) may run it.
+     */
+    private fun refuseFake(start: StartThread, root: Path, allowFake: Boolean, byOthers: Set<String> = emptySet()) {
         if (allowFake || props.fakeOnRealProjects || isDemo(root)) return
-        val used = start.workflow.steps.flatMap { st -> listOfNotNull(st.agent) + st.lanes.orEmpty().filter { it.kind == "agent" }.mapNotNull { it.sub } }.distinct()
-        val fake = used.filter { (start.models[it] ?: start.models["default"])?.provider == "fake" }
+        val fake = fakeAgents(start, byOthers)
         if (fake.isEmpty()) return
         throw Conflict(
             "These agents would use the fake model: ${fake.joinToString()}. It writes example files, not real code.",

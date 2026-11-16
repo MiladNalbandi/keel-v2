@@ -29,8 +29,12 @@ keel runs. The only thing the computer needs is **git**.
 - **Open in Browser** (File menu): keel in your own browser, signed in.
 - **New Flow** (File menu, ⌘N / Ctrl+N) opens Start a flow; the **Go** menu opens keel's main places (Home, Inbox,
   Flow, Code, KeelBot, Live Agents), All Pages, Add Features and Settings.
-- **Quit:** keel stops with the app. When agents are working, the app asks first (their step starts again later).
-  On macOS, closing the window keeps keel running; the Dock icon opens it again.
+- **Closing the window keeps keel running** (its flows, its MCP, "waits for you" notifications): the icon in the tray
+  (Linux) or menu bar (macOS) opens keel again, shows what runs now, turns notifications off and on, and has
+  **Quit keel**. File › "Keep keel Running When the Window Is Closed" turns this off; "Start keel When I Log In" starts
+  it in the background (macOS login item; Linux `~/.config/autostart/keel.desktop`).
+- **Quit keel** (the icon, Ctrl+Q, ⌘Q) stops keel. When agents are working, the app asks first (their step starts
+  again later). Opening the app again while it runs shows its window.
 - **Help menu:** restart keel, restart in safe mode (only the plugins that came with keel), the logs, the sign-in
   key for your own terminal apps (keel TUI), report a problem.
 - **A new version:** keel's update notice says when one is out; download the new app and open it. Your data stays.
@@ -53,7 +57,9 @@ reach it (127.0.0.1).
 - **No Windows yet:** keel's engine and its start scripts need a POSIX system.
 - **git is not inside the app.** On macOS the app offers Apple's Command Line Tools; on Linux it shows the install
   command.
-- No tray icon, no start at login, no `keel2` commands against the app's keel yet.
+- No `keel2` commands against the app's keel. Its MCP server is `<keel folder>/keel-mcp` (the app writes it at each
+  start): Help › **Connect Claude Code or OpenCode…** shows and copies the command
+  (`claude mcp add keel -- "<keel folder>/keel-mcp" --write`).
 
 ## Build it
 
