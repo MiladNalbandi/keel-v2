@@ -57,6 +57,10 @@ WRITE: list[tuple[str, re.Pattern[str]]] = [
     ("PUT", re.compile(r"/api/org/orgs/[^/]+")),
     ("POST", re.compile(r"/api/org/orgs/[^/]+/missions")),
     ("POST", re.compile(r"/api/org/missions/[^/]+/(stop|accept)")),
+    # 0.29 a connected session (keel_session_*): register, poll for the next work order, report on a flow's step
+    ("POST", re.compile(r"/api/sessions/open")),
+    ("POST", re.compile(r"/api/sessions/[^/]+/next")),
+    ("POST", re.compile(r"/api/sessions/flows/[^/]+/(plan|todo|done)")),
 ]
 
 

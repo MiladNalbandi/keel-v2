@@ -84,3 +84,18 @@ def test_the_flow_doctor_goes_to_the_engine_and_an_mcp_reader_may_read_it_but_no
     n = len(keel.engine.seen)
     no = keel.client.delete("/api/flow-doctor/crashes", headers={"X-Keel-Mcp-Token": read})
     assert no.status_code == 403 and len(keel.engine.seen) == n
+
+
+def test_connected_sessions_go_to_the_engine_and_need_the_write_level_to_report(keel):
+    """0.29 a connected session's routes live in the engine: /api/sessions* → /sessions*. Reading who is connected is
+    read; registering, polling for a work order and reporting on a flow change flow state: write."""
+    r = keel.client.get("/api/sessions?project=shop", headers={"X-Keel-Token": TOKEN})
+    assert r.status_code == 200 and r.json()["path"] == "/sessions" and keel.back.seen == []
+    tok = {lv: {"X-Keel-Mcp-Token": keel.ctx.mcp_tokens.token_for(lv)} for lv in ("read", "write")}
+    assert keel.client.get("/api/sessions?project=shop", headers=tok["read"]).status_code == 200
+    for path in ("/api/sessions/open", "/api/sessions/s1/next", "/api/sessions/flows/t1/plan",
+                 "/api/sessions/flows/t1/todo", "/api/sessions/flows/t1/done"):
+        n = len(keel.engine.seen)
+        assert keel.client.post(path, json={}, headers=tok["read"]).status_code == 403, path
+        assert len(keel.engine.seen) == n
+        assert keel.client.post(path, json={}, headers=tok["write"]).status_code == 200, path
