@@ -65,4 +65,24 @@ describe("Add features (keel 0.28)", () => {
     expect(within(drawer).getByDisplayValue("New keel feature: Release notes")).toBeInTheDocument();
     expect(within(drawer).getByDisplayValue(/Build a keel plugin called "Release notes"\. A page that writes release notes/)).toBeInTheDocument();
   });
+
+  it("0.31 keel Product is in every keel, off until turned on: a Beta card with On · Off and Restart keel now", async () => {
+    const user = userEvent.setup();
+    db.market.installed = [
+      plugin({ name: "product", title: "keel Product", summary: "Initiatives, teams and product docs.", version: "0.1.0-beta.1",
+        on: false, status: "off", parts: ["engine", "api", "web"] }),
+    ];
+    location.hash = "#/features";
+    render(<App />);
+    const card = (await screen.findByText("keel Product")).closest(".ft-card") as HTMLElement;
+    expect(within(card).getByText("Beta")).toBeInTheDocument();
+    expect(card).toHaveTextContent("Off. Turn it on to use it.");
+    const sw = within(card).getByRole("group", { name: "keel Product for this keel" });
+    await user.click(within(sw).getByRole("button", { name: "On" }));
+    await waitFor(() => expect(db.calls.some((c) => c.path === "/api/plugins/product" && (c.body as { on: boolean }).on === true)).toBe(true));
+    const restart = await within(card).findByRole("button", { name: "Restart keel now" });
+    expect(card).toHaveTextContent("Applies when keel restarts.");
+    await user.click(restart);
+    await waitFor(() => expect(db.calls.some((c) => c.path === "/api/plugins/restart" && (c.body as { now?: boolean }).now === true)).toBe(true));
+  });
 });

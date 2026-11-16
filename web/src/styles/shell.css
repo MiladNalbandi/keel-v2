@@ -159,6 +159,7 @@
 .ft-ini { width: 30px; height: 30px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-weight: 700; flex: none; }
 .ft-what { margin: 0; font-size: 13.5px; }
 .ft-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.ft-switch { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .ft-more { margin: 0; }
 
 @media (max-width: 900px) {

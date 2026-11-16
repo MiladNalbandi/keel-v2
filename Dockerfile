@@ -2,13 +2,13 @@
 # Everything is installed or built inside the image; nothing comes from your computer except this repo's source.
 # keel v1 is a separate project and is not in the image (keel2 start --with-keel-v1 can mount one for its MCP server).
 #
-#   docker build -t keel-v2 .                                        (CodeGraph included, every plugin in plugins/ inside)
+#   docker build -t keel-v2 .                                        (every plugin in plugins/ and keel Product inside)
 #   docker build --build-arg INSTALL_CLIS=0 -t keel-v2:slim .        (no CodeGraph)
-#   docker build --build-arg EDITION=product -t keel-v2:product .    (also the keel Product plugin inside: beta)
 #   docker build --build-arg EDITION=core -t keel-v2:core .          (keel's core only, no plugin inside)
 #   docker build --build-arg PLUGINS=lock -t keel-v2 .               (the released plugins of plugins.lock, not plugins/)
-# EDITION (docs/plugins/11-step3-contract.md): full (the default; the old value dev means full) bakes every plugin in
-# plugins/ into /opt/keel-v2/plugins, product = full + keel Product, core = none.
+# EDITION (docs/plugins/11-step3-contract.md): full (the default; the old values dev and product mean full) bakes every
+# plugin in plugins/ and keel Product (beta, off until a person turns it on: starts_off) into /opt/keel-v2/plugins;
+# core = none.
 # PLUGINS (docs/plugins/16-steps5-7-contract.md, step 5): source (the default) builds those plugins from this repo; lock
 # takes the released, signed plugins that plugins.lock lists instead (each checked: sha256, signature, lint).
 # Run:
@@ -28,14 +28,14 @@ COPY docs/keel-video.jpg /src/docs/keel-video.jpg
 RUN npm run build
 # The plugins' pages are their web parts: each built on its own with web's node_modules (build:plugins writes
 # plugins/<name>/web/dist, build:product writes product/web/dist) and packed by the plugins stage. None with
-# EDITION=core; keel Product's only with EDITION=product.
+# EDITION=core.
 COPY plugins /src/plugins
 COPY product/web /src/product/web
 # with PLUGINS=lock the plugins come built in their releases: nothing to build here
 ARG PLUGINS=source
 RUN rm -rf /src/product/web/dist /src/plugins/*/web/dist && mkdir -p /src/product/web/dist \
     && if [ "$EDITION" != "core" ] && [ "$PLUGINS" != "lock" ]; then npm run build:plugins; fi \
-    && if [ "$EDITION" = "product" ] && [ "$PLUGINS" != "lock" ]; then npm run build:product; fi
+    && if [ "$EDITION" != "core" ] && [ "$PLUGINS" != "lock" ]; then npm run build:product; fi
 
 # ---------- keel TUI (cli/): keel in the terminal, one file (dist/keel-tui.mjs) that needs only Node ----------
 # It uses the web's own typed client (no copy): the api, inbox and rules clients and KeelBot's, bundled in, and the
@@ -70,18 +70,16 @@ RUN ./gradlew --no-daemon -q bootJar -x test && cp build/libs/*.jar /app.jar
 ARG PLUGINS=source
 RUN mkdir -p /plugin && case "$PLUGINS/$EDITION" in \
       lock/* | */core) ;; \
-      */product) ./gradlew --no-daemon -q pluginJars productPluginJar ;; \
-      *) ./gradlew --no-daemon -q pluginJars ;; \
+      *) ./gradlew --no-daemon -q pluginJars productPluginJar ;; \
     esac && find build/libs -name 'keel-plugin-*.jar' -exec cp {} /plugin/ \;
 
 # ---------- the plugins: /out/<name>/<version>/ ----------
 # PLUGINS=source (the default): each packed by scripts/build-plugin.sh (the same script as on a computer, with the
-# parts built above). Every plugins/<name> unless EDITION=core, and keel Product (product/build-plugin.sh) with
-# EDITION=product.
+# parts built above). Every plugins/<name> and keel Product (product/build-plugin.sh) unless EDITION=core.
 # PLUGINS=lock: the released plugins plugins.lock lists instead (docs/plugins/16-steps5-7-contract.md, step 5).
 # scripts/fetch-locked-plugins.sh downloads each .kplug and its .minisig, checks the sha256, the signature with keel's
-# public key content/trust/keel.pub (keel-plugin verify) and keel-plugin lint, and unpacks it the same way. keel
-# Product's line only with EDITION=product. PLUGINS_LOCK_ALLOW_HTTP=1 allows http:// to this computer (tests only).
+# public key content/trust/keel.pub (keel-plugin verify) and keel-plugin lint, and unpacks it the same way (keel
+# Product's line too). PLUGINS_LOCK_ALLOW_HTTP=1 allows http:// to this computer (tests only).
 # /out stays empty with EDITION=core.
 # The lock and the key that checks its files (content/trust/keel.pub, when it is there: the whole small content/ folder,
 # since a file that may be missing cannot be copied on its own). A test gives its own folder with plugins.lock and
@@ -112,16 +110,15 @@ RUN set -e; mkdir -p /out /tmp/plugins; \
       rm -rf /var/lib/apt/lists/*; \
       printf '#!/bin/sh\nPYTHONPATH=/src/tools/keel-plugin exec python3 -m keel_plugin "$@"\n' > /usr/local/bin/keel-plugin; \
       chmod +x /usr/local/bin/keel-plugin; \
-      skip=product; if [ "$EDITION" = "product" ]; then skip=""; fi; \
       PLUGINS_LOCK_ALLOW_HTTP="$PLUGINS_LOCK_ALLOW_HTTP" bash scripts/fetch-locked-plugins.sh lock/plugins.lock /tmp/plugins \
-        --pub lock/content/trust/keel.pub --skip "$skip"; \
+        --pub lock/content/trust/keel.pub --skip ""; \
     else \
       if [ "$EDITION" != "core" ]; then \
         for d in plugins/*/; do \
           if [ -f "$d/keel-plugin.yml" ]; then bash scripts/build-plugin.sh "$d" /tmp/plugins --no-build; fi; \
         done; \
       fi; \
-      if [ "$EDITION" = "product" ]; then bash product/build-plugin.sh /tmp/plugins --no-build; fi; \
+      if [ "$EDITION" != "core" ]; then bash product/build-plugin.sh /tmp/plugins --no-build; fi; \
     fi; \
     find /tmp/plugins -mindepth 1 -maxdepth 1 -type d -exec mv {} /out/ \;
 
@@ -217,12 +214,13 @@ COPY --from=api /app.jar /opt/api/app.jar
 COPY content /opt/keel-v2/content
 # keel TUI: keel2 tui runs it here with docker exec (keel-tui on the PATH too)
 COPY --from=cli /src/cli/dist/keel-tui.mjs /opt/keel-v2/cli/keel-tui.mjs
-# The edition only from here on (docs/plugins/19-step6-report.md): every layer above is the same for full, product and
+# The edition only from here on (docs/plugins/19-step6-report.md): every layer above is the same for full and
 # core, so the images share them (one download when a person changes edition, one build cache).
 ARG EDITION=full
+# the old edition names: dev and product are full now (keel Product is inside every full image)
 ENV KEEL_EDITION=${EDITION}
 # The plugins inside the image (docs/plugins): <name>/<version>/keel-plugin.yml. Every plugin of plugins/ (and keel
-# Product with EDITION=product; none with EDITION=core). keel-start resolves them at every start, together with the
+# Product, off until a person turns it on; none with EDITION=core). keel-start resolves them at every start, together with the
 # ones a person installed (/data/plugins/store).
 COPY --from=plugins /out /opt/keel-v2/plugins
 # the plugins' engine parts are read-only for keel's user too (see the engine above): their bytecode is made here

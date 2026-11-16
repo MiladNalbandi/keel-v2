@@ -17,7 +17,7 @@
 # A plugin that a locked plugin requires must be in the lock too, in a version that fits. All or nothing: at the first
 # problem it stops, and <out-dir> gets nothing.
 #
-#   --skip a,b   leave these out (the Dockerfile leaves keel Product out unless EDITION=product)
+#   --skip a,b   leave these out (the Dockerfile leaves nothing out since 0.31: keel Product is in every full image)
 #   --check      only check the lock's lines (no download)
 # KEEL_PLUGIN: a keel-plugin command (default: keel-plugin on the PATH, else uv run --project tools/keel-plugin).
 # Needs curl, tar, python3 and keel-plugin (python3 with cryptography).

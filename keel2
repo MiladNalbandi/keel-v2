@@ -895,14 +895,14 @@ cmd_status() {
   info "  data       volume $VOLUME"
 }
 
-# The edition the running image was built as (its KEEL_EDITION: core, full or product; an image from before the plugins
-# has none, and has every part inside).
+# The edition the running image was built as (its KEEL_EDITION: core or full; product was its own edition before 0.31;
+# an image from before the plugins has none, and has every part inside).
 edition_text() {
   local e; e="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$NAME" 2>/dev/null | sed -n 's/^KEEL_EDITION=//p' | head -1)"
   case "$e" in
     core)    echo "core (keel's core only, no plugin inside: add them in Control › Plugins)" ;;
-    product) echo "product (every plugin inside, and keel Product, beta)" ;;
-    full|dev|"") echo "full (every plugin inside)" ;;
+    product) echo "product (an old edition: keel2 update moves it to the full image, which has keel Product inside)" ;;
+    full|dev|"") echo "full (every plugin inside, and keel Product: turn it on in Add features)" ;;
     *)       echo "$e" ;;
   esac
 }
@@ -1458,17 +1458,31 @@ cmd_limits() {
 }
 
 # newest_tag <image>: the moving tag of a pinned keel release image (the tags .github/workflows/docker.yml puts on a
-# release): :1.2.3 and :1.2 -> :latest, :1.2.3-core -> :core, :1.2.3-product-beta -> :product-beta. Nothing for any
-# other image (another registry, a staging tag, a digest, a local build).
+# release): :1.2.3 and :1.2 -> :latest, :1.2.3-core -> :core. 0.31: the old product edition (:product-beta,
+# :1.2.3-product-beta) -> :latest, the full image, which has keel Product inside. Nothing for any other image (another
+# registry, a staging tag, a digest, a local build).
 newest_tag() {
   local repo="${1%:*}" tag="${1##*:}"
   [ "$repo" = "${CORE_IMAGE%:*}" ] && [ "$repo" != "$1" ] || return 0
+  [ "$tag" = product-beta ] && { echo "$repo:latest"; return 0; }
   [[ "$tag" =~ ^v?[0-9]+\.[0-9]+(\.[0-9]+)?(-.+)?$ ]] || return 0
   case "$tag" in
-    *-product-beta) echo "$repo:product-beta" ;;
     *-core)         echo "$repo:core" ;;
     *)              echo "$repo:latest" ;;
   esac
+}
+
+# 0.31 a keel that ran the old product edition had keel Product on: the full image has it inside but off until a
+# person turns it on, so keel2 update turns it on in the data before the new image starts (installed.json).
+keep_product_on() {
+  local e; e="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$NAME" 2>/dev/null | sed -n 's/^KEEL_EDITION=//p' | head -1)"
+  [ "$e" = product ] || return 0
+  container_running || return 0
+  if docker exec "$NAME" keel-engine plugins set product on >/dev/null 2>&1; then
+    info "keel Product stays on (it is inside the full image now)."
+  else
+    warn "Could not keep keel Product on: turn it on in Add features after the update."
+  fi
 }
 
 cmd_update() {
@@ -1477,9 +1491,9 @@ cmd_update() {
   [ -n "${KEEL_HOME:-}" ] && warn "KEEL_HOME is set but ignored since 0.4.1: keel v2 does not use keel v1 (see: keel2 help, --with-keel-v1)."
   # a keel started with --core gets the newest core image
   if container_exists && [ "$(label core)" = 1 ] && [ -z "${KEEL_IMAGE:-}" ]; then IMAGE="$CORE_IMAGE"; fi
-  # a keel that runs another image keeps it (its edition: :product-beta stays :product-beta); a pinned version of
-  # keel's own image (:0.18.74, :0.18.74-product-beta) moves to its edition's newest release: pulling the same pinned
-  # tag again never updated it. KEEL_IMAGE=<image> keel2 update picks any image (also a pinned one, on purpose).
+  # a keel that runs another image keeps it; a pinned version of keel's own image (:0.18.74) moves to its edition's
+  # newest release: pulling the same pinned tag again never updated it. 0.31: the old product edition (:product-beta,
+  # :0.18.74-product-beta) moves to :latest, the full image with keel Product inside, and keeps Product on. KEEL_IMAGE=<image> keel2 update picks any image (also a pinned one, on purpose).
   if container_exists && [ -z "${KEEL_IMAGE:-}" ] && [ "$(label core)" != 1 ]; then
     local running newest; running="$(docker inspect -f '{{.Config.Image}}' "$NAME" 2>/dev/null || true)"
     newest="$(newest_tag "$running")"
@@ -1506,6 +1520,7 @@ cmd_update() {
       ok "keel runs the newest image already ($IMAGE): nothing to restart."
       return 0
     fi
+    keep_product_on
     KEEL_TAKE_NEW_IMAGE=1 cmd_restart
   else ok "updated. Start keel with: keel2 start /path/to/project"; fi
 }

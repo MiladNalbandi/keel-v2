@@ -3,10 +3,11 @@
 #   ghcr.io/miladnalbandi/keel-v2   the old name, while the secret LEGACY_GHCR_TOKEN exists (a token of MiladNalbandi
 #                                   with write:packages), so installs made before a move keep getting updates
 #   docker.io/<user>/keel-v2        when the secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN exist
-# Three editions, each for amd64 and arm64:
-#   full     :<version>, :<major>.<minor>, :latest (not on a pre-release tag such as v0.18.2-rc.1)
+# Two editions, each for amd64 and arm64:
+#   full     :<version>, :<major>.<minor>, :latest (not on a pre-release tag such as v0.18.2-rc.1); every plugin and keel
+#            Product (beta, off until a person turns it on). 0.31: :product-beta points here too, so a keel that ran the
+#            old product edition gets the full image, which has Product inside.
 #   core     :<version>-core, :core (with :latest)                      keel's core only: keel2 start --core
-#   product  :<version>-product-beta, :product-beta (never :latest; not moved by a pre-release)  keel Product, beta
 #
 # v0.18.2 fast builds: every edition × architecture builds at the same time on its OWN kind of machine (arm64 on
 # GitHub's arm runners: no QEMU emulation); a short merge job per edition joins the two architectures into one
@@ -67,7 +68,7 @@ jobs:
           missing=()
           find_missing() {
             missing=()
-            for e in full core product; do for a in amd64 arm64; do
+            for e in full core; do for a in amd64 arm64; do
               if [ "$release" = 1 ] && docker buildx imagetools inspect "$image:stage-$SHA-$e-$a" > /dev/null 2>&1; then
                 echo "staging image there: $e $a"
               else
@@ -168,7 +169,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        edition: [full, core, product]
+        edition: [full, core]
     runs-on: ubuntu-latest
     env:
       HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
@@ -189,7 +190,7 @@ jobs:
           username: ${{ env.LEGACY_USER }}
           password: ${{ secrets.LEGACY_GHCR_TOKEN }}
       - uses: docker/login-action@v3
-        if: env.HAS_DOCKERHUB == 'true' && matrix.edition != 'product'
+        if: env.HAS_DOCKERHUB == 'true'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -203,16 +204,15 @@ jobs:
           image="$(echo 'ghcr.io/${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
           names="$image"
           if [ "$HAS_LEGACY" = "true" ] && [ "$image" != "$LEGACY_IMAGE" ]; then names="$names $LEGACY_IMAGE"; fi
-          if [ "$HAS_DOCKERHUB" = "true" ] && [ "$EDITION" != product ]; then names="$names docker.io/${{ secrets.DOCKERHUB_USERNAME }}/keel-v2"; fi
+          if [ "$HAS_DOCKERHUB" = "true" ]; then names="$names docker.io/${{ secrets.DOCKERHUB_USERNAME }}/keel-v2"; fi
           case "$REF" in v*) version="${REF#v}" ;; *) echo "not a version tag ($REF): the images stay untagged"; exit 0 ;; esac
           pre=0; case "$version" in *-*) pre=1 ;; esac
           minor="$(echo "$version" | cut -d. -f1-2)"
           tags=()
           for n in $names; do
             case "$EDITION" in
-              full)    tags+=("$n:$version"); [ $pre = 1 ] || tags+=("$n:$minor" "$n:latest") ;;
+              full)    tags+=("$n:$version"); [ $pre = 1 ] || tags+=("$n:$minor" "$n:latest" "$n:product-beta") ;;
               core)    tags+=("$n:$version-core"); [ $pre = 1 ] || tags+=("$n:core") ;;
-              product) tags+=("$n:$version-product-beta"); [ $pre = 1 ] || tags+=("$n:product-beta") ;;
             esac
           done
           # the sources: the staging image of THIS commit for each architecture (built by the release-branch push or by build above)

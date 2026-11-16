@@ -9,9 +9,12 @@ analyst per repo), knows which team owns which repo (by hand or from CODEOWNERS)
 commit in its own product repo, and hands each story to its repo's project as a keel task with its acceptance
 criteria, so a developer starts it as a normal keel flow.
 
-**Status: beta (0.1.0-beta.1).** It is a plugin package (`product-<version>.kplug`), not part of keel's own image, and
-it never moves `:latest`. The product edition image (`EDITION=product`) has it inside, in `/opt/keel-v2/plugins`. Do not
-use it for real work until its release gates pass.
+**Status: beta (0.1.0-beta.1).** It is a plugin package (`product-<version>.kplug`). Since keel 0.31 it is inside every
+keel: the full Docker image, the native install and the keel app (`/opt/keel-v2/plugins` in the image), **off until a
+person turns it on** (`starts_off: true` in its manifest). Turn it on in **Add features** (the keel Product card: On ·
+Off, then Restart keel now) or in Settings › Plugins; off again the same way. There is no separate product image any
+more: an old `:product-beta` keel moves to `:latest` with `keel2 update`, and Product stays on. Do not use it for real
+work until its release gates pass.
 
 ## How it is versioned
 
@@ -53,7 +56,7 @@ The design is docs/product/pm-jira-teams-design.md. In short:
 ## Modes
 
 Settings › General › _What this keel does_: **Dev only**, **Product only** or **Product and Dev** (auto = both when
-Product is installed). With both, each person picks a View (All, Product, Dev) under the project picker. Turning a part
+Product is on). With both, each person picks a View (All, Product, Dev) under the project picker. Turning a part
 off deletes nothing; the product api answers 409 while Product is off.
 
 ## Layout

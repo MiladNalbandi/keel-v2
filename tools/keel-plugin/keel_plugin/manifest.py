@@ -22,7 +22,7 @@ PACKAGE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SPEC_PART = re.compile(r"^(>=|<=|==|>|<)\s*[0-9][0-9.]*$")
 SUM_LINE = re.compile(r"^([0-9a-fA-F]{64}) [ *](.+)$")
 TOP_KEYS = {"schema", "name", "title", "version", "publisher", "summary", "repo", "license", "requires", "optional",
-            "parts", "per_project", "contributes", "permissions"}
+            "parts", "per_project", "starts_off", "contributes", "permissions"}
 PERMISSIONS = {"secrets", "network", "workspace", "agent_tools", "flows", "tables", "pages"}
 
 
@@ -442,6 +442,8 @@ def check(data: dict) -> tuple[Manifest | None, list[str], list[str]]:
         c.warn(f"version {version} is a pre-release: the catalog lists x.y.z versions")
     if not isinstance(data.get("per_project", False), bool):
         c.error("per_project must be true or false")
+    if not isinstance(data.get("starts_off", False), bool):
+        c.error("starts_off must be true or false")
     title = _text(c, data, "title")
     publisher = _text(c, data, "publisher", "the catalog needs it (it must match the key that signs the file)")
     summary = _text(c, data, "summary", "the catalog shows it")

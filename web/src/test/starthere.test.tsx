@@ -214,7 +214,7 @@ describe("Settings › Access", () => {
     expect(screen.queryByRole("checkbox", { name: /Docker access/ })).toBeNull();
   });
 
-  it("the AI tools keel saw, and the updates part: check every day, the channel, the command", async () => {
+  it("the AI tools keel saw, and the updates part: check every day and the command", async () => {
     const user = userEvent.setup();
     db.mcpClients = [claudeCode, { ...claudeCode, client: "keel TUI 0.18.66", via: "tui", level: "you", today: 0 }];
     db.updates = { ...db.updates, latest: "0.18.67", newer: true, image: "ghcr.io/miladnalbandi/keel-v2:0.18.66",
@@ -231,8 +231,9 @@ describe("Settings › Access", () => {
     expect(within(updates).getByLabelText("update command")).toHaveTextContent("KEEL_IMAGE=ghcr.io/miladnalbandi/keel-v2:0.18.67 keel2 update");
     await user.click(within(updates).getByRole("checkbox", { name: "Check every day" }));
     await waitFor(() => expect(db.calls.some((c) => c.path === "/api/updates/settings" && (c.body as { check_daily: boolean }).check_daily === false)).toBe(true));
-    await user.selectOptions(within(updates).getByRole("combobox"), "product");
-    await waitFor(() => expect(db.updates.channel).toBe("product"));
+    // 0.31 one channel: keel Product is inside every image, so there is no channel to pick
+    expect(within(updates).queryByRole("combobox")).toBeNull();
+    expect(updates).toHaveTextContent("keel Product is inside");
     await user.click(within(updates).getByRole("button", { name: "Check now" }));
     await waitFor(() => expect(db.calls.some((c) => c.path === "/api/updates/check")).toBe(true));
   });

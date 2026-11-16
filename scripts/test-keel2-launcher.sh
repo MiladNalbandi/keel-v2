@@ -60,6 +60,7 @@ case "$1" in
       "{{.Config.Image}}") cat "$S/cfgimage" ;;
       *keel2.project*) cat "$S/project" ;;
       *keel2.docker*) echo "${FAKE_LABEL_DOCKER:-0}" ;;
+      *Config.Env*) [ -n "${FAKE_EDITION:-}" ] && echo "KEEL_EDITION=$FAKE_EDITION" ;;
     esac
     exit 0 ;;
   port) [ "$(cat "$S/running" 2>/dev/null)" = true ] && echo "127.0.0.1:${FAKE_RUNNING_PORT:-$PORT}"; exit 0 ;;
@@ -195,7 +196,8 @@ no_if "other image: :latest is not pulled" called "docker pull $LATEST"
 yes_if "other image: its own image is pulled" called "docker pull ghcr.io/miladnalbandi/keel-v2-product:1.2"
 # 0.19.2 a pinned version of keel's own image moves to its edition's newest release (the same tag again never updated)
 R=ghcr.io/miladnalbandi/keel-v2
-for pin in "0.18.74-product-beta:product-beta" "0.18.68:latest" "0.18:latest" "0.18.74-core:core"; do
+# 0.31 the old product edition moves to :latest (the full image has keel Product inside)
+for pin in "0.18.74-product-beta:latest" "0.18.68:latest" "0.18:latest" "0.18.74-core:core"; do
   reset; seed "$R:${pin%:*}" sha256:old
   run_k -- update
   yes_if "pinned :${pin%:*}: the newest :${pin##*:} is pulled" called "docker pull $R:${pin##*:}$"
@@ -203,8 +205,12 @@ for pin in "0.18.74-product-beta:product-beta" "0.18.68:latest" "0.18:latest" "0
   yes_if "pinned :${pin%:*}: keel restarts on :${pin##*:}" called "docker run .*$R:${pin##*:}$"
 done
 reset; seed "$R:product-beta" sha256:old
-run_k -- update
-yes_if "product-beta stays product-beta" called "docker pull $R:product-beta$"
+run_k FAKE_EDITION=product -- update
+yes_if "0.31 :product-beta moves to :latest" called "docker pull $R:latest$"
+yes_if "0.31 keel Product stays on (the old product edition had it on)" called "docker exec keel-test-launcher keel-engine plugins set product on"
+reset; seed "$R:0.18.68" sha256:old
+run_k FAKE_EDITION=full -- update
+no_if "a full keel's update leaves keel Product as it is" called "plugins set product"
 reset; seed "$R:0.18.74-product-beta" sha256:old
 run_k KEEL_IMAGE="$R:0.18.74-product-beta" -- update
 yes_if "KEEL_IMAGE pins a version on purpose" called "docker pull $R:0.18.74-product-beta$"
