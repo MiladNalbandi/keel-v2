@@ -62,8 +62,11 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
     private val prSub = KeelUi.muted("")
     private val ci = KeelUi.muted("")
     private val tabs = JBTabbedPane()
-    private val files = CollectionListModel<ChangedFile>()
+    private val files = CollectionListModel<dev.keel.jetbrains.api.FileRow>()
     private val fileList = JBList(files)
+    private val fileSearch = com.intellij.ui.SearchTextField(false)
+    private val byFolder = com.intellij.ui.components.JBCheckBox("Folders", true)
+    private val closedFolders = mutableSetOf<String>()
     private val threads = CollectionListModel<ReviewThread>()
     private val threadList = JBList(threads)
     private val chips = mutableMapOf<ThreadState2, JToggleButton>()
@@ -181,11 +184,29 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
         fileList.emptyText.text = "No changed files"
         fileList.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
-                val f = fileList.selectedValue ?: return
-                openChanged(f, diff = e.clickCount > 1 && e.isAltDown)
+                when (val row = fileList.selectedValue ?: return) {
+                    is dev.keel.jetbrains.api.FileRow.Folder -> {
+                        if (!closedFolders.remove(row.path)) closedFolders += row.path
+                        fillFiles()
+                    }
+                    is dev.keel.jetbrains.api.FileRow.File -> openChanged(row.file, diff = e.clickCount > 1 && e.isAltDown)
+                }
             }
         })
-        tabs.addTab("Changed files", JBScrollPane(fileList))
+        fileSearch.textEditor.emptyText.text = "Search files (words, or *.php)"
+        fileSearch.addDocumentListener(object : com.intellij.ui.DocumentAdapter() {
+            override fun textChanged(e: javax.swing.event.DocumentEvent) = fillFiles()
+        })
+        byFolder.isOpaque = false
+        byFolder.addActionListener { fillFiles() }
+        val fp = JPanel(BorderLayout())
+        fp.add(JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(4)
+            add(fileSearch, BorderLayout.CENTER)
+            add(byFolder, BorderLayout.EAST)
+        }, BorderLayout.NORTH)
+        fp.add(JBScrollPane(fileList), BorderLayout.CENTER)
+        tabs.addTab("Changed files", fp)
 
         val tp = JPanel(BorderLayout())
         val group = ButtonGroup()
@@ -235,10 +256,9 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
         prSub.text = listOfNotNull(v.author, "${v.base} ← ${v.branch}", if (v.draft) "draft" else null).joinToString(" · ")
         ci.text = ciSummary(v.checks)
         prNote.text = session.error.orEmpty()
-        files.replaceAll(v.files)
+        fillFiles()
         val counts = v.threads.groupingBy { threadStateOf(it, v.me) }.eachCount()
         chips.forEach { (s, b) -> b.text = "${s.label} · ${counts[s] ?: 0}" }
-        tabs.setTitleAt(0, "Changed files (${v.files.size})")
         summary.text = "+${v.added} −${v.removed} · ${v.files.size} file${if (v.files.size == 1) "" else "s"} · ${v.threads.size} thread${if (v.threads.size == 1) "" else "s"}" +
             if (mode.active && mode.prKey == v.key) " · ${mode.viewed.size} viewed" else ""
         tabs.setTitleAt(1, "Threads ${v.threads.size}")
@@ -246,6 +266,15 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
         fillThreads()
         fillPending(v)
         fillOverview(v)
+    }
+
+    private fun fillFiles() {
+        val v = session.view ?: return
+        val q = fileSearch.text.trim()
+        files.replaceAll(dev.keel.jetbrains.api.fileRows(v.files, q, byFolder.isSelected, closedFolders))
+        fileList.emptyText.text = if (q.isEmpty()) "No changed files" else "No file matches \"$q\""
+        val shown = v.files.count { dev.keel.jetbrains.api.fileMatches(it.path, q) }
+        tabs.setTitleAt(0, if (q.isEmpty()) "Changed files (${v.files.size})" else "Changed files ($shown of ${v.files.size})")
     }
 
     private fun fillThreads() {
@@ -367,16 +396,29 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
         mode.markViewed(f.path)
     }
 
-    private inner class FileRenderer : ListCellRenderer<ChangedFile> {
-        override fun getListCellRendererComponent(list: JList<out ChangedFile>, value: ChangedFile, index: Int, sel: Boolean, focus: Boolean): Component {
+    private inner class FileRenderer : ListCellRenderer<dev.keel.jetbrains.api.FileRow> {
+        override fun getListCellRendererComponent(list: JList<out dev.keel.jetbrains.api.FileRow>, row: dev.keel.jetbrains.api.FileRow, index: Int, sel: Boolean, focus: Boolean): Component {
+            if (row is dev.keel.jetbrains.api.FileRow.Folder) {
+                return KeelUi.row().apply {
+                    border = JBUI.Borders.empty(5, 4, 2, 6)
+                    isOpaque = true
+                    background = if (sel) UIUtil.getListSelectionBackground(focus) else UIUtil.getListBackground()
+                    add(com.intellij.ui.components.JBLabel(if (row.open) "▾" else "▸"))
+                    add(com.intellij.ui.components.JBLabel(com.intellij.icons.AllIcons.Nodes.Folder))
+                    add(KeelUi.bold(row.path).apply { if (sel) foreground = UIUtil.getListSelectionForeground(focus) })
+                    add(KeelUi.muted("${row.count}"))
+                }
+            }
+            val fr = row as dev.keel.jetbrains.api.FileRow.File
+            val value = fr.file
             val st = dev.keel.jetbrains.api.prFileStatusOf(value.status)
             val p = KeelUi.row().apply {
-                border = JBUI.Borders.empty(3, 6)
+                border = JBUI.Borders.empty(3, if (fr.indent) 26 else 6, 3, 6)
                 isOpaque = true
                 background = if (sel) UIUtil.getListSelectionBackground(focus) else UIUtil.getListBackground()
             }
             p.add(com.intellij.ui.components.JBLabel(st.mark).apply { foreground = ReviewModeText.color(st) })
-            val name = com.intellij.ui.components.JBLabel(if (st == dev.keel.jetbrains.api.PrFileStatus.DELETED) "<html><s>${KeelUi.esc(value.path)}</s></html>" else value.path)
+            val name = com.intellij.ui.components.JBLabel(if (st == dev.keel.jetbrains.api.PrFileStatus.DELETED) "<html><s>${KeelUi.esc(fr.name)}</s></html>" else fr.name)
             if (sel) name.foreground = UIUtil.getListSelectionForeground(focus)
             p.add(name)
             val bits = listOfNotNull(
