@@ -104,7 +104,9 @@ TOOLS: dict[str, tuple[str, ...]] = {
               # 0.18.65 keel runs the project's CI jobs on CI's versions in throw-away containers
               "keel_ci_run",
               # 0.18.65 the base branch and the canonical remote: a choice is the person's (asks first)
-              "keel_base_branch"),
+              "keel_base_branch",
+              # 0.29 a connected session (the person's own Claude Code / OpenCode) does the harness flow's work orders
+              "keel_session_open", "keel_session_next", "keel_session_plan", "keel_session_todo", "keel_session_done"),
     "admin": ("keel_delete_run", "keel_add_project", "keel_remove_project",
               # 0.19.x what the dashboard and keel TUI do with projects: pause a flow, switch the focused project
               "keel_pause", "keel_focus",

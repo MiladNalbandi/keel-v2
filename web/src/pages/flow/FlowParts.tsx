@@ -23,6 +23,7 @@ import { SLOTS, type FlowChipItem } from "../../sdk/slots";
 import { askAssistant } from "../../sdk/assistant";
 import { fixRequest } from "../../askFix";
 import { CopyId, GateCard } from "./Gate";
+import { SessionNow, SessionWaitCard, sessionPill, waitsForSession } from "./SessionParts";
 
 export function useThreadBits(pid: string, thread: ThreadState, workflow: Workflow) {
   const history = useLoad(`hist:${thread.thread_id}`, () => api.history(thread.thread_id));
@@ -90,7 +91,7 @@ function nowWords(job: Job | null, text?: string, steps?: JobStep[]): string {
 /** keel 0.18.11 the flow in one line, on top once the flow bar has scrolled away: state, phase, step, time, cost and
  *  the one thing to do. */
 export function NowLine({ thread, workflow, started, onJump }: { thread: ThreadState; workflow: Workflow; started: number | null; onJump: () => void }) {
-  const [tone, label] = STATUS_PILL[thread.status] ?? ["idle", thread.status];
+  const [tone, label] = sessionPill(thread) ?? STATUS_PILL[thread.status] ?? ["idle", thread.status];
   const u = thread.usage;
   const used = u.tokens_in + u.tokens_out + Math.floor((u.tokens_cached ?? 0) / 10);
   const cur = (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "");
@@ -141,7 +142,7 @@ export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, 
   const u = thread.usage;
   const used = u.tokens_in + u.tokens_out + Math.floor((u.tokens_cached ?? 0) / 10);
   const cap = u.cap_tokens || Math.max(used, estimate ?? 0, 1);
-  const [tone, label] = STATUS_PILL[thread.status] ?? ["idle", thread.status];
+  const [tone, label] = sessionPill(thread) ?? STATUS_PILL[thread.status] ?? ["idle", thread.status];
   const end = live ? Date.now() : Date.parse(thread.updated_at);
   return (
     <header className="fl-bar" role="region" aria-label="This flow">
@@ -233,7 +234,10 @@ export function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, pe
   fold?: React.ReactNode;
 }) {
   const [view, setView] = useMapView("flow");
-  const waitAt = thread.status === "waiting" ? (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "") : null;
+  // 0.29 a work order for the connected session: the step is at work (the session's), not waiting for you
+  const bySession = waitsForSession(thread);
+  const waitAt = thread.status === "waiting" && !bySession ? (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "") : null;
+  const status = bySession ? "running" : thread.status;
   const onCanvas = !!waitAt && workflow.steps.some((s) => s.id === waitAt);
   const sendBacks = useMemo(() => sendBacksOf(thread.gate_log), [thread.gate_log]);
   const { liveText, liveSteps } = useApp();
@@ -264,6 +268,12 @@ export function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, pe
       </div>
       {waiting && !onCanvas && <div className="panel-body" style={{ paddingBottom: 0 }}>{waiting}</div>}
       <div className={`panel-body sx-scroll fl-scroll${view === "blocks" ? " is-blocks" : ""}`}>
+        {bySession && view === "blocks" && (
+          <div className="fl-needs sess-needs" role="status">
+            <span>The connected session works on <b>{nameOf(thread.waiting?.step ?? "")}</b>{thread.session?.gone || thread.waiting?.gone ? ": it is gone, you choose how to go on." : "."}</span>
+            {onJump && <button type="button" className="btn sm" onClick={onJump}>Go to it</button>}
+          </div>
+        )}
         {needs && view === "blocks" && (
           <div className={`fl-needs ${failedAt ? "is-bad" : ""}`} role="status">
             <span>{failedAt ? <><b>{nameOf(needs)}</b> failed. See why and what to do.</>
@@ -280,7 +290,7 @@ export function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, pe
           <>
             <Blocks ref={canvas} steps={workflow.steps} tokens={thread.status === "done" ? undefined : tokens} actual={actual} facts={facts} totals={totals} acFacts={perAc} sendBacks={sendBacks}
               foldKey={thread.thread_id} liveLine={liveLine} acCount={thread.acs.length || 3}
-              current={thread.current} status={thread.status} acs={thread.acs} currentAc={thread.ac} visited={visited} selected={selected}
+              current={thread.current} status={status} acs={thread.acs} currentAc={thread.ac} visited={visited} selected={selected}
               onOpenStep={onOpen} autoScroll={!still} inline={(id) => (onCanvas && id === waitAt ? <div className="sx-inline">{waiting}</div> : null)}
               label={`Steps of ${workflow.name}: ${workflow.steps.length} steps`} />
             {thread.acs.length > 0 && !workflow.steps.some((s) => s.per_ac) ? <AcChips acs={thread.acs} current={thread.ac} /> : null}
@@ -295,7 +305,7 @@ export function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, pe
           <>
             {waiting && onCanvas && <div style={{ marginBottom: 12 }}>{waiting}</div>}
             <Zoom id="flow">
-              <Graph steps={workflow.steps} current={thread.current} status={thread.status} tokens={thread.status === "done" ? undefined : tokens}
+              <Graph steps={workflow.steps} current={thread.current} status={status} tokens={thread.status === "done" ? undefined : tokens}
                 acs={thread.acs} currentAc={thread.ac} onSelect={onOpen} selected={selected} />
             </Zoom>
             <AcChips acs={thread.acs} current={thread.ac} />
@@ -310,6 +320,7 @@ export function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, pe
 
 /** The flow waits for you: for what, and a button to the answer card under its block. */
 export function WaitsCard({ thread, onJump }: { thread: ThreadState; onJump: () => void }) {
+  if (waitsForSession(thread)) return <SessionNow thread={thread} onJump={onJump} />;
   return (
     <div className="interrupt fl-waits">
       <b><Pill tone="warn">waiting for you</Pill> {thread.waiting?.title}</b>
@@ -345,6 +356,7 @@ export function StatusCard({ pid, thread, workflow, job, onDone, onCheckpoints, 
 }) {
   const step = workflow.steps.find((s) => s.id === (thread.current ?? "").replace(/__fix$/, ""));
   const keelbot = useHasPage("helper");
+  if (waitsForSession(thread)) return <SessionWaitCard thread={thread} workflow={workflow} onDone={onDone} />;
   if (thread.status === "waiting" && thread.waiting) return <GateCard thread={thread} workflow={workflow} onDone={onDone} />;
   if (thread.status === "running") return <RunningCard step={step} name={step?.name ?? thread.current ?? ""} ac={thread.ac} job={job} />;
   void pid;

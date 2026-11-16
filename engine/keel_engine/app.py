@@ -859,6 +859,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     app.include_router(stack_router)
     from .runtime.spec_routes import router as spec_router   # keel 0.18.64 the spec check and the citation check on a file
     app.include_router(spec_router)
+    from .sessions_routes import router as sessions_router   # 0.29 connected sessions (runtime/session_service.py)
+    app.include_router(sessions_router)
 
     # v0.8.0 quality runs: the eval sets (content/evals) and a fresh copy of a set's project for one case
     @app.get("/evals")

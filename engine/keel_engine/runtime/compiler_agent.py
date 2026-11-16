@@ -7,7 +7,7 @@ import tempfile
 import time
 import uuid
 
-from . import agent_knowledge, blockers as push_gates, clarify, flow_actions, guard_ctx, markers, memory as memory_mod, other_projects, prompts, security_actions, spec_check, stacks, test_scope, tools as tool_runner
+from . import agent_knowledge, blockers as push_gates, clarify, session_steps, flow_actions, guard_ctx, markers, memory as memory_mod, other_projects, prompts, security_actions, spec_check, stacks, test_scope, tools as tool_runner
 from .. import addons, agent_names, extensions, models, rules
 from ..flowdoctor import repair as doctor
 from ..models import catalog
@@ -412,6 +412,15 @@ class AgentMixin:
         first = doctor.answer_first(self, step, state, "fix")
         if first:
             return first
+        if session_steps.applies(step, state):
+            # 0.29 a connected session (the person's own Claude Code / OpenCode) does this harness step: a work order,
+            # no model call (runtime/session_steps.py)
+            return await session_steps.run(self, i, step, state)
+        return await self._agent_step_now(i, step, state)
+
+    async def _agent_step_now(self, i: int, step: Step, state: FlowState):
+        """The agent step on keel's own harness (every flow; a connected session's step when the person chose it)."""
+        ctx = self.ctx
         upd = self._budget(state, step)
         if upd.get("status") == "stopped":
             return upd, END

@@ -35,10 +35,12 @@ import "../components/inbox.css";
 const KIND_LABEL: Record<string, string> = {
   gate: "gate", clarify: "questions", fix: "needs a fix", crash: "step failed", budget: "budget", dependency: "new dependency",
   permission: "may it run?", "plugin-install": "install request", "stack-setup": "stack setup", "product-jira-send": "send to Jira",
+  session: "session gone",
 };
 const kindLabel = (k: string) => KIND_LABEL[k] ?? k;
-/** The pauses keel answers with named choices: a gate, a stuck step (fix) and, #116, a step that crashed (crash). */
-const NAMED = new Set(["gate", "fix", "crash"]);
+/** The pauses keel answers with named choices: a gate, a stuck step (fix), #116 a step that crashed (crash) and, 0.29, a
+ *  step whose connected session is gone (session: keep waiting, keel's harness, stop). */
+const NAMED = new Set(["gate", "fix", "crash", "session"]);
 const PLUGIN_INSTALL = "plugin-install";
 const STACK_SETUP = "stack-setup";
 /** P4 an approval keel or a part asks itself (no flow behind it): answered at /approvals/{id}/decide. */
@@ -91,6 +93,8 @@ function buttonsFor(it: InboxItem): Buttons {
   if (it.kind === "fix") return { approve: l.approve ?? "Try again", reject: l.reject ?? "Stop the flow", needWhy: false, whyLabel: "Note (optional)" };
   // #116 the flow doctor's pause for a step that crashed (not an agent step): Retry the step / Stop the flow
   if (it.kind === "crash") return { approve: l.approve ?? "Retry the step", reject: l.reject ?? "Stop the flow", needWhy: false, whyLabel: "Note (optional)" };
+  // 0.29 a step that waits for a connected session that is gone: no reason needed to stop
+  if (it.kind === "session") return { approve: l.approve ?? "Keep waiting", reject: l.reject ?? "Stop the flow", needWhy: false, whyLabel: "Note (optional)" };
   if (it.kind === "clarify") return { approve: l.approve ?? "Send my answers", reject: "Send back", needWhy: false, whyLabel: "Anything else the explorer should know (optional)" };
   // a commit check asks whether to escalate; keeping the change flow is a send back, which needs a reason
   if (/escalat/i.test(it.title)) return { approve: "Yes, switch to a feature flow", reject: "No, keep the change flow", needWhy: true, whyLabel: "Why (needed to keep the change flow)" };

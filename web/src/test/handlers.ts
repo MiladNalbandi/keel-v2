@@ -3,7 +3,7 @@
 import type { Device } from "../devicesApi";
 import type { AccessView, McpClientSeen, StartView, UpdatesView, WelcomeState } from "../helpApi";
 import { http, HttpResponse } from "msw";
-import type { AcCode, Cap, CapLeft, CapsLeft, EngineEvent, Features, FlowBoard, FlowView, CiRun, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, RunRow, Settings, Stack, StartCheck, ThreadState, Workflow, WorkflowCheck } from "../api";
+import type { AcCode, Cap, CapLeft, CapsLeft, EngineEvent, Features, FlowBoard, FlowView, CiRun, HelperChange, HelperDone, HelperQuestion, HelperSession, IndexStatus, OnCap, Plugin, RunRow, SessionsView, Settings, Stack, StartCheck, ThreadState, Workflow, WorkflowCheck } from "../api";
 import * as fx from "./fixtures";
 import type { GraphFocus, GraphOverview } from "./fixtures";
 import { createTaskDb, taskHandlers } from "./taskHandlers";
@@ -59,6 +59,8 @@ export function createDb() {
     /** 0.18.57 the paths POST .../doctor/workspace/exclude was given */
     excluded: [] as string[],
     flows: { "ludus-engine": { thread: clone(fx.thread), workflow: clone(fx.featureWorkflow) } } as Record<string, { thread: ThreadState | null; workflow: Workflow | null }>,
+    /** 0.29 GET /sessions?project= per project: the connected sessions (none: no session is connected) */
+    sessions: {} as Record<string, SessionsView>,
     /** v0.7.x: each project's board (GET /flows) and the flows in worktrees by id (GET /flows/:tid) */
     boards: {} as Record<string, FlowBoard>,
     threadViews: {} as Record<string, FlowView>,
@@ -279,6 +281,10 @@ export function handlers(db: Db) {
       const p = { ...db.projects[2], id: "new", name: String(b.name ?? "new"), root: String(b.root) };
       db.projects.push(p);
       return HttpResponse.json(p);
+    }),
+    http.get("/api/sessions", ({ request }) => {
+      const pid = new URL(request.url).searchParams.get("project") ?? "";
+      return HttpResponse.json(db.sessions[pid] ?? { project: pid, connected_s: 120, gone_s: 600, connected: null, sessions: [], waiting: [] });
     }),
     http.get("/api/projects/:pid/flow", ({ params }) =>
       HttpResponse.json(db.flows[params.pid as string] ?? { thread: null, workflow: null })),
