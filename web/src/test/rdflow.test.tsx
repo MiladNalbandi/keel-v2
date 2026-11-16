@@ -131,10 +131,14 @@ describe("Flow page: rail, Details and keys (keel 0.28)", () => {
     Element.prototype.scrollIntoView = function () {};
     try {
       render(<App />);
-      const card = await screen.findByRole("region", { name: "Gate waits for you" });
+      await screen.findByRole("region", { name: "Gate waits for you" });
       expect(screen.getByRole("button", { name: "Jump to current" })).toHaveAttribute("aria-keyshortcuts", "G");
       fireEvent.keyDown(document.body, { key: "g" });
-      await waitFor(() => expect(document.activeElement && card.contains(document.activeElement)).toBe(true));
+      // the card may be drawn again while the flow refreshes: look it up again on every check
+      await waitFor(() => {
+        const now = screen.getByRole("region", { name: "Gate waits for you" });
+        expect(document.activeElement && now.contains(document.activeElement)).toBe(true);
+      }, { timeout: 3000 });
     } finally {
       Element.prototype.scrollIntoView = had;
     }
