@@ -22,8 +22,8 @@ MODELS: dict[str, list[dict]] = {
              {"id": "fake-lab", "label": "Fake with an ORDER in the spec and an AMEND loop (real checks)"}],
     "claude": [{"id": "opus", "label": "Claude Opus"}, {"id": "sonnet", "label": "Claude Sonnet"}, {"id": "haiku", "label": "Claude Haiku"}],
     "codex": [{"id": "gpt-5.5", "label": "GPT-5.5"}, {"id": "gpt-5.5-mini", "label": "GPT-5.5 mini"}, {"id": "gpt-5-codex", "label": "GPT-5 Codex"}],
-    "copilot": [{"id": "gpt-5", "label": "Copilot GPT-5"}, {"id": "claude-sonnet-4.5", "label": "Copilot Claude Sonnet 4.5"},
-                {"id": "gpt-4.1", "label": "Copilot GPT-4.1"}],
+    # GitHub Models (models.github.ai) has no Claude: Claude in Copilot works only in GitHub's own apps
+    "copilot": [{"id": "openai/gpt-5", "label": "GitHub Models: OpenAI GPT-5"}, {"id": "openai/gpt-4.1", "label": "GitHub Models: OpenAI GPT-4.1"}],
 }
 
 # provider:model -> {in, out, premium}. `premium` = Copilot premium requests per agent call.
