@@ -67,6 +67,8 @@ export function keelEnv(base: NodeJS.ProcessEnv, o: StartOptions): NodeJS.Proces
     // GitHub Copilot (your plan): the app's own Copilot runtime; the app's files are read-only, so no download
     COPILOT_CLI_PATH: o.bundle.copilot,
     COPILOT_SKIP_CLI_DOWNLOAD: "1",
+    // 0.31 the code graph agents search before they read whole files (the Graph plugin): the app's own CodeGraph
+    KEEL_CODEGRAPH_BIN: o.bundle.codegraph,
     KEEL_MCP_PYTHON: o.bundle.python,
     KEEL_API_JAR: path.join(o.bundle.keel, "api.jar"),
     KEEL_JAVA: o.bundle.java,
