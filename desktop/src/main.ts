@@ -6,7 +6,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { app, BrowserWindow, clipboard, dialog, Menu, nativeTheme, net, protocol, session, shell, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, clipboard, dialog, Menu, nativeImage, nativeTheme, net, Notification, protocol, session, shell, Tray, type MenuItemConstructorOptions } from "electron";
+import { autostartEntry, autostartFile, newWaits, nowLine, nowOf, startsHidden, tooltipOf, type Now } from "./background";
 import { checkGit } from "./checks";
 import { log, openLog } from "./log";
 import { bundleIn, pathsFor } from "./paths";
@@ -51,11 +52,17 @@ async function main(): Promise<void> {
   log(`keel desktop ${app.getVersion()} (keel ${keelVersion}) on ${process.platform}-${process.arch}; data ${paths.data}`);
 
   let settings: Settings = readSettings(paths.settings);
-  if (SMOKE) settings = { accepted: true, folders: process.env.KEEL_DESKTOP_SMOKE_FOLDER ? [process.env.KEEL_DESKTOP_SMOKE_FOLDER] : [] };
+  if (SMOKE) settings = { ...settings, accepted: true, folders: process.env.KEEL_DESKTOP_SMOKE_FOLDER ? [process.env.KEEL_DESKTOP_SMOKE_FOLDER] : [], keepRunning: false };
   let view: View = { page: "boot", text: "Opening keel…" };
   let win: BrowserWindow | null = null;
   let pathValue = process.env.PATH || "/usr/bin:/bin";
   let quitting = false;
+  // 0.29.2 opened at login (or with --background): no window, only the icon, until the person opens keel
+  const hiddenStart = !SMOKE && startsHidden(process.argv, process.platform === "darwin" && app.getLoginItemSettings().wasOpenedAtLogin);
+  let tray: Tray | null = null;
+  let opened = false; // the first window of a hidden start stays hidden
+  let now: Now | null = null;
+  let seen: Now | null = null;
   let busy = false; // a start, stop or restart is on its way
 
   const save = () => {
@@ -119,6 +126,7 @@ async function main(): Promise<void> {
       }
       void keel.register(settings.folders.filter((f) => fs.existsSync(f))).then((added) => added.length && log(`projects added: ${added.join(", ")}`));
       await openKeel();
+      void look();
     } catch (e) {
       log("start failed:", e);
       show({ page: "failed", why: (e as Error).message, log: keel.logTail(), logs: paths.logs });
@@ -275,7 +283,8 @@ async function main(): Promise<void> {
       webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
     });
     w.once("ready-to-show", () => {
-      if (!SMOKE) w.show();
+      if (!SMOKE && !(hiddenStart && !opened)) w.show();
+      opened = true;
     });
     const wc = w.webContents;
     // only keel's own pages in this window; every other link opens in the person's browser
@@ -310,8 +319,17 @@ async function main(): Promise<void> {
         settings.bounds = w.getBounds();
         save();
       }
-      // Linux and Windows: the last window closes the app, and with it keel: ask first when agents work
-      if (process.platform !== "darwin" && !quitting && keel.running()) {
+      if (quitting) return;
+      // 0.29.2 keel keeps running in the background: the window goes, keel, its flows and its MCP stay; the icon's menu
+      // opens it again or quits keel
+      if (settings.keepRunning && keel.running()) {
+        e.preventDefault();
+        w.hide();
+        hintOnce();
+        return;
+      }
+      // keep running is off (Linux and Windows): the last window closes the app, and with it keel: ask first
+      if (process.platform !== "darwin" && keel.running()) {
         e.preventDefault();
         void quitApp();
       }
@@ -320,6 +338,118 @@ async function main(): Promise<void> {
       if (win === w) win = null;
     });
     return w;
+  }
+
+  // ---------------------------------------------------------------- 0.29.2 in the background
+
+  /** The window again (the icon, the Dock, a second start of the app): the one there is, or a new one on keel. */
+  function openWindow(hash?: string): void {
+    if (!win || win.isDestroyed()) {
+      win = createWindow();
+      if (keel.running()) void openKeel().then(() => hash && goTo(hash)).catch(() => show(view));
+      else void win.loadURL(`${UI}/ui/index.html`);
+    } else if (hash) goTo(hash);
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    if (process.platform === "darwin") void app.dock?.show();
+  }
+
+  let hinted = false;
+  /** The first close in this run says once where keel went. */
+  function hintOnce(): void {
+    if (hinted || settings.quiet || !Notification.isSupported()) return;
+    hinted = true;
+    const where = process.platform === "darwin" ? "the menu bar" : "the tray";
+    new Notification({ title: "keel keeps running", body: `Your flows and keel's MCP go on. Open keel or quit it from its icon in ${where}.`, silent: true }).show();
+  }
+
+  function trayIcon(): Electron.NativeImage {
+    const img = nativeImage.createFromPath(path.join(__dirname, "..", "..", "ui", "icon.png"));
+    return img.isEmpty() ? img : img.resize({ width: process.platform === "darwin" ? 18 : 22 });
+  }
+
+  function trayMenu(): void {
+    if (!tray) return;
+    const up = keel.running();
+    const t: MenuItemConstructorOptions[] = [
+      { label: "Open keel", click: () => openWindow() },
+      { label: nowLine(now, up), enabled: false },
+      ...(now && now.waiting ? [{ label: "Open the Inbox", click: () => openWindow("#/inbox") } as MenuItemConstructorOptions] : []),
+      { type: "separator" },
+      { label: "Notifications", type: "checkbox", checked: !settings.quiet, click: (i) => { settings.quiet = !i.checked; save(); } },
+      { label: "Keep keel running when the window is closed", type: "checkbox", checked: settings.keepRunning, click: (i) => { settings.keepRunning = i.checked; save(); } },
+      { label: "Start keel when I log in", type: "checkbox", checked: settings.startAtLogin, click: (i) => setStartAtLogin(i.checked) },
+      { type: "separator" },
+      { label: "Quit keel", click: () => void quitApp() },
+    ];
+    tray.setContextMenu(Menu.buildFromTemplate(t));
+    tray.setToolTip(tooltipOf(now, up));
+  }
+
+  function makeTray(): void {
+    if (SMOKE || tray) return;
+    try {
+      tray = new Tray(trayIcon());
+      tray.on("click", () => openWindow());
+      trayMenu();
+    } catch (e) {
+      // a Linux desktop without a tray (no StatusNotifier): the window stays the way in, and close quits as before
+      log("no tray icon:", e);
+      tray = null;
+    }
+  }
+
+  /** What keel does now, every 15 s: the icon's line, and a notification for a new "waits for you" while no window shows. */
+  async function look(): Promise<void> {
+    if (!keel.running()) {
+      now = null;
+      trayMenu();
+      return;
+    }
+    try {
+      const r = await keel.call("GET", "/projects");
+      const n = r.ok ? nowOf(await r.json()) : null;
+      if (n) {
+        const visible = !!win && !win.isDestroyed() && win.isVisible() && !win.isMinimized();
+        // keel's own page notifies while it shows; the app does when it does not
+        if (!visible && !settings.quiet && Notification.isSupported()) {
+          for (const m of newWaits(seen, n)) {
+            const note = new Notification({ title: m.title, body: m.body });
+            note.on("click", () => openWindow("#/inbox"));
+            note.show();
+          }
+        }
+        seen = n;
+      }
+      now = n;
+    } catch (e) {
+      log("look:", e);
+    }
+    trayMenu();
+  }
+
+  function setStartAtLogin(on: boolean): void {
+    settings.startAtLogin = on;
+    save();
+    try {
+      if (process.platform === "darwin") {
+        app.setLoginItemSettings({ openAtLogin: on }); // opened at login: wasOpenedAtLogin, no window
+      } else if (process.platform === "linux") {
+        const f = autostartFile(os.homedir(), process.env);
+        // the AppImage's own path (APPIMAGE); a dev run (npm start) has none: nothing to start at login
+        const exe = process.env.APPIMAGE || (app.isPackaged ? process.execPath : "");
+        if (on && exe) {
+          fs.mkdirSync(path.dirname(f), { recursive: true });
+          fs.writeFileSync(f, autostartEntry(exe), { mode: 0o644 });
+        } else fs.rmSync(f, { force: true });
+      } else {
+        app.setLoginItemSettings({ openAtLogin: on, args: ["--background"] });
+      }
+    } catch (e) {
+      log("start at login:", e);
+    }
+    trayMenu();
   }
 
   // keel 0.28 the menus reach keel's own places: a page link, or an event keel's web listens for (New flow, All
@@ -348,7 +478,11 @@ async function main(): Promise<void> {
           click: () => void keel.signInUrl().then((u) => shell.openExternal(u), (e) => log("open in browser:", e)),
         },
         { type: "separator" },
-        mac ? { role: "close" } : { label: "Quit", accelerator: "Ctrl+Q", click: () => void quitApp() },
+        { label: "Keep keel Running When the Window Is Closed", type: "checkbox", checked: settings.keepRunning, click: (i) => { settings.keepRunning = i.checked; save(); trayMenu(); } },
+        { label: "Start keel When I Log In", type: "checkbox", checked: settings.startAtLogin, click: (i) => setStartAtLogin(i.checked) },
+        { type: "separator" },
+        mac ? { role: "close" } : { label: "Close Window", accelerator: "Ctrl+W", click: () => parent()?.close() },
+        ...(mac ? [] : [{ label: "Quit keel", accelerator: "Ctrl+Q", click: () => void quitApp() } as MenuItemConstructorOptions]),
       ],
     });
     t.push({ role: "editMenu" });
@@ -412,27 +546,18 @@ async function main(): Promise<void> {
 
   // ---------------------------------------------------------------- the app's life
 
-  app.on("second-instance", () => {
-    if (!win || win.isDestroyed()) win = createWindow();
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
-  });
+  app.on("second-instance", () => openWindow());
   app.on("before-quit", (e) => {
     if (quitting || !keel.running()) return;
     e.preventDefault();
     void quitApp();
   });
   app.on("window-all-closed", () => {
-    // macOS keeps the app (and keel, with its agents) running: the Dock icon opens the window again
-    if (process.platform !== "darwin") void quitApp();
+    // macOS keeps the app (and keel, with its agents) running: the Dock icon opens the window again; elsewhere keel
+    // keeps running when the person chose it (the icon stays)
+    if (process.platform !== "darwin" && !(settings.keepRunning && keel.running())) void quitApp();
   });
-  app.on("activate", () => {
-    if (win && !win.isDestroyed()) return;
-    win = createWindow();
-    if (keel.running()) void openKeel().catch(() => show(view));
-    else void win.loadURL(`${UI}/ui/index.html`);
-  });
+  app.on("activate", () => openWindow());
 
   await app.whenReady();
   app.setAboutPanelOptions({ applicationName: "keel", applicationVersion: app.getVersion(), copyright: "MIT licence", website: REPO });
@@ -442,8 +567,11 @@ async function main(): Promise<void> {
   session.defaultSession.setPermissionCheckHandler((_wc, perm, origin) => allowed.has(perm) && isKeel(origin));
   serveUi();
   menu();
+  makeTray();
+  if (process.platform === "darwin" && hiddenStart) app.dock?.hide();
   win = createWindow();
   await win.loadURL(`${UI}/ui/index.html`);
+  if (!SMOKE) setInterval(() => void look(), 15_000);
 
   // the person's PATH from their login shell (the Dock gives an app almost none)
   const login = await loginShellPath(process.env.SHELL, process.env);
@@ -461,6 +589,7 @@ async function main(): Promise<void> {
       app.exit(1);
     });
   }
+  if (!SMOKE && settings.startAtLogin) setStartAtLogin(true); // the AppImage may have moved: write its path again
   if (!settings.accepted) show({ page: "welcome", data: paths.data });
   else void startKeel();
 }

@@ -104,12 +104,12 @@ test("keel's environment: the app's Python and Java, never on PATH; the AppImage
 test("desktop.json: read what is valid, written 0600; folders once", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kd-"));
   const f = path.join(dir, "sub", "desktop.json");
-  assert.deepEqual(readSettings(f), { accepted: false, folders: [] });
-  writeSettings(f, { accepted: true, folders: ["/home/ana/shop"], port: 8181 });
+  assert.deepEqual(readSettings(f), { accepted: false, folders: [], keepRunning: true, startAtLogin: false, quiet: false });
+  writeSettings(f, { accepted: true, folders: ["/home/ana/shop"], port: 8181, keepRunning: true, startAtLogin: false, quiet: false });
   assert.equal(fs.statSync(f).mode & 0o777, 0o600);
-  assert.deepEqual(readSettings(f), { accepted: true, folders: ["/home/ana/shop"], port: 8181, bounds: undefined });
+  assert.deepEqual(readSettings(f), { accepted: true, folders: ["/home/ana/shop"], port: 8181, bounds: undefined, keepRunning: true, startAtLogin: false, quiet: false });
   fs.writeFileSync(f, JSON.stringify({ accepted: "yes", folders: ["relative", "/ok"], port: 80 }));
-  assert.deepEqual(readSettings(f), { accepted: false, folders: ["/ok"], port: undefined, bounds: undefined });
+  assert.deepEqual(readSettings(f), { accepted: false, folders: ["/ok"], port: undefined, bounds: undefined, keepRunning: true, startAtLogin: false, quiet: false });
   fs.writeFileSync(f, "{broken");
   assert.equal(readSettings(f).accepted, false);
   const one = ["/home/ana/code"];
@@ -138,4 +138,39 @@ test("git's install command per Linux", () => {
   assert.equal(linuxGitHint('ID="arch"\n'), "sudo pacman -S git");
   assert.equal(linuxGitHint("ID=opensuse-tumbleweed\nID_LIKE=\"opensuse suse\"\n"), "sudo zypper install git");
   assert.match(linuxGitHint(""), /package manager/);
+});
+
+test("0.29.2 keel keeps running when the window closes: settings, the icon's line, new waits, autostart", async () => {
+  const bg = await import("../src/background");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kd-bg-"));
+  const f = path.join(dir, "desktop.json");
+  // an old desktop.json (0.29.1) keeps keel running on close, starts nothing at login, notifies
+  fs.writeFileSync(f, JSON.stringify({ accepted: true, folders: [] }));
+  const s = readSettings(f);
+  assert.equal(s.keepRunning, true);
+  assert.equal(s.startAtLogin, false);
+  assert.equal(s.quiet, false);
+  fs.writeFileSync(f, JSON.stringify({ accepted: true, folders: [], keepRunning: false, startAtLogin: true, quiet: true }));
+  assert.deepEqual([readSettings(f).keepRunning, readSettings(f).startAtLogin, readSettings(f).quiet], [false, true, true]);
+
+  const n1 = bg.nowOf([{ id: "shop", name: "shop", running: 1, waiting: 0 }, { id: "api", name: "api", running: 1, waiting: 1 }]);
+  assert.deepEqual(n1, { running: 2, waiting: 1, items: [{ project: "api", waiting: 1 }] });
+  assert.equal(bg.nowLine(n1, true), "2 flows run · 1 waits for you");
+  assert.equal(bg.nowLine(bg.nowOf([]), true), "Nothing runs");
+  assert.equal(bg.nowLine(null, false), "keel is not running");
+  assert.equal(bg.nowOf({ error: "x" }), null);
+
+  // the first look notifies nothing; a project whose count goes up does
+  assert.deepEqual(bg.newWaits(null, n1!), []);
+  const n2 = bg.nowOf([{ name: "shop", running: 0, waiting: 2 }, { name: "api", running: 0, waiting: 1 }])!;
+  assert.deepEqual(bg.newWaits(n1, n2), [{ title: "keel waits for you", body: "shop: 2 flows wait for your answer" }]);
+  assert.deepEqual(bg.newWaits(n2, n2), []);
+
+  assert.equal(bg.autostartFile("/home/ana", {}), "/home/ana/.config/autostart/keel.desktop");
+  assert.equal(bg.autostartFile("/home/ana", { XDG_CONFIG_HOME: "/x/conf" }), "/x/conf/autostart/keel.desktop");
+  assert.match(bg.autostartEntry("/home/ana/Apps/keel.AppImage"), /^Exec=\/home\/ana\/Apps\/keel\.AppImage --background$/m);
+  assert.match(bg.autostartEntry("/home/ana/My Apps/keel.AppImage"), /^Exec="\/home\/ana\/My Apps\/keel\.AppImage" --background$/m);
+  assert.equal(bg.startsHidden(["keel", "--background"], false), true);
+  assert.equal(bg.startsHidden(["keel"], true), true);
+  assert.equal(bg.startsHidden(["keel"], false), false);
 });
