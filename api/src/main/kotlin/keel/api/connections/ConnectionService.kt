@@ -51,7 +51,7 @@ class ConnectionService(
                 "fake" -> listOf(ModeView("api", "Fake model (no network)", true, "Deterministic answers for demos and tests."))
                 "claude" -> listOf(ModeView("api", "Anthropic API key", keySet, if (keySet) "Key saved." else "Add ANTHROPIC_API_KEY."))
                 "codex" -> listOf(ModeView("api", "OpenAI API key", keySet, if (keySet) "Key saved." else "Add OPENAI_API_KEY."))
-                "copilot" -> listOf(ModeView("api", "GitHub Models (token)", keySet,
+                "copilot" -> listOf(ModeView("api", "GitHub Copilot (your plan)", keySet,
                     if (!keySet) "Add GITHUB_TOKEN, or sign in with GitHub." else if (hint?.startsWith("from ") == true) "Token $hint." else "Token saved."))
                 "vertex" -> servers.summary(id).let { (ready, line) -> listOf(ModeView("api", "Vertex AI (Google Cloud)", ready, line)) }
                 "local" -> servers.summary(id).let { (ready, line) -> listOf(ModeView("api", "Local model server", ready, line)) }
@@ -116,7 +116,7 @@ class ConnectionService(
         const val MODE = "api"
         val PROVIDERS = listOf("fake" to "Fake (demo)", "claude" to "Claude", "codex" to "GPT / Codex", "copilot" to "Copilot",
             "vertex" to "Vertex AI", "local" to "Local models")
-        val DEFAULT_MODELS = mapOf("fake" to "fake", "claude" to "sonnet", "codex" to "gpt-5", "copilot" to "gpt-5", "vertex" to "claude-sonnet-5-5")
+        val DEFAULT_MODELS = mapOf("fake" to "fake", "claude" to "sonnet", "codex" to "gpt-5", "copilot" to "auto", "vertex" to "claude-sonnet-5-5")
         /** What "This machine" lists, in this order. */
         val MACHINE = listOf("node", "git", "java", MachineTools.DOCKER)
     }

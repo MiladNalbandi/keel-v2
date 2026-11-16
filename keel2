@@ -2680,6 +2680,8 @@ native_install() {  # native_install [tarball] [version] — a release (default 
   mv "$dir" "$ND/app/$v"
   info "Installing keel's engine (uv sync)…"
   (cd "$ND/app/$v/engine" && UV_PROJECT_ENVIRONMENT="$ND/app/$v/engine/.venv" uv sync --frozen --no-dev -q) || die "uv could not install the engine." "Run it again, or see: keel2 doctor"
+  # GitHub Copilot (your plan): the Copilot SDK's runtime; without it, the SDK fetches it on first use
+  "$ND/app/$v/engine/.venv/bin/python" -m copilot download-runtime >/dev/null 2>&1 || warn "The GitHub Copilot runtime was not downloaded now; keel fetches it the first time you use GitHub Copilot."
   # 0.27.0 the Python api in front of the Kotlin api, as in the image (a release before 0.27.0 has no api-py/)
   if [ -f "$ND/app/$v/api-py/pyproject.toml" ]; then
     (cd "$ND/app/$v/api-py" && UV_PROJECT_ENVIRONMENT="$ND/app/$v/api-py/.venv" uv sync --frozen --no-dev -q) || die "uv could not install keel's Python api." "Run it again, or see: keel2 doctor"

@@ -172,7 +172,7 @@ class HarnessRunner:
         effort = catalog.effort_for(req.model)
         window = self._window(req)
         server_side = provider.name == "anthropic" and _server_compacts(provider.model)
-        extra = {"compact_at": min(150_000, int(window * 0.6))}
+        extra = {"compact_at": min(150_000, int(window * 0.6)), "root": req.root}
 
         if fresh and req.history:
             for role, text in req.history:
@@ -184,6 +184,9 @@ class HarnessRunner:
             return await self._loop(req, emit, provider, session, used, system, tools, web, effort, window, server_side, extra)
         finally:
             tools.close()           # no background command outlives the agent call
+            close = getattr(provider, "close", None)
+            if close is not None and self._provider is None:
+                await close()       # a provider with a live session (GitHub Copilot) ends it with the agent call
 
     async def _loop(self, req, emit, provider, session, used, system, tools, web, effort, window, server_side, extra):
         model = req.model

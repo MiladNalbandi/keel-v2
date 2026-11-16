@@ -104,11 +104,15 @@ web, the TUI and the IDE plugins show the harness's work instead.
 |---|---|---|---|
 | claude | Anthropic | Anthropic Messages API | Anthropic API key |
 | codex | OpenAI | OpenAI chat API | OpenAI API key |
-| copilot | GitHub Models | models.github.ai (OpenAI-compatible) | GitHub token with `models:read` |
+| copilot | GitHub Copilot (your plan) | GitHub's Copilot SDK (`github-copilot-sdk`): keel's tools as the session's only tools | GitHub sign-in, or a gho_/ghu_/fine-grained token with Copilot Requests |
 | vertex | Vertex AI | Claude via Vertex; Gemini via its OpenAI-compatible endpoint | Google credentials |
 | local | a local model server | OpenAI-compatible (Ollama, LM Studio, vLLM, llama.cpp) | optional |
 | fake | the fake model | none (keel's own) | none |
 
-A subscription login (Claude Pro/Max, ChatGPT, Copilot) is not used: those plans allow their login only in their own
-apps and approved partners. Part 2 removed the coding-agent apps (Claude Code, Codex, Copilot CLI, OpenCode) from the
+A subscription login (Claude Pro/Max, ChatGPT) is not used: those plans allow their login only in their own apps and
+approved partners. GitHub Copilot is the exception: GitHub's Copilot SDK is made for apps that make Copilot requests for a
+person on their own plan, so the copilot row runs on it (GitHub retired GitHub Models, the old copilot row, on 2026-07-30).
+keel's harness keeps its own loop: Copilot's own tools are off, keel's tools are the session's custom tools, and each
+call returns to keel's loop, where keel's rules run it (`harness/providers/copilot_sdk.py`). The models are the plan's own
+(Settings › Models & keys › Test lists them); `auto` lets Copilot pick one. Part 2 removed the coding-agent apps (Claude Code, Codex, Copilot CLI, OpenCode) from the
 image, their login pages and their plan windows; a model saved for one of them runs on its provider's API key.

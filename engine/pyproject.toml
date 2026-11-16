@@ -5,6 +5,8 @@ description = "keel v2 engine: runs keel workflows as LangGraph graphs"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
+    # GitHub Copilot (your plan): GitHub's Copilot SDK (harness/providers/copilot_sdk.py)
+    "github-copilot-sdk>=1.0.34",
     "uvicorn>=0.30",
     "pydantic>=2.7",
     "pyyaml>=6.0",

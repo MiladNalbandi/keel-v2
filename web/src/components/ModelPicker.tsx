@@ -32,7 +32,7 @@ const BUILTIN_EFFORTS: Record<BuiltinProvider, string[]> = {
 };
 const PROVIDER_ORDER = ["claude", "codex", "copilot", "vertex", "local", "fake"];
 /** How agents reach each provider: its API, whatever mode a saved model still says. */
-const REACH: Record<string, string> = { copilot: "API key (GitHub Models)", vertex: "Google Cloud", local: "Local server" };
+const REACH: Record<string, string> = { copilot: "Your Copilot plan", vertex: "Google Cloud", local: "Local server" };
 export const modeLabel = (p: Provider | string, _m?: SavedMode | string) => REACH[p] ?? MODE_LABEL.api;
 
 export const SOURCE_HINT: Record<string, string> = { builtin: "built-in list", server: "from the server" };
@@ -179,7 +179,7 @@ export function defaultModel(c: Catalog | null, p: string, mode?: Mode): Model {
 type Opt = { key: string; provider: string; mode: Mode; id: string; label: string; custom?: boolean; badge?: string; tools?: boolean };
 type Group = { key: string; provider: string; label: string; mode: Mode; opts: Opt[]; /** v0.15.5 the company's mark, for a sub-group */ icon?: string };
 
-// v0.15.5 a host with many companies' models (GitHub Models, a local server) shows them in one sub-group per company
+// v0.15.5 a host with many companies' models (a local server) shows them in one sub-group per company
 const VENDORS: [RegExp, string, string][] = [
   [/claude|anthropic/, "claude", "Claude"], [/gpt|openai|codex|^o[134]\b/, "openai", "GPT"], [/gemini|google/, "gemini", "Gemini"],
   [/grok|xai/, "grok", "Grok"], [/llama|meta\//, "meta", "Llama"], [/deepseek/, "deepseek", "DeepSeek"], [/kimi|moonshot/, "kimi", "Kimi"],
@@ -435,7 +435,7 @@ export function ModelPicker({ value: saved, onChange, id, effort = true, provide
           {efforts.map((x) => <option key={x} value={x}>{x}</option>)}
         </select>
       )}
-      {/* the engine ignores an effort for a model without one (Claude Haiku 4.5, GitHub Models) */}
+      {/* the engine ignores an effort for a model without one (Claude Haiku 4.5, GitHub Copilot) */}
       {effort && catalog && value.model && efforts.length === 0 && <span className="hint" data-testid={`${id}-noeffort`}>no effort setting</span>}
       {source && <span className="hint" data-testid={`${id}-source`}>{SOURCE_HINT[source] ?? source}</span>}
       {current?.tools === false && <span className="hint amber" data-testid={`${id}-notools`}>no tool calls: Ask, review check and summaries only</span>}

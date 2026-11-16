@@ -218,48 +218,33 @@ def test_openai_history_and_limits():
 # ------------------------------------------------------------------ which connection
 
 def test_keels_provider_names_go_to_their_api_and_need_a_key():
+    from keel_engine.harness.providers.copilot_sdk import CopilotProvider
+
     assert api_model("claude", "opus") == "claude-opus-5-5" and api_model("claude", "haiku") == "claude-haiku-5-5"
-    assert api_model("codex", "") == "gpt-5.5" and api_model("copilot", "") == "openai/gpt-5"
+    assert api_model("codex", "") == "gpt-5.5" and api_model("copilot", "") == "auto"
     a = resolve({"provider": "claude", "model": "sonnet"}, "sk-ant-x")
     assert isinstance(a, AnthropicProvider) and a.model == "claude-sonnet-5-5"
-    gh = resolve({"provider": "copilot", "model": "openai/gpt-5"}, "ghp_x")
-    assert isinstance(gh, OpenAICompatProvider) and gh._base == "https://models.github.ai/inference"
+    # GitHub Copilot (your plan) runs on GitHub's Copilot SDK; a name saved for the retired GitHub Models runs as auto
+    gh = resolve({"provider": "copilot", "model": "openai/gpt-5"}, "gho_x")
+    assert isinstance(gh, CopilotProvider) and gh.model == "auto"
+    assert resolve({"provider": "copilot", "model": "claude-sonnet-4.5"}, "gho_x").model == "claude-sonnet-4.5"
+    with pytest.raises(ProviderError, match="classic GitHub token"):
+        resolve({"provider": "copilot", "model": "auto"}, "ghp_x")
     with pytest.raises(ProviderError, match="No Anthropic API key"):
         resolve({"provider": "claude", "model": "opus"}, None)
     with pytest.raises(ProviderError, match="no connection called"):
         resolve({"provider": "opencode", "model": "x"}, "k")
 
 
-def test_github_models_gets_the_makers_name_for_a_model_saved_for_the_copilot_cli():
-    from keel_engine.harness.providers import api_model
-
-    assert api_model("copilot", "gpt-5") == "openai/gpt-5" and api_model("copilot", "o3-mini") == "openai/o3-mini"
-    assert api_model("copilot", "openai/gpt-4.1") == "openai/gpt-4.1" and api_model("copilot", "") == "openai/gpt-5"
-    assert api_model("copilot", "claude-sonnet-4.5") == "claude-sonnet-4.5"    # not on GitHub Models: resolve says so
-
-
-def test_github_models_says_plainly_when_the_saved_model_is_a_copilot_plan_model():
-    from keel_engine.harness.providers import GITHUB_MODELS_PICK
-
-    with pytest.raises(ProviderError, match="GitHub Models has no model called 'claude-sonnet-4.5'") as err:
-        resolve({"provider": "copilot", "model": "claude-sonnet-4.5"}, "gho_x")
-    assert err.value.hint == GITHUB_MODELS_PICK and "only in GitHub's own apps" in err.value.hint
-    assert resolve({"provider": "copilot", "model": "gpt-5"}, "gho_x").model == "openai/gpt-5"
-
-
-def test_github_models_refusals_say_what_to_do():
+def test_openai_refusals_say_what_to_do():
     import httpx
     import openai
 
-    from keel_engine.harness.providers.openai_compat import GITHUB_HINTS, _error
+    from keel_engine.harness.providers.openai_compat import _error
 
     def status(cls, code):
-        res = httpx.Response(code, request=httpx.Request("POST", "https://models.github.ai/inference/chat/completions"))
+        res = httpx.Response(code, request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"))
         return cls("no", response=res, body=None)
 
-    assert _error(status(openai.AuthenticationError, 401), "GitHub Models").hint == GITHUB_HINTS[401]
-    assert "models:read" in _error(status(openai.PermissionDeniedError, 403), "GitHub Models").hint
-    assert _error(status(openai.NotFoundError, 404), "GitHub Models").hint == GITHUB_HINTS[404]
-    # other providers keep their own words
     assert _error(status(openai.AuthenticationError, 401), "OpenAI").hint == "Check the key in Settings › Models & keys."
     assert _error(status(openai.PermissionDeniedError, 403), "OpenAI").hint == ""

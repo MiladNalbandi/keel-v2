@@ -24,7 +24,7 @@ class FirstModelLogin(
     /** A secret was saved under [name] from Connections: when it is a model key, [saved] it. */
     fun savedSecret(name: String) {
         val key = SecretService.KEY_NAMES.entries.firstOrNull { it.value == name }?.key
-        // GITHUB_TOKEN is GitHub's token too (pull requests, Tasks): saving it does not pick GitHub Models
+        // GITHUB_TOKEN is GitHub's token too (pull requests, Tasks): saving it does not pick GitHub Copilot
         if (key != null && key != "copilot") saved(key, ConnectionService.MODE)
     }
 

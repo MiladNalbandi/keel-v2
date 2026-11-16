@@ -799,7 +799,7 @@ effort is slower and uses more tokens; less is quicker and cheaper. **default** 
 |---|---|---|
 | Anthropic (Claude) API key | low, medium, high, xhigh, max (not Haiku 4.5) | `output_config.effort` |
 | OpenAI API key | what each model offers | `reasoning_effort` |
-| GitHub Models token | none | — |
+| GitHub Copilot | none | — |
 | Vertex AI | Claude as Anthropic; Gemini none | `output_config.effort` |
 | Fake model | low, medium, high (only noted, for tests) | — |
 
@@ -1296,7 +1296,7 @@ key is saved encrypted in keel's own database (the `keel-data` volume), so it su
 |---|---|---|
 | Anthropic (Claude) | `ANTHROPIC_API_KEY` (starts with `sk-ant-`) | console.anthropic.com › API keys |
 | OpenAI | `OPENAI_API_KEY` | platform.openai.com › API keys |
-| GitHub Models | `GITHUB_TOKEN`, or Settings › Connections › GitHub › Sign in with GitHub | github.com › Settings › Developer settings |
+| GitHub Copilot (your plan) | Settings › Connections › GitHub › Sign in with GitHub, or `GITHUB_TOKEN` (fine-grained, Copilot Requests) | github.com › Settings › Developer settings › Fine-grained tokens |
 | Vertex AI | the Google Cloud project and region (Settings › Models & keys) | Google Cloud console |
 | Local models | a model server's address (Ollama, LM Studio, vLLM …) | your own computer |
 
