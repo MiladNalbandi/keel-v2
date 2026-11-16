@@ -1,4 +1,4 @@
-// Stacks in the marketplace (keel 0.18.9), the fifth kind of Control › Plugins › Marketplace. Search the catalogs'
+// Stacks in the marketplace (keel 0.18.9), the fifth kind of Settings › Plugins › Marketplace. Search the catalogs'
 // stacks (what this project has, and updates) and keel's own (used where they are detected; a keel pack installs), one
 // stack (its verified YAML, keel's review and keel's check against the project), install into a project as
 // .keel/stacks/<name>.yml, update (replace), remove. No restart: keel reads a project's stacks when it needs them.
@@ -115,7 +115,7 @@ export function stackShort(r: StackReview | null | undefined): string {
     .filter(Boolean).join(" · ");
 }
 
-/** A stack's page in Control › Plugins. */
+/** A stack's page in Settings › Plugins. */
 export const stackHref = (name: string) => `#/settings/plugins/stacks/${encodeURIComponent(name)}`;
 /** The Marketplace tab with the Stacks view. */
 export const MARKET_STACKS = "#/settings/plugins?tab=market&kind=stacks";

@@ -152,7 +152,7 @@ export function refusalOf(err: unknown): InstallRefusal | null {
   };
 }
 
-/** A workflow's page in Control › Plugins. */
+/** A workflow's page in Settings › Plugins. */
 export const workflowHref = (name: string) =>
   `#/settings/plugins/workflow/${encodeURIComponent(name)}`;
 /** The Marketplace tab with the Workflows view. */

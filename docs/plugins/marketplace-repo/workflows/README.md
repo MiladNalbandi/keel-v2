@@ -1,7 +1,7 @@
 # Workflows
 
 A **workflow** is one YAML file that keel installs into a project (or into all projects) from
-**Control › Plugins › Marketplace › Workflows**. It needs no restart: it is data, not code. It runs only through keel's
+**Settings › Plugins › Marketplace › Workflows**. It needs no restart: it is data, not code. It runs only through keel's
 flow engine, its agents and its gates. Before anyone installs it, keel shows its Install review: the steps, the gates,
 the agents, the MCP servers, the shell commands it runs (in red) and whether it changes files.
 

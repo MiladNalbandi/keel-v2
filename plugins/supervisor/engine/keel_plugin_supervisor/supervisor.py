@@ -8,7 +8,7 @@ calls the person.
 Switches (switch.py; all off until the person turns them on):
 
     keel-wide off  -> nothing at all: no event listener, no model call, no Inbox card; turning it off cancels every look
-    flow on        =  keel-wide on AND the plugin on for the project (Control › Plugins)
+    flow on        =  keel-wide on AND the plugin on for the project (Settings › Plugins)
                       AND (the flow's own switch when it has one, else the project's)
 
 Turning a project or a flow off cancels its running look at once (the model call stops; nothing is answered after it).

@@ -1,4 +1,4 @@
-# The Library plugin (plugins/library, engine keel_plugin_library). Turned on per project in Control › Plugins: only then do
+# The Library plugin (plugins/library, engine keel_plugin_library). Turned on per project in Settings › Plugins: only then do
 # KeelBot and the agents that may use it read the library. Its page works either way.
 name: library
 title: Library

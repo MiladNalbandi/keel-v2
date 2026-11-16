@@ -13,7 +13,7 @@
     name: db
     title: Database
     description: ...
-    installable: true          keel's own only: off until a project turns it on (Control › Plugins)
+    installable: true          keel's own only: off until a project turns it on (Settings › Plugins)
     needs: [database]          what the person sets up (Connections)
     tools: {server: keel-db, read: [db_schema, ...]}    the MCP server keel runs for KeelBot and agents (plugins/)
     actions: [db:query, ...]   workflow code steps it adds
@@ -134,7 +134,7 @@ def _installable() -> list[dict]:
 
 
 def catalog() -> list[dict]:
-    """keel's installable plugins (Control › Plugins), with what each adds."""
+    """keel's installable plugins (Settings › Plugins), with what each adds."""
     return [{k: v for k, v in p.items() if k not in ("path", "source")} for p in _installable()]
 
 

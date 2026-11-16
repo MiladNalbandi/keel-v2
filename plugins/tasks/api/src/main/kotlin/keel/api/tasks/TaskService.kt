@@ -443,7 +443,7 @@ class TaskService(
             when {
                 pr == null -> store.event(t.id, "github_error", null, null, "The PR link is not a GitHub pull request: reviewers were not asked.", "keel")
                 token == null -> store.event(t.id, "github", null, null,
-                    "Reviewers were not asked on GitHub: keel has no GitHub token (Control › Connections). Ask ${wanted.joinToString()} on the PR yourself.", "keel")
+                    "Reviewers were not asked on GitHub: keel has no GitHub token (Settings › Connections). Ask ${wanted.joinToString()} on the PR yourself.", "keel")
                 else -> try {
                     GitHubClient(token, mapper, props.githubApi, secrets.githubHost()).requestReviewers(pr, wanted)
                     store.event(t.id, "reviewers", null, null, "Asked ${wanted.joinToString()} to review the PR on GitHub.", "keel")

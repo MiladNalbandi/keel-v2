@@ -81,7 +81,7 @@ class PluginRequests(
             throw NotFound("No project $project")
         }
         if (checkRule && !marketplace.ruleValues().agentsMayAsk) {
-            throw Conflict("This keel does not let agents ask to install plugins", "Ask the person to install it in Control › Plugins.")
+            throw Conflict("This keel does not let agents ask to install plugins", "Ask the person to install it in Settings › Plugins.")
         }
         val asked = mapOf("reason" to reason, "source" to source, "project" to project, "at" to Time.now())
         waitingFor(name)?.let { return join(it, asked) }
@@ -92,7 +92,7 @@ class PluginRequests(
         val have = installedVersion(card.installed)
         if (have != null && (wanted == null || wanted == have)) {
             throw Conflict("${card.title} is installed already",
-                "A new install loads after the next restart; one that is off can be turned on in Control › Plugins.")
+                "A new install loads after the next restart; one that is off can be turned on in Settings › Plugins.")
         }
         // keel would refuse the install (revoked, the catalog is old, it does not fit): say so now, ask nobody
         if (have == null) card.refused?.let { throw ApiException(HttpStatus.CONFLICT, it.first, it.second) }
@@ -164,7 +164,7 @@ class PluginRequests(
     override fun decided(approval: Approval, decision: String, why: String) {
         if (expired(approval)) {
             end(approval)
-            throw Conflict("This request ended: nobody answered it in 7 days", "Ask again, or install the plugin in Control › Plugins.")
+            throw Conflict("This request ended: nobody answered it in 7 days", "Ask again, or install the plugin in Settings › Plugins.")
         }
         val p = approval.payload
         val name = p?.path("name")?.asText("").orEmpty()
@@ -174,7 +174,7 @@ class PluginRequests(
             // other (without one, "the newest" could be a version nobody looked at)
             if (p?.path("update")?.asBoolean() == true) {
                 if (version == null) {
-                    throw Conflict("This update request does not say which version it is for", "Ask again so the card shows the version, or update in Control › Plugins.")
+                    throw Conflict("This update request does not say which version it is for", "Ask again so the card shows the version, or update in Settings › Plugins.")
                 }
                 changes.update(name, version, allowMore = true, request = approval.id)
             }

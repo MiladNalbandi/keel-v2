@@ -151,7 +151,7 @@ export type RefFile = {
 };
 export type FoundRef = { ref: string; label: string; kind: "branch" | "remote" | "review"; sha: string; at: string };
 export type FoundFile = { path: string; in_work_tree: boolean; checked_out?: string | null; refs: FoundRef[] };
-/** Control › Plugins: a plugin, and whether it is on for this project (the Code page reads only these two). */
+/** Settings › Plugins: a plugin, and whether it is on for this project (the Code page reads only these two). */
 export type PluginOn = { name: string; enabled?: boolean };
 
 const e = encodeURIComponent;

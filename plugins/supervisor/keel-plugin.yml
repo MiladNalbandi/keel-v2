@@ -1,4 +1,4 @@
-# The Supervisor as a plugin (docs/plans/supervisor.md), on per project (Control › Plugins). A general agent on a strong model that watches a project's
+# The Supervisor as a plugin (docs/plans/supervisor.md), on per project (Settings › Plugins). A general agent on a strong model that watches a project's
 # flows, looks at each gate from the project's context, and answers it or calls the person. The version must equal
 # VERSION in engine/keel_plugin_supervisor/__init__.py (engine/tests/test_supervisor.py checks it). Each part is
 # written on one line (scripts/build-plugin.sh reads them).

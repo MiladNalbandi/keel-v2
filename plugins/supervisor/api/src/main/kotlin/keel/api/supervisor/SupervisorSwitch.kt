@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController
 /**
  * The Supervisor's on/off switches. keel's settings hold them (`plugins.supervisor.on`): General is the keel-wide
  * switch, off until the person turns it on; a project may set its own (else it follows General). The plugin's own
- * switch per project (Control › Plugins) comes on top: off there, it is off. A flow may also have its own switch
+ * switch per project (Settings › Plugins) comes on top: off there, it is off. A flow may also have its own switch
  * (POST /api/projects/{pid}/flows/{tid}/supervisor {on}).
  *
  * The engine part acts on them while flows run, so every change is sent to it at once (POST /supervisor/switch), and
@@ -77,7 +77,7 @@ class SupervisorSwitch(
             null -> "follows keel-wide" }
         val switches = "keel-wide ${if (keelOn()) "on" else "off"} · project $project · plugin ${if (pluginOn(pid)) "on" else "off"}"
         val why = when {
-            !pluginOn(pid) -> "the Supervisor plugin is off for this project: turn it on in Control › Plugins"
+            !pluginOn(pid) -> "the Supervisor plugin is off for this project: turn it on in Settings › Plugins"
             own == false -> "this project is switched off: /supervisor on (or follow)"
             !projectOn(pid) -> "the keel-wide switch is off: /supervisor keel-on, or /supervisor on for this project only"
             else -> null

@@ -49,7 +49,7 @@ export function setOffPluginCommands(off: { title: string; commands: string[] }[
   offCmds = Object.fromEntries(off.flatMap((p) => p.commands.filter((c) => !COMMANDS_BY_NAME[c]).map((c) => [c, p.title])));
 }
 const offText = (title: string) =>
-  `The ${title} plugin is off for this project. Turn it on in Control › Plugins (This project or All projects), then open keel TUI again.`;
+  `The ${title} plugin is off for this project. Turn it on in Settings › Plugins (This project or All projects), then open keel TUI again.`;
 /** keel's command, or a plugin's */
 export const lookup = (name: string): Command | null => COMMANDS_BY_NAME[name] ?? pluginCmds.find((c) => c.name === name) ?? null;
 

@@ -470,7 +470,21 @@ class FlowService(
         if (fake.isEmpty()) return
         throw Conflict(
             "These agents would use the fake model: ${fake.joinToString()}. It writes example files, not real code.",
-            "Pick a real model in Control › Connections (Use for all agents) or Settings › Models. To try the flow anyway, tick \"Run with the fake model\".",
+            "Add an API key, or sign in to GitHub Copilot, in Settings › Models & keys and press Use for all agents. To try the flow anyway, tick \"Run with the fake model\".",
+        )
+    }
+
+    /**
+     * 0.31 a chat that would answer with the fake model on a real project (a keel without a key or a sign-in yet): the
+     * fake model's example text reads like an answer about the project, and is not one. The demo project and the tests'
+     * keel (keel.fake-on-real-projects) keep it.
+     */
+    fun refuseFakeAnswer(pid: String, model: Model, who: String) {
+        if (model.provider != "fake" || props.fakeOnRealProjects || isDemo(projects.root(pid))) return
+        throw Conflict(
+            "$who has no model yet",
+            "Add an API key, or sign in to GitHub Copilot, in Settings › Models & keys and press Use for all agents. " +
+                "Without one keel has only the fake model, which writes example text, not answers about your code.",
         )
     }
 

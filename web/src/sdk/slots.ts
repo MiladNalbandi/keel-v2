@@ -68,7 +68,7 @@ export const SLOTS = {
   marketKind: "market.kind",
 } as const;
 
-/** A part's piece is shown only while this project has the plugin on (Control › Plugins), when it names one. */
+/** A part's piece is shown only while this project has the plugin on (Settings › Plugins), when it names one. */
 type ForPlugin = { plugin?: string };
 
 // ---------- core pages ----------

@@ -67,6 +67,12 @@ const PILL_TONE: Record<string, Tone> = { ok: "ok", warn: "warn", bad: "bad" };
 const fromSignIn = (p: Pick<Conn, "id" | "key_set" | "key_hint">) =>
   p.id === "copilot" && p.key_set && /github sign-in/i.test(p.key_hint ?? "");
 
+/** 0.31 GitHub Copilot is ready with this computer's own GitHub login (the Copilot CLI's or gh's): a Test proved it. */
+const fromMachine = (p: Pick<Conn, "id" | "key_set" | "key_hint">) =>
+  p.id === "copilot" &&
+  p.key_set &&
+  /this computer's github login/i.test(p.key_hint ?? "");
+
 /** Can this provider's agents run now, and if not, what is missing (its key, or its setup)? */
 export function connState(p: Conn): {
   tone: "ok" | "warn" | "bad";
@@ -82,6 +88,8 @@ export function connState(p: Conn): {
         }
       : { tone: "warn", text: "Not set up", need: "key" };
   if (fromSignIn(p)) return { tone: "ok", text: "Ready, GitHub sign-in" };
+  if (fromMachine(p))
+    return { tone: "ok", text: "Ready, this computer's GitHub login" };
   return p.key_set
     ? { tone: "ok", text: "API key saved" }
     : {
@@ -268,6 +276,8 @@ function ProviderRow({
             }
           : { ok: false, text: r.error ?? "no answer" },
       );
+      // 0.31 Copilot without a token: the Test says whether this computer's own GitHub login works; the row follows
+      if (p.id === "copilot" && !keySet !== !r.ok) onChanged();
     } catch (e) {
       const er = errorParts(e);
       setTest({
@@ -361,7 +371,11 @@ function ProviderRow({
           <span className="ss-help ss-full" data-testid="copilot-token-line">
             {signIn ? "Ready with the token of " : "A GitHub token works, or the token of "}
             <a href="#/settings/connections">Connections › GitHub</a>'s “Sign in with GitHub”
-            {signIn ? "." : ": either one runs on your Copilot plan."}
+            {signIn
+              ? "."
+              : keySet
+                ? ": either one runs on your Copilot plan."
+                : ": either one runs on your Copilot plan. Already signed in to GitHub on this computer (gh or the Copilot CLI)? Press Test: keel then uses that login."}
           </span>
         )}
         {p.id !== "fake" && fake.length > 0 && state.tone === "ok" && (
@@ -573,7 +587,7 @@ function ModelControl({
 }
 
 export function ModelsTab({ pid }: { pid: string }) {
-  const { project } = useApp();
+  const { project, health } = useApp();
   const name = project?.name ?? pid;
   const conns = useLoad("connections", () => api.connections(), {
     live: false,
@@ -699,7 +713,8 @@ export function ModelsTab({ pid }: { pid: string }) {
             This machine
           </h2>
           <p className="ss-sub">
-            Programs keel and its agents find in the container.
+            Programs keel and its agents find{" "}
+            {health?.native ? "on this computer" : "in the container"}.
           </p>
         </div>
         <div className="ss-chipline" aria-label="Installed programs">

@@ -98,7 +98,7 @@ def test_it_stays_off_while_the_plugin_is_off_for_the_project(client, repo, scri
     idle(client)
     assert wait(client, tid)["status"] == "waiting" and rows(tid) == []
     r = client.post(f"/threads/{tid}/supervisor", json={"on": True})
-    assert r.status_code == 409 and "Control › Plugins" in r.text
+    assert r.status_code == 409 and "Settings › Plugins" in r.text
     assert client.get(f"/threads/{tid}/supervisor").json()["settings"]["on"] is False
 
 

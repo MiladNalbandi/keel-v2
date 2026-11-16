@@ -1,4 +1,4 @@
-// Stacks in the marketplace (keel 0.18.9), the fifth kind of Control › Plugins › Marketplace, in the look of the skill
+// Stacks in the marketplace (keel 0.18.9), the fifth kind of Settings › Plugins › Marketplace, in the look of the skill
 // pages (MarketSkill.tsx):
 //
 //   Marketplace › Stacks      search, the category chips, keel's own stacks ("From keel": used where detected, a keel

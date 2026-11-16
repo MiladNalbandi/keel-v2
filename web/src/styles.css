@@ -483,6 +483,9 @@ button.skilltag:hover { border-color: var(--accent); color: var(--accent); }
 .graph .n-branch path { stroke-dasharray: 4 3; }
 .wbar { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 8px; }
 .wbar.warn { border-color: var(--warn); background: var(--warn-soft); } .wbar.ok { border-color: var(--ok); background: var(--ok-soft); }
+/* the "keel does not know this project yet" question of Start a flow: it stays in view at the end of the long form
+   (a late estimate above it used to push it under the fold, so Start flow seemed to do nothing) */
+.drawer .body > .init-ask { position: sticky; bottom: 0; z-index: 1; background: linear-gradient(var(--warn-soft), var(--warn-soft)), var(--panel); box-shadow: 0 -6px 16px -8px rgb(0 0 0 / .25); }
 /* keel 0.18.55 a project keel does not know yet: the setup card (after Add projects, the first open), the ask, the banner */
 .init-card { display: grid; gap: 10px; padding: 12px 14px; margin-bottom: 12px; border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 10px; }
 .init-card-t { display: grid; gap: 2px; min-width: 0; }

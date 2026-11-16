@@ -79,6 +79,22 @@ describe("Home (keel 0.28)", () => {
     expect(db.helper.sessions[0]).toMatchObject({ title: "where is the score saved?", mode: "ask" });
   });
 
+  it("a keel without a model says so under the box, with a link, and leaves no empty chat", async () => {
+    // keel 0.31: the api refuses a KeelBot turn that would answer with the fake model on a real project
+    server.use(http.post("/api/projects/:pid/helper/sessions/:sid/turn", () => HttpResponse.json(
+      { error: "KeelBot has no model yet", hint: "Add an API key, or sign in to GitHub Copilot, in Settings › Models & keys and press Use for all agents." },
+      { status: 409 })));
+    const user = userEvent.setup();
+    await openHome();
+    await user.type(screen.getByRole("textbox", { name: "Your question" }), "where is the score saved?");
+    await user.click(screen.getByRole("button", { name: "Ask ↩" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("KeelBot has no model yet");
+    expect(within(alert).getByRole("link", { name: "Open Models & keys" })).toHaveAttribute("href", "#/settings/models");
+    expect(location.hash).not.toMatch(/helper|keelbot/);
+    await waitFor(() => expect(db.helper.sessions).toHaveLength(0));
+  });
+
   it("the menu's New flow and the N key open Start a flow; N does nothing while typing", async () => {
     const user = userEvent.setup();
     await openHome();

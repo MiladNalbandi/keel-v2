@@ -18,7 +18,16 @@ test.describe("J8 GitHub sign-in", () => {
     const errors = watchConsole(page);
     await signIn(page);
     await page.goto("/#/connections");
-    await page.getByRole("button", { name: "Sign in with GitHub" }).click();
+    // the fake gh starts signed in (keel shows "connected as e2e-user"): sign out first, then the sign-in is offered
+    const signOut = page.getByRole("button", { name: "Sign out" }).first();
+    const signInBtn = page.getByRole("button", { name: "Sign in with GitHub" });
+    await expect(signOut.or(signInBtn).first()).toBeVisible({ timeout: 20_000 });
+    if (await signOut.isVisible().catch(() => false)) {
+      await signOut.click();
+      const sure = page.getByRole("dialog").getByRole("button", { name: /sign out/i }).first();
+      if (await sure.isVisible().catch(() => false)) await sure.click();
+    }
+    await signInBtn.click();
     const drawer = page.getByRole("dialog", { name: /GitHub login/i });
     await drawer.getByRole("button", { name: "Start login" }).click();
     const shown = page.getByText("AB12-CD34");

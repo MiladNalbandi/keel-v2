@@ -76,6 +76,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+rm -f "$here/bin/gh.signed-out"   # the fake gh starts signed in
 echo "== seed the sample projects"
 projects="$work/projects"
 python3 "$here/seed.py" "$projects" >/dev/null

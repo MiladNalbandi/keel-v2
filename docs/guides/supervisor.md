@@ -33,11 +33,11 @@ There are three switches. The Supervisor runs for a flow only when all of them s
 
 ```text
  keel-wide  ──► the plugin for this project ──► this project ──► this flow
- (off)          (Control › Plugins)             (follows        (follows
+ (off)          (Settings › Plugins)             (follows        (follows
                                                  keel-wide)      the project)
 ```
 
-1. **The plugin**: open **Control › Plugins** and turn **Supervisor** on for this project.
+1. **The plugin**: open **Settings › Plugins** and turn **Supervisor** on for this project.
 2. **The switches**: open **Jobs › Supervisor**.
    - **On for the whole keel**: tick it.
    - **This project**: follows keel-wide, on, or off.

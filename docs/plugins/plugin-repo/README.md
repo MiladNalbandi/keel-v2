@@ -12,7 +12,7 @@
 
 ## Install
 
-In keel: **Control › Plugins › Marketplace › @TITLE@ › Install**. keel checks the file's signature, shows what the
+In keel: **Settings › Plugins › Marketplace › @TITLE@ › Install**. keel checks the file's signature, shows what the
 plugin may do, and asks you before it installs. keel's own image has this plugin inside already.
 
 ## How this repo is built

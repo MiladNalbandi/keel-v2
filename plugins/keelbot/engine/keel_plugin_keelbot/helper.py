@@ -530,7 +530,7 @@ class HelperRunner:
             specs, allow = await asyncio.to_thread(extensions.with_part_servers, list(body.get("mcp") or []),
                                                    list(body.get("tools_allow") or []), extensions.Agent(AGENT, know),
                                                    s["root"])
-            # the project's plugins (Control › Plugins): their read tools, through one key for this turn
+            # the project's plugins (Settings › Plugins): their read tools, through one key for this turn
             on = extensions.enabled({"plugins": body.get("plugins")})
             if on:
                 plugin_key = extensions.open_call(project=project, root=root, keys=keys, plugins=on, who="keelbot",

@@ -1,5 +1,5 @@
-node_modules/
+bin/gh.log
+bin/gh.signed-out
 report/
-test-results/
-playwright-report/
-summary.md
+node_modules
+tests/zz-*.spec.ts

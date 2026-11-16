@@ -60,7 +60,7 @@ type Tested = {
   connection: DbConnection;
   test: { ok: boolean; error?: string; hint?: string };
 };
-/** A plugin of Control › Plugins as the api lists it for a project: is it on here. */
+/** A plugin of Settings › Plugins as the api lists it for a project: is it on here. */
 type PluginOn = { name: string; enabled?: boolean };
 
 const e = encodeURIComponent;

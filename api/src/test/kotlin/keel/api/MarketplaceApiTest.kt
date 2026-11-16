@@ -346,7 +346,7 @@ class MarketplaceApiTest : ApiTest() {
         engine.market.rules["agents_may_ask"] = false
         val off = request("db", "I need it.").andExpect(status().isConflict).json()
         assertThat(off["error"].asText()).isEqualTo("This keel does not let agents ask to install plugins")
-        assertThat(off["hint"].asText()).isEqualTo("Ask the person to install it in Control › Plugins.")
+        assertThat(off["hint"].asText()).isEqualTo("Ask the person to install it in Settings › Plugins.")
     }
 
     @Test
@@ -403,7 +403,7 @@ class MarketplaceApiTest : ApiTest() {
     @Test
     fun `a workflow that needs a plugin which is not loaded opens a request for it and says so`() {
         val (pid, _) = newProject("mkt-needs")
-        engine.threadRefusal = 409 to mapOf("error" to "This workflow needs Database.", "hint" to "Install it in Control › Plugins, then restart keel.",
+        engine.threadRefusal = 409 to mapOf("error" to "This workflow needs Database.", "hint" to "Install it in Settings › Plugins, then restart keel.",
             "missing" to listOf("db", "nope"), "workflow" to "feature")
         val res = post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Scores"))
             .andExpect(status().isConflict).json()

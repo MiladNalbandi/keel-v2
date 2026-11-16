@@ -176,7 +176,7 @@ class JiraService(
     }
 
     fun requireClient(pid: String): JiraClient =
-        client(pid) ?: throw Conflict("This project has no Jira connection", "Connect Jira in Control › Connections › Jira.")
+        client(pid) ?: throw Conflict("This project has no Jira connection", "Connect Jira in Settings › Connections › Jira.")
 
     /** Tests the saved connection, or the unsaved one in [body] (its token, else the saved one). Never throws for Jira's answer. */
     fun test(pid: String, body: JiraSave?): JiraTestResult {
@@ -259,7 +259,7 @@ class JiraService(
      * `secret:<name>` and only resolved when a flow or a test starts it.
      */
     fun addMcp(pid: String): String {
-        val s = settings(pid) ?: throw Conflict("Connect Jira for this project first", "Control › Connections › Jira.")
+        val s = settings(pid) ?: throw Conflict("Connect Jira for this project first", "Settings › Connections › Jira.")
         val name = mcpName(pid)
         jdbc.update(
             "INSERT INTO mcp_servers(name, command, args_json, env_json, enabled, builtin, status) VALUES (?, 'uvx', ?, ?, 0, 0, 'off') " +

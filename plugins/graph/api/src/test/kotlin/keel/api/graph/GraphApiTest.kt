@@ -37,9 +37,12 @@ class GraphApiTest : ApiTest() {
     fun `index done becomes a notification`() {
         val (pid, _) = newProject("index-notify")
         events.ingest(listOf(EngineEvent("index.done", "", pid, data = mapOf("status" to "ready", "files" to 12, "symbols" to 99))))
-        events.ingest(listOf(EngineEvent("index.done", "", pid, data = mapOf("status" to "failed", "error" to "CodeGraph is not installed"))))
+        events.ingest(listOf(EngineEvent("index.done", "", pid, data = mapOf("status" to "failed", "error" to "codegraph index exited 1"))))
+        // 0.31 a keel without CodeGraph (the keel app, native without npm) is not a failure: no notification
+        events.ingest(listOf(EngineEvent("index.done", "", pid, data = mapOf("status" to "failed", "error" to "CodeGraph is not installed on this keel (agents use grep instead)."))))
         val titles = get("/api/notifications").json().map { it["title"].asText() }
-        assertThat(titles).contains("Index ready: 12 files, 99 symbols", "Index failed: CodeGraph is not installed")
+        assertThat(titles).contains("Index ready: 12 files, 99 symbols", "Index failed: codegraph index exited 1")
+        assertThat(titles.filter { it.contains("CodeGraph is not installed") }).isEmpty()
     }
 
     @Test

@@ -5,7 +5,7 @@ running keel. Agents can search and **ask**; only a person installs. Branch `fea
 `plugin-base` (0.15.4 + steps 1–3). Never merged into `main`, never tagged (see the plan's rule).
 
 **Rule of the track:** everything people had in 0.15.4 stays exactly the same (the parity e2e checks it). Step 4 only
-**adds**: the Control › Plugins page, `/api/plugins*` and `/api/marketplace*`, four MCP tools at the end of the list, a
+**adds**: the Settings › Plugins page, `/api/plugins*` and `/api/marketplace*`, four MCP tools at the end of the list, a
 `plugin-install` card in the Inbox. Each addition gets an entry in `e2e/parity/allow.yml` with its reason.
 
 ```
@@ -13,7 +13,7 @@ running keel. Agents can search and **ask**; only a person installs. Branch `fea
  ─────────────────────                ────────────────────                      ─────────────
  v1/index.json  ─┐   HTTPS            marketplace/catalog.py   fetch, verify,   /api/marketplace   search, one plugin
  v1/index.json.minisig ─┼──────────▶            cache, search               /api/plugins       installed, install…
-                 │                    marketplace/signing.py   minisign Ed25519  Control › Plugins page
+                 │                    marketplace/signing.py   minisign Ed25519  Settings › Plugins page
  release assets  │                    marketplace/install.py   download, sha256, Inbox card plugin-install
  name-1.0.0.kplug ─┘                             signature, store.install       restart button / rule
  name-1.0.0.kplug.minisig             mcp_server: 4 tools (search, info,
@@ -243,7 +243,7 @@ They come **after** every tool keel lists today, in this order, so the existing 
 compares it; the four are allowed additions). Since the port of 0.16.1 keel's MCP server has three levels (read, `--write`,
 `--admin`): the four come at the end of each level's list, all four at every level (`keel_plugin_request` too), and
 `--allow` may name them. There is **no** install tool. With `agents_may_ask` off,
-`keel_plugin_request` answers "Ask the person to install it in Control › Plugins".
+`keel_plugin_request` answers "Ask the person to install it in Settings › Plugins".
 
 ## 8 · `needs_plugins` (workflows)
 
@@ -254,7 +254,7 @@ running flow waits for an install in step 4.
 
 ## 9 · The web (core)
 
-- **Control › Plugins** (`#/plugins`, id `plugins`, group `control`, order 40, icon `plugins`), three tabs:
+- **Settings › Plugins** (`#/plugins`, id `plugins`, group `control`, order 40, icon `plugins`), three tabs:
   - **Installed**: each plugin with version, parts, from (image / marketplace / file), on/off, status and problems,
     revoked warning, Update, Roll back, Remove; a banner "Changes wait for a restart" with **Restart keel**.
   - **Marketplace**: search, categories, cards (trust level, Install / Installed / Update), a detail panel (summary,
@@ -397,7 +397,7 @@ GET  /marketplace/sets                       → {sets: [{id, title, summary, pl
 
 **`needs_plugins`** (§8). The engine checks it where a flow starts (`POST /threads`, and a `start_flow` step's child):
 when a needed plugin is not loaded (not in `run/resolved.json` and not an engine part) it answers 409
-`{"error": "This workflow needs Database.", "hint": "Install it in Control › Plugins, then restart keel.",
+`{"error": "This workflow needs Database.", "hint": "Install it in Settings › Plugins, then restart keel.",
 "missing": ["db"], "workflow": "<workflow id>"}` and starts nothing. The engine cannot write the api's approvals, so
 **the api** does the rest: on a 409 with `missing` from `POST /threads` it opens (or joins) a `plugin-install` request
 for each missing plugin, reason "the workflow <name> needs it", source `workflow`, the project, and answers its own
@@ -408,7 +408,7 @@ for each missing plugin, reason "the workflow <name> needs it", source `workflow
 (the one-plugin shape); `keel_plugins_installed` → `GET /api/plugins/installed` (the installed shape, plus `restart`) and
 `GET /api/projects/{pid}/plugins`; `keel_plugin_request` → `GET /api/plugins/rules`, then
 `POST /api/plugins/requests {name, version?, reason, source: "agent", project?}`, whose answer it reads as
-`{id, joined?: bool}`; a 409 there (agents may not ask) becomes "Ask the person to install it in Control › Plugins".
+`{id, joined?: bool}`; a 409 there (agents may not ask) becomes "Ask the person to install it in Settings › Plugins".
 
 **What the engine settled or added** (where this contract left a choice open):
 

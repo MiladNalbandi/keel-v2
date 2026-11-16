@@ -94,6 +94,11 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
     setAskedOk(false);
   }, [p, wid]);
   const init = useStartInit(proj, onClose);
+  // a refusal shows at the end of a long form: bring it into view, or pressing Start flow looks like nothing happened
+  const errRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (err || init.err) errRef.current?.scrollIntoView?.({ block: "start" });
+  }, [err, init.err]);
   const dirtyRefused = !!err && /uncommitted changes/i.test(err.message);
   // 0.29 Run with: keel's harness (API key) or the person's connected Claude Code / OpenCode session, for the harness
   // flow and the build flows it stands in for (the MCP's keel_start_flow engine "session" does the same)
@@ -455,7 +460,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       </div>
       <RunModePicker value={runMode} onChange={(m) => { modePicked.current = true; setRunMode(m); }}
         hint={`The project default is ${modeDefault} (Settings › Run mode). You can change it on the Flow page while the flow runs.`} />
-      {err && <ErrorBox error={err} />}
+      <div ref={errRef}>{err && <ErrorBox error={err} />}</div>
       {asking && proj && (
         <InitAsk name={proj.name || proj.id} busy={init.busy} onInit={() => void init.start()}
           onAnyway={() => { setAskedOk(true); void start(true); }} onCancel={() => setAsking(false)} />

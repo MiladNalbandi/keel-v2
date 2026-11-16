@@ -56,7 +56,7 @@ def choose(index: Index, entry: SkillEntry) -> SkillVersion | None:
 def _refused(index: Index, entry: SkillEntry, best: SkillVersion | None) -> dict | None:
     if index.expired():
         return {"error": f"The catalog {index.source} is old: it expired at {index.expires}.",
-                "hint": "Refresh it (Control › Plugins › Sources and rules › Refresh). keel installs nothing from an "
+                "hint": "Refresh it (Settings › Plugins › Sources and rules › Refresh). keel installs nothing from an "
                         "old catalog."}
     if best is None:
         return {"error": f"No version of {entry.title} can be installed: {why_not(index, entry, entry.versions[0])}.",
@@ -94,7 +94,7 @@ def _lookup(name: str) -> tuple[Index, SkillEntry]:
     found = catalog.lookup_kind(KIND, name)
     if found is None:
         raise MarketError(404, f"There is no skill {name} in the catalogs keel reads.",
-                          "Refresh the catalogs (Control › Plugins › Sources and rules), or check the name.")
+                          "Refresh the catalogs (Settings › Plugins › Sources and rules), or check the name.")
     return found  # type: ignore[return-value]
 
 
@@ -113,7 +113,7 @@ def detail(name: str) -> dict:
 def _pick(index: Index, entry: SkillEntry, version: str | None) -> SkillVersion:
     if index.expired():
         raise MarketError(409, f"The catalog {index.source} is old: it expired at {index.expires}.",
-                          "Refresh it (Control › Plugins › Sources and rules › Refresh). keel installs nothing from an "
+                          "Refresh it (Settings › Plugins › Sources and rules › Refresh). keel installs nothing from an "
                           "old catalog.")
     if version:
         v = entry.version(version)

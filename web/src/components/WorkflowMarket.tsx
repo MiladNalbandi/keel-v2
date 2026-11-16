@@ -1,5 +1,5 @@
 // 0.16.1 plugin track: the marketplace for workflows on Build › Workflows (docs/plugins/21-workflow-marketplace.md §4):
-// the Install review in words (shared with Control › Plugins), the badge "from marketplace · 1.2.0" and its update,
+// the Install review in words (shared with Settings › Plugins), the badge "from marketplace · 1.2.0" and its update,
 // the workflow's menu (Update, Remove, Publish to marketplace, Delete), the Delete confirm, the update question (keep my copy or replace) and the
 // Publish dialog (download the package; signing and the pull request stay with the person).
 

@@ -6,7 +6,7 @@
     2 pack     <name>-<version>.kplug, UNSIGNED, in a temporary folder; lint errors stop here (keel would refuse it)
     3 copy     docker cp into the keel container's /data/plugins/dev/ (--container, else $KEEL_NAME, else keel-v2)
     4 install  POST <keel>/api/plugins/install-file {path, force: true}: source "file", unsigned, as a person can install
-               a file in Control › Plugins › Sources and rules
+               a file in Settings › Plugins › Sources and rules
     5 restart  POST <keel>/api/plugins/restart {now: true}; then wait until keel answers again and nothing waits
     6 report   what loaded (GET /api/plugin-host): its version and parts, or why keel left it out
 
@@ -36,7 +36,7 @@ DEFAULT_KEEL = "http://127.0.0.1:8080"
 DEFAULT_CONTAINER = "keel-v2"
 DEV_DIR = "/data/plugins/dev"
 UNSIGNED = ("unsigned: this .kplug has no signature. keel installed it as a file (source \"file\"), as a person can "
-            "in Control › Plugins › Sources and rules. Sign your releases (keel-plugin sign) before you publish.")
+            "in Settings › Plugins › Sources and rules. Sign your releases (keel-plugin sign) before you publish.")
 
 
 class DevError(PluginToolError):
@@ -188,7 +188,7 @@ class Dev:
         if code == 409:
             error = res.get("error") if isinstance(res, dict) else res
             raise DevError(f"keel cannot restart itself ({error}). Restart keel by hand (keel2 restart), then look at "
-                           "Control › Plugins")
+                           "Settings › Plugins")
         if code not in (200, 202):
             raise DevError(f"keel did not restart ({code}): {res}")
         self.say("restart  keel restarts (the same container, about 10 to 30 seconds)")
@@ -224,7 +224,7 @@ class Dev:
         elif mine:
             self.say(f"not yet  keel runs {m.name} {mine.get('version')}, not {m.version}: restart keel again")
         else:
-            self.say(f"not loaded: keel does not list {m.name} (Control › Plugins says more)")
+            self.say(f"not loaded: keel does not list {m.name} (Settings › Plugins says more)")
         return False
 
     # ---------------------------------------------------------------- all steps

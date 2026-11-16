@@ -158,7 +158,7 @@ class MarketWorkflows(
             val missing = fetched.path("missing_plugins").map { it.asText() }
             if (missing.isNotEmpty()) {
                 throw ApiException(HttpStatus.CONFLICT, "$title needs ${and(missing)}, which this keel does not run.",
-                    "Install it in Control › Plugins (or turn it on), restart keel, then install this workflow.",
+                    "Install it in Settings › Plugins (or turn it on), restart keel, then install this workflow.",
                     mapOf("missing_plugins" to missing))
             }
         }
@@ -356,7 +356,7 @@ class MarketWorkflows(
         |
         |The pull request's check lints the file, checks its signature with your key and computes its Install review (steps,
         |gates, agents, MCP servers, commands, files it changes). A maintainer merges it; within an hour keel lists it in
-        |Control › Plugins › Marketplace › Workflows.
+        |Settings › Plugins › Marketplace › Workflows.
         |""".trimMargin()
 
     companion object {

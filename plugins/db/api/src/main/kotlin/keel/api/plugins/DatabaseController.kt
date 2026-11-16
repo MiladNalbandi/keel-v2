@@ -81,13 +81,13 @@ class DatabaseController(private val db: DatabaseService) {
 }
 
 /**
- * Database connections global or per project (Control › Databases and a project's Databases), by id. Everything under
+ * Database connections global or per project (Settings › Databases and a project's Databases), by id. Everything under
  * /api/databases changes what every project sees, so an MCP call needs the admin level there (McpLevelGuard); a
  * project's own connections stay at the write level.
  */
 @RestController
 class DatabasesController(private val db: DatabaseService) {
-    // ---- every project (Control › Databases)
+    // ---- every project (Settings › Databases)
     @GetMapping("/api/databases")
     fun globals(request: HttpServletRequest): List<DbEntry> = db.globals(request.fromAgent())
 

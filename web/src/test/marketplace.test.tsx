@@ -1,4 +1,4 @@
-// v0.16.0 step 4 in the web (docs/plugins/13-step4-contract.md §9): Control › Plugins with its three tabs (Installed,
+// v0.16.0 step 4 in the web (docs/plugins/13-step4-contract.md §9): Settings › Plugins with its three tabs (Installed,
 // Marketplace, Sources and rules), the install dialog, the restart banner, and a keel with only its core:
 // #/settings/plugins?set=<id> installs a set. v0.16.1: the look of docs/plugins/mockup.html: keel core's row, nested rows,
 // cards without a catalog, a plugin's own page, ?tab=. The Inbox card and the core welcome: corehome.test.tsx.
@@ -90,7 +90,7 @@ function installSome() {
   ];
 }
 
-describe("Control › Plugins: Installed", () => {
+describe("Settings › Plugins: Installed", () => {
   it("is the one new page in Control, and lists keel core first, then each plugin with its version, parts, from, status and problems", async () => {
     installSome();
     await openPlugins();
@@ -394,7 +394,7 @@ describe("Control › Plugins: Installed", () => {
 });
 
 // v0.17.1 (docs/plugins/22-one-plugins-page.md §5): each row says what its change does; keel core has no switch
-describe("Control › Plugins: what a change does now", () => {
+describe("Settings › Plugins: what a change does now", () => {
   it("keel core is always on: a pill, no switch; the intro says everything is on and how to start with fewer", async () => {
     installSome();
     await openPlugins();
@@ -494,7 +494,7 @@ describe("Control › Plugins: what a change does now", () => {
   });
 });
 
-describe("Control › Plugins: Marketplace", () => {
+describe("Settings › Plugins: Marketplace", () => {
   it("searches by words and category, and its cards show the icon, publisher, trust level and what is installed", async () => {
     const user = userEvent.setup();
     db.market.installed = [
@@ -787,7 +787,7 @@ describe("Control › Plugins: Marketplace", () => {
   });
 });
 
-describe("Control › Plugins: Sources and rules", () => {
+describe("Settings › Plugins: Sources and rules", () => {
   it("adds a catalog with its key and reads the catalogs again, changes the four rules, and installs a file", async () => {
     const user = userEvent.setup();
     db.market.status = [

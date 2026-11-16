@@ -165,7 +165,7 @@ export function RepoIde({ pid, repo, version = 0, focus = false, onFocus, onRepo
   const activityItems = useSlot<CodeActivityItem>(SLOTS.codeActivity);
   const tabKinds = useSlot<CodeTabItem>(SLOTS.codeTab);
 
-  // a part's view shows while this project has its plugin on (Control › Plugins)
+  // a part's view shows while this project has its plugin on (Settings › Plugins)
   const plugins = useLoad(`plugins:${pid}`, () => api.plugins(pid), { live: false });
   const pluginOn = (name?: string) => !name || !!plugins.data?.find((x) => x.name === name)?.enabled;
   const sideItems = activityItems.filter(isSide);

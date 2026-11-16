@@ -1,4 +1,4 @@
-// The editor of one database connection (Control › Databases, a project's Databases): its name, environment and where
+// The editor of one database connection (Settings › Databases, a project's Databases): its name, environment and where
 // it is available, then two tabs. General: the type of database (with its logo), how keel connects (host and port, a
 // socket, a URL, or a variable of the project's .env), the user, the password and where keel keeps it, the default
 // database (a list after a test) and the URL the fields make (never with the password). Access: the projects that see

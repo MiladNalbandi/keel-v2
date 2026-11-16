@@ -1,6 +1,6 @@
 // Tools (MCP) (Build): servers your agents can call, a test for each (the result stays next to it), who may use
 // what as a compact matrix (one column per server, its state in the header), and recent calls. The parts add cards
-// under the servers (slot tools.card: Jira's MCP catalog). v0.17.1: plugins are switched only in Control › Plugins; a
+// under the servers (slot tools.card: Jira's MCP catalog). v0.17.1: plugins are switched only in Settings › Plugins; a
 // plugin that is on still brings its server here (withPlugins).
 
 import { Fragment, useState } from "react";

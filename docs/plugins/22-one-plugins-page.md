@@ -1,8 +1,8 @@
 # 0.17.1: one place for plugins
 
 **Why:** keel 0.17.0 had two places to switch a plugin: **Tools › Plugins** (cards: Install for this project, For
-every project) and **Control › Plugins** (installed, marketplace). Milad: the Tools one "should not exist". From
-0.17.1 **Control › Plugins** is the one place.
+every project) and **Settings › Plugins** (installed, marketplace). Milad: the Tools one "should not exist". From
+0.17.1 **Settings › Plugins** is the one place.
 
 ```
   0.17.0                                    0.17.1
@@ -13,7 +13,7 @@ every project) and **Control › Plugins** (installed, marketplace). Milad: the 
    ├ Recent tool calls                       ├ Recent tool calls             stays
    └ Who may use what                        └ Who may use what              stays
 
-  Control › Plugins › Installed             Control › Plugins › Installed
+  Settings › Plugins › Installed             Settings › Plugins › Installed
    └ keel-wide switch                         ├ db, git, ci, review: [ Off | This project | All projects ]
                                               └ any other plugin: keel-wide switch + "On"/"Off"
   #/plugins/<name>                          #/plugins/<name>
@@ -72,7 +72,7 @@ every project) and **Control › Plugins** (installed, marketplace). Milad: the 
    commands, where it shows. A new **Projects** section lists every project with **the same control** and the same
    words ("Database in platform: where it is on"); **This project** there means that row's project. The first try's
    "On for every project" button is gone: **All projects** on any row does it.
-4. **Links and hints.** Every "Tools › Plugins" a person reads now says **Control › Plugins**: the Workflows page's
+4. **Links and hints.** Every "Tools › Plugins" a person reads now says **Settings › Plugins**: the Workflows page's
    note on an off block, the api's and engine's 409 hints (Database, Git, CI/CD, Code Review off for this project),
    Claude Code's MCP error, docs/GUIDE.md and the README's "What you see" row. No ⌘K action or notification linked to
    `#/tools` for plugins, so none changes.
@@ -123,7 +123,7 @@ Fix in `web/src/styles.css`: `.view-switch` gets `grid-column: 1 / -1` and `repe
   plugin off keel-wide shows Off and This project turns it on, the "on in 2 other projects" hint and its link, the
   arrow keys, Home, End and the one tab stop, the no-per-project plugin's switch with On/Off beside it, and the
   min-width / nowrap rules (jsdom draws no CSS); the plugin page's Projects section lists each project with the same
-  control; the Workflows note says Control › Plugins.
+  control; the Workflows note says Settings › Plugins.
 - Code plugin (plugins/code/web/test): no Focus or KeelBot only button in the head; Rebuild and the index status in
   the status bar; Focus from the status bar.
 - The view switch (web/src/test/viewswitch.test.tsx): its three buttons, and the CSS rule (jsdom draws no CSS).

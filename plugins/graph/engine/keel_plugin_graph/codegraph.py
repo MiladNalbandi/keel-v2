@@ -144,12 +144,17 @@ def _move_index(project: str, root: str) -> str:
     return str(target)
 
 
+# The api (IndexEvents.kt) and the web (IndexStatus.tsx) know this text by its first words: no "Index failed" alarm.
+NOT_INSTALLED = "CodeGraph is not installed on this keel (agents use grep instead)."
+
+
 def index(project: str, root: str, rebuild: bool = False) -> dict:
     """{ok, files, symbols, index_dir, error}: codegraph init, sync or (rebuild) index. Blocking (subprocesses); the
     scan runs it in a worker thread. If CodeGraph cannot keep its SQLite database in the project (a file system without
     the locks it needs), the index moves to $KEEL_DATA/index/<project> and <project>/.codegraph becomes a link to it."""
     if not binary():
-        return {"ok": False, "error": "CodeGraph is not installed in this image (agents use grep instead)."}
+        # keel's Docker image always has it; a native keel without npm and the keel app do not: that is no failure
+        return {"ok": False, "error": NOT_INSTALLED}
     git.exclude(root, [f"{DIR}/"], "keel v2 code graph index")
     index_dir = str((Path(root) / DIR).resolve())
 

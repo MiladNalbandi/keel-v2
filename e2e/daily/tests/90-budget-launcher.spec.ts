@@ -12,12 +12,15 @@ test.describe("J10 Budget", () => {
     const shop = await projectNamed("shop");
     const b = await api("GET", `/projects/${shop.id}/budget`);
     await page.goto("/#/budget");
-    const kpis = page.locator(".bd-month, .bd-kpis").first();
-    await expect(kpis).toBeVisible({ timeout: 30_000 });
+    // keel 0.28: the month's numbers are the first card of Settings › Budget ("<project>, this month")
+    const card = page.locator("section", { has: page.locator("#b-month") }).first();
+    await expect(card.locator("#b-month")).toContainText("shop", { timeout: 30_000 });
+    const kpis = card.locator(".ss-kpis");
+    await expect(kpis.locator(".pg-skel")).toHaveCount(0, { timeout: 30_000 });
     const text = await kpis.innerText();
     expect(text, "tokens").toContain(kfmt(b.month.tokens));
     expect(text, "cost").toContain(usd(b.month.cost_usd));
-    const flowsCell = await kpis.locator("div", { hasText: /^Flows/ }).first().innerText();
+    const flowsCell = await kpis.locator(".ss-kpi", { hasText: /^Flows/ }).first().innerText();
     expect(flowsCell).toContain(String(b.month.flows));
     // the "now" numbers behind the budget bar
     const now = await api("GET", `/projects/${shop.id}/budget/now`);

@@ -309,7 +309,7 @@ def _resume(api: KeelApi, tid: str, decision: str, why: str | None, payload: dic
 
 # ---------------------------------------------------------------- the marketplace (step 4): agents find and ask
 
-ASK_IN_PLUGINS = "Ask the person to install it in Control › Plugins."
+ASK_IN_PLUGINS = "Ask the person to install it in Settings › Plugins."
 
 
 def _items(body, key: str = "plugins") -> list:
@@ -434,7 +434,7 @@ def plugin_request(api: KeelApi, name: str, reason: str, version: str | None = N
 
 # ---------------------------------------------------------------- server
 
-# ---- v0.10.0 plugins (Control › Plugins): each part adds its tools (its `keel_mcp`, keel_engine/extensions.py), through
+# ---- v0.10.0 plugins (Settings › Plugins): each part adds its tools (its `keel_mcp`, keel_engine/extensions.py), through
 # the api and keel's rules; these are what they share
 
 ASK_WAIT = 600          # an acting tool waits this long for the person's answer in keel's Inbox
@@ -444,7 +444,7 @@ ASK_POLL = 3
 def _plugin_on(api: KeelApi, pid: str, name: str):
     on = [p["name"] for p in api.get(f"/projects/{pid}/plugins") or [] if p.get("enabled")]
     if name not in on:
-        raise ApiError(f"The {extensions.title(name)} plugin is off for {pid}: turn it on in keel (Control › Plugins).")
+        raise ApiError(f"The {extensions.title(name)} plugin is off for {pid}: turn it on in keel (Settings › Plugins).")
 
 
 def _bound(fn, a: tuple, kw: dict) -> dict:

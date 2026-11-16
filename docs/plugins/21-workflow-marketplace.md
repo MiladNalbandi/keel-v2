@@ -71,7 +71,7 @@ when `main` releases one with the same number, as before.
 
 ## 4 · The web
 
-- **Control › Plugins › Marketplace** gets a kind switch: **Plugins · Workflows** (later **Rules**). The Workflows
+- **Settings › Plugins › Marketplace** gets a kind switch: **Plugins · Workflows** (later **Rules**). The Workflows
   view: search, categories, cards (title, publisher ✓, version, summary, the review in short: "6 steps · 2 gates ·
   runs 1 command", needs), Install / Installed in this project / Update.
 - **A workflow's page** (`#/plugins/workflow/<name>`): the steps as a small graph (the Workflows page's own graph

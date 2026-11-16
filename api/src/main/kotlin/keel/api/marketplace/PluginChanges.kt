@@ -174,7 +174,7 @@ class PluginChanges(
             return
         }
         notifications.create("finished", null, "$head: restart keel to use it",
-            listOfNotNull(version?.let { "Version $it." }, "Control › Plugins has the Restart keel button.").joinToString(" "), "/plugins")
+            listOfNotNull(version?.let { "Version $it." }, "Settings › Plugins has the Restart keel button.").joinToString(" "), "/plugins")
     }
 
     companion object {

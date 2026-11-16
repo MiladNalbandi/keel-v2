@@ -2,6 +2,8 @@
 # A stand-in for `gh` (copied from api/src/test/kotlin/keel/api/support/ApiTest.kt): no real GitHub. keel2 start is
 # given KEEL_GITHUB_LOGIN_GH=<this file>. It logs its arguments to gh.log next to it.
 echo "$*" >> "$(dirname "$0")/gh.log"
+# signed out after `auth logout`, signed in again after an `auth login` that got its two answers (a marker file)
+out="$(dirname "$0")/gh.signed-out"
 case "$1 $2" in
   "auth login")
     if [ "$GH_ACCESSIBLE_PROMPTER" != true ]; then sleep 600; fi
@@ -11,9 +13,11 @@ case "$1 $2" in
     echo "! First copy your one-time code: AB12-CD34"
     echo "Press Enter to open https://github.com/login/device in your browser..."
     IFS= read -r enter
-    sleep 1;;
-  "auth token") echo "gho_fakefakefakefakefakefakefakefake1234";;
-  "auth status") echo "github.com"; echo "  ✓ Logged in to github.com account e2e-user (hosts.yml)"; echo "  - Token scopes: 'read:org', 'repo', 'workflow'";;
-  "auth logout") echo "Logged out";;
+    sleep 1
+    rm -f "$out";;
+  "auth token") if [ -e "$out" ]; then echo "no oauth token found for github.com" >&2; exit 1; fi; echo "gho_fakefakefakefakefakefakefakefake1234";;
+  "auth status") if [ -e "$out" ]; then echo "You are not logged into any GitHub hosts. To log in, run: gh auth login"; exit 1; fi
+    echo "github.com"; echo "  ✓ Logged in to github.com account e2e-user (hosts.yml)"; echo "  - Token scopes: 'read:org', 'repo', 'workflow'";;
+  "auth logout") : > "$out"; echo "Logged out";;
 esac
 exit 0

@@ -29,7 +29,7 @@ Every part is a plugin since step 3. A keel with **only its core** has no plugin
           Connections · Plugins
 ```
 
-A set button opens Control › Plugins with that set (step 4). After the plugins are installed and keel restarts, their
+A set button opens Settings › Plugins with that set (step 4). After the plugins are installed and keel restarts, their
 pages and links come back.
 
 ## The rule: link only to a page that is there

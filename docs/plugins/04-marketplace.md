@@ -90,7 +90,7 @@ company's private list. A private catalog is read with a token from Connections.
 Search runs in keel's api over the cached index (name, title, summary, tags), so the web and the agents get the same
 results. No search service is needed.
 
-The web gets one page, **Control › Plugins**, with three tabs:
+The web gets one page, **Settings › Plugins**, with three tabs:
 
 | tab                   | what it shows                                                                                                                                             |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -74,7 +74,7 @@ describe("core only: the welcome on the Flow page", () => {
     expect(within(basic).getByRole("button", { name: "All here" })).toBeDisabled();
   });
 
-  it("Install N opens the set's offer in Control › Plugins and installs nothing by itself", async () => {
+  it("Install N opens the set's offer in Settings › Plugins and installs nothing by itself", async () => {
     const user = userEvent.setup();
     coreOnly();
     openFlow();
@@ -86,7 +86,7 @@ describe("core only: the welcome on the Flow page", () => {
     expect(calls("PUT", "/api/plugins/wiki")).toEqual([]);
   });
 
-  it("Open the marketplace goes to Control › Plugins (Marketplace); How plugins work explains in a dialog", async () => {
+  it("Open the marketplace goes to Settings › Plugins (Marketplace); How plugins work explains in a dialog", async () => {
     const user = userEvent.setup();
     coreOnly();
     openFlow();

@@ -107,7 +107,7 @@ class LinksService(private val secrets: SecretService, private val kv: KvStore, 
     }
 }
 
-/** The key reaches the engine only for a project that has the plugin on (Control › Plugins). */
+/** The key reaches the engine only for a project that has the plugin on (Settings › Plugins). */
 @Component
 class LinksKeys(private val links: LinksService, private val plugins: PluginService) : FlowContributor {
     override fun keys(pid: String): Map<String, String> = if (plugins.on(pid, "links")) links.keys() else emptyMap()

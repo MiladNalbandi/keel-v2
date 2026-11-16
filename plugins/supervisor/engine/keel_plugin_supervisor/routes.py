@@ -3,7 +3,7 @@
     GET  /supervisor/decisions?thread_id=&project_id=&limit=   its audit log, newest first
     GET  /supervisor/switch?project_id=                         the keel-wide switch (and a project's), what it looks at now
     POST /supervisor/switch  {keel, projects: {pid: {on, plugin}}, defaults: {mode, stall_minutes}}
-                                    keel's api sends every change of its switches (Settings, Control › Plugins); off
+                                    keel's api sends every change of its switches (Settings, Settings › Plugins); off
                                     stops at once (switch.py)
     GET  /threads/{tid}/supervisor                              the flow's Supervisor settings, its tokens, its last rows
     GET  /threads/{tid}/supervisor/status                       the flow's chip, and its note for the waiting question
@@ -116,7 +116,7 @@ async def set_settings(tid: str, body: SupervisorBody, request: Request):
     except EngineError as exc:
         raise HTTPException(exc.status, exc.error) from exc
     if body.on and not (await sup.settings(tid))["plugin_on"]:
-        raise HTTPException(409, "The Supervisor plugin is off for this project: turn it on in Control › Plugins first.")
+        raise HTTPException(409, "The Supervisor plugin is off for this project: turn it on in Settings › Plugins first.")
     patch = body.model_dump(exclude_unset=True)      # on: null = follow the project's switch again
     data = json.loads(row["body"])
     settings = dict(data.get("settings") or {})

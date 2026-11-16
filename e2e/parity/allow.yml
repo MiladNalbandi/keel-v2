@@ -48,10 +48,10 @@
 #      0.16.1's answer (the per-project plugins), so it is not here.
 
 - what: api GET /api/plugins/installed
-  why: step 4, the installed plugins of Control › Plugins (version, parts, from, on, status) and what waits for a restart
+  why: step 4, the installed plugins of Settings › Plugins (version, parts, from, on, status) and what waits for a restart
 
 - what: api GET /api/plugins/sources
-  why: step 4, the plugin catalogs keel reads (the official one and the ones a person adds), Control › Plugins › Sources and rules
+  why: step 4, the plugin catalogs keel reads (the official one and the ones a person adds), Settings › Plugins › Sources and rules
 
 - what: api GET /api/plugins/rules
   why: step 4, the four marketplace rules (agents may ask, unverified publishers, check daily, restart when idle)
@@ -60,7 +60,7 @@
   why: step 4, the plugin sets a core-only keel offers ("Start with a set")
 
 - what: api GET /api/marketplace*
-  why: step 4, search the plugin catalogs (Control › Plugins › Marketplace, and the agents' keel_marketplace_search)
+  why: step 4, search the plugin catalogs (Settings › Plugins › Marketplace, and the agents' keel_marketplace_search)
 
 - what: mcp * tools/list
   detail: "B adds at the end: keel_marketplace_search, keel_plugin_info, keel_plugins_installed, keel_plugin_request"
@@ -68,16 +68,16 @@
 
 - what: web menu
   detail: 'menu: "Plugins → #/plugins" only in B'
-  why: step 4, the Control › Plugins entry in the menu (group Control, after the pages 0.16.1 has there)
+  why: step 4, the Settings › Plugins entry in the menu (group Control, after the pages 0.16.1 has there)
 
 - what: web #/plugins *
-  why: step 4, the Control › Plugins page (Installed, Marketplace, Sources and rules); 0.16.1 has no such page
+  why: step 4, the Settings › Plugins page (Installed, Marketplace, Sources and rules); 0.16.1 has no such page
 
 # ---- 0.17.1 (docs/plugins/22-one-plugins-page.md): only what is gone, against 0.17.0 / 0.16.1
 
 - what: web #/tools *
   detail: '*only in A*'
-  why: 0.17.1, plugins are switched only in Control › Plugins (the Tools page's Plugins section and its cards are gone)
+  why: 0.17.1, plugins are switched only in Settings › Plugins (the Tools page's Plugins section and its cards are gone)
 
 - what: web #/repo*
   detail: '*"KeelBot only" only in A'

@@ -1,4 +1,4 @@
-// The web half of the marketplace e2e (e2e/marketplace/e2e.py): Control › Plugins and the Inbox in headless Chromium.
+// The web half of the marketplace e2e (e2e/marketplace/e2e.py): Settings › Plugins and the Inbox in headless Chromium.
 //
 //   npx -y -p playwright@1 node e2e/marketplace/web.mjs <url> <outdir> <plugin> <source title>
 //
@@ -85,7 +85,7 @@ try {
   await page.goto(`${base}/#/plugins`);
   await page.reload();
   const T = 30_000;
-  await check(page, "the menu links to Control › Plugins", async () => {
+  await check(page, "the menu links to Settings › Plugins", async () => {
     await page.locator('nav a[href="#/plugins"], a[href="#/plugins"]').first().waitFor({ timeout: T });
   });
   await check(page, "#/plugins shows its three tabs: Installed, Marketplace, Sources and rules", async () => {

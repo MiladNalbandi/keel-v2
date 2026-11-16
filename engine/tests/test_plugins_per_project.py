@@ -1,6 +1,6 @@
 """A plugin that each project turns on (per_project: true) must be in keel's per-project list.
 
-That list (GET /plugins, then Control › Plugins "Off | This project | All projects", the TUI's commands and the engine's
+That list (GET /plugins, then Settings › Plugins "Off | This project | All projects", the TUI's commands and the engine's
 own on/off) comes from content/plugins/<name>/plugin.yml with installable: true. 0.18.33's Supervisor had none, so no
 project could turn it on.
 """

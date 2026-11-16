@@ -1,4 +1,4 @@
-// Rule packs in the marketplace (docs/plugins/23-rules-in-marketplace.md §3), the third kind of Control › Plugins ›
+// Rule packs in the marketplace (docs/plugins/23-rules-in-marketplace.md §3), the third kind of Settings › Plugins ›
 // Marketplace, in the look of the workflow pages (MarketWorkflow.tsx):
 //
 //   Marketplace › Rules       search, the category chips, cards (icon, title, publisher ✓ / community, version, summary,
