@@ -174,3 +174,29 @@ test("0.29.2 keel keeps running when the window closes: settings, the icon's lin
   assert.equal(bg.startsHidden(["keel"], true), true);
   assert.equal(bg.startsHidden(["keel"], false), false);
 });
+
+test("0.29.2 the desktop keel's MCP launcher and the connect commands", async () => {
+  const m = await import("../src/mcp");
+  const paths = pathsFor("darwin", "/Users/ana", {});
+  const bundle = bundleIn("/Applications/keel.app/Contents/Resources");
+  const sh = m.mcpLauncher({ bundle, paths, port: 8180 });
+  assert.match(sh, /^PY='\/Applications\/keel\.app\/Contents\/Resources\/runtime\/python\/bin\/python3'$/m);
+  assert.match(sh, /^export KEEL_API_URL='http:\/\/127\.0\.0\.1:8180'$/m);
+  assert.match(sh, /^export KEEL_INTERNAL_TOKEN_FILE='\/Users\/ana\/Library\/Application Support\/keel\/data\/run\/internal-token'$/m);
+  assert.match(sh, /exec "\$PY" -P -m keel_engine\.mcp "\$MODE" "\$@"/);
+  assert.equal(m.mcpLauncherPath(paths), "/Users/ana/Library/Application Support/keel/keel-mcp");
+  const c = m.connectText(m.mcpLauncherPath(paths));
+  assert.equal(c.claude, 'claude mcp add keel -- "/Users/ana/Library/Application Support/keel/keel-mcp" --write');
+  assert.deepEqual(JSON.parse(c.opencode).mcp.keel.command, ["/Users/ana/Library/Application Support/keel/keel-mcp", "--write"]);
+  // a quote in a path stays one argument
+  const odd = m.mcpLauncher({ bundle: bundleIn("/opt/it's"), paths, port: 8181 });
+  assert.match(odd, /^PY='\/opt\/it'\\''s\/runtime\/python\/bin\/python3'$/m);
+  // the launcher runs: without the app's Python it says to open keel
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kd-mcp-"));
+  const f = path.join(dir, "keel-mcp");
+  fs.writeFileSync(f, m.mcpLauncher({ bundle: bundleIn(path.join(dir, "gone")), paths, port: 8180 }), { mode: 0o700 });
+  const { spawnSync } = await import("node:child_process");
+  const r = spawnSync(f, ["--write"], { encoding: "utf8" });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /open the keel app/);
+});

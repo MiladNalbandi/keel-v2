@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { app, BrowserWindow, clipboard, dialog, Menu, nativeImage, nativeTheme, net, Notification, protocol, session, shell, Tray, type MenuItemConstructorOptions } from "electron";
+import { connectText, mcpLauncher, mcpLauncherPath } from "./mcp";
 import { autostartEntry, autostartFile, newWaits, nowLine, nowOf, startsHidden, tooltipOf, type Now } from "./background";
 import { checkGit } from "./checks";
 import { log, openLog } from "./log";
@@ -125,6 +126,7 @@ async function main(): Promise<void> {
         return;
       }
       void keel.register(settings.folders.filter((f) => fs.existsSync(f))).then((added) => added.length && log(`projects added: ${added.join(", ")}`));
+      writeMcpLauncher();
       await openKeel();
       void look();
     } catch (e) {
@@ -340,6 +342,39 @@ async function main(): Promise<void> {
     return w;
   }
 
+  // ---------------------------------------------------------------- 0.29.2 keel's MCP for Claude Code and OpenCode
+
+  /** <keel folder>/keel-mcp, for this keel's port and the app's Python (the AppImage's place changes every run). */
+  function writeMcpLauncher(): void {
+    if (!keel.ports) return;
+    try {
+      const f = mcpLauncherPath(paths);
+      fs.writeFileSync(`${f}.tmp`, mcpLauncher({ bundle, paths, port: keel.ports.api }), { mode: 0o700 });
+      fs.renameSync(`${f}.tmp`, f);
+    } catch (e) {
+      log("keel-mcp:", e);
+    }
+  }
+
+  async function connectClients(): Promise<void> {
+    const c = connectText(mcpLauncherPath(paths));
+    const r = await box({
+      type: "info",
+      buttons: ["Copy for Claude Code", "Copy for OpenCode", "Copy for Claude Desktop", "Close"],
+      defaultId: 0,
+      cancelId: 3,
+      message: "Connect Claude Code or OpenCode to keel",
+      detail:
+        "Your own Claude Code or OpenCode (signed in with your plan) can work for keel: keel sends the work, checks it and makes the commits.\n\n" +
+        `Claude Code, in a terminal:\n${c.claude}\n\n` +
+        `OpenCode: add this to opencode.json:\n${c.opencode}\n\n` +
+        "Then tell it: \"Work for keel: call keel_session_open, then keel_session_next, and follow its work orders.\" " +
+        "In keel: Start a flow › Run with › Connected session. keel must be running (this app).",
+    });
+    const pickText = [c.claude, c.opencode, c.desktop][r.response];
+    if (pickText) clipboard.writeText(pickText);
+  }
+
   // ---------------------------------------------------------------- 0.29.2 in the background
 
   /** The window again (the icon, the Dock, a second start of the app): the one there is, or a new one on keel. */
@@ -522,6 +557,7 @@ async function main(): Promise<void> {
         { label: "Restart keel", click: () => void restart() },
         { label: "Restart keel in Safe Mode", click: () => void restart(true) },
         { label: "Show keel's Logs", click: () => void shell.openPath(paths.logs) },
+        { label: "Connect Claude Code or OpenCode…", click: () => void connectClients() },
         {
           label: "Copy Sign-in Key for Terminal Apps",
           click: () => {
