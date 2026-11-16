@@ -26,5 +26,14 @@ export default defineConfig({
     trace: "retain-on-failure",
     actionTimeout: 15_000,
   },
-  projects: [{ name: "chromium", use: { browserName: "chromium" } }],
+  // KEEL_E2E_CHROMIUM: a Chromium that is already on this computer (no `npx playwright install chromium`)
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        browserName: "chromium",
+        ...(process.env.KEEL_E2E_CHROMIUM ? { launchOptions: { executablePath: process.env.KEEL_E2E_CHROMIUM } } : {}),
+      },
+    },
+  ],
 });
