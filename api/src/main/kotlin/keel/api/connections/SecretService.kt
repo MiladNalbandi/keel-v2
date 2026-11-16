@@ -153,17 +153,18 @@ class SecretService(
     fun copilotKeyHint(): String? = copilotToken()?.second
 
     /**
-     * #101 GitHub Models' token and its hint: GITHUB_TOKEN (saved, else the environment), else GH_TOKEN (saved by the old
-     * Copilot login, else the environment), else the token of keel's GitHub sign-in when it is for github.com (keel
-     * sends an Enterprise host's token to that host only).
+     * #101 GitHub Models' token and its hint: GITHUB_TOKEN (saved, else the environment), else the token of keel's GitHub
+     * sign-in when it is for github.com (keel sends an Enterprise host's token to that host only), else GH_TOKEN (saved by
+     * the old Copilot CLI login before 0.26, else the environment). The sign-in comes before the old login's token: that
+     * token is often expired or not allowed to call GitHub Models, and it must not hide a fresh sign-in.
      */
     private fun copilotToken(): Pair<String, String?>? {
-        for (name in listOf(KEY_NAMES.getValue("copilot"), GH_TOKEN)) {
-            get(name)?.let { return clean(name, it) to hintOf(name) }
-            System.getenv(name)?.takeIf { it.isNotBlank() }?.let { return clean(name, it) to "from the environment" }
-        }
-        if (githubHost() != "github.com") return null
-        return get(GITHUB_SIGN_IN)?.let { clean(GITHUB_SIGN_IN, it) to "from the GitHub sign-in" }
+        fun named(name: String): Pair<String, String?>? =
+            get(name)?.let { clean(name, it) to hintOf(name) }
+                ?: System.getenv(name)?.takeIf { it.isNotBlank() }?.let { clean(name, it) to "from the environment" }
+        named(KEY_NAMES.getValue("copilot"))?.let { return it }
+        if (githubHost() == "github.com") get(GITHUB_SIGN_IN)?.let { return clean(GITHUB_SIGN_IN, it) to "from the GitHub sign-in" }
+        return named(GH_TOKEN)
     }
 
     private fun checkName(name: String) {

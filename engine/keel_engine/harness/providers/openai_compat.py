@@ -17,6 +17,14 @@ from typing import Any, Callable
 from .base import END, MAX_TOKENS, REFUSAL, TOOL_USE, Emit, ProviderError, Request, Turn, Usage
 
 GITHUB_MODELS_URL = "https://models.github.ai/inference"
+# GitHub Models is not Copilot: what a refused call means there, and what to do
+GITHUB_HINTS = {
+    401: "The GitHub token is expired or not valid. Sign in with GitHub again (Settings › Connections), or save a token "
+         "with the models:read permission as GITHUB_TOKEN in Settings › Models & keys.",
+    403: "The token is not allowed to use GitHub Models: it needs the models:read permission, or your organization has "
+         "GitHub Models turned off (an organization owner can turn it on). A Copilot plan alone does not give keel models.",
+    404: "GitHub Models has no such model. Pick one from its list in Settings › Models & keys (openai/gpt-5, openai/gpt-4.1, …).",
+}
 STOPS = {"stop": END, "tool_calls": TOOL_USE, "function_call": TOOL_USE, "length": MAX_TOKENS, "content_filter": REFUSAL}
 _NAME = re.compile(r"[^a-zA-Z0-9_-]")
 
@@ -59,13 +67,15 @@ def to_messages(system: str, messages: list[dict]) -> list[dict]:
 def _error(exc: Exception, who: str) -> ProviderError:
     import openai
 
+    github = who == "GitHub Models"
     if isinstance(exc, openai.AuthenticationError):
-        return ProviderError(f"{who} did not accept the key.", status=401, hint="Check the key in Settings › Models & keys.")
+        return ProviderError(f"{who} did not accept the key.", status=401, hint=GITHUB_HINTS[401] if github else
+                             "Check the key in Settings › Models & keys.")
     if isinstance(exc, openai.PermissionDeniedError):
-        return ProviderError(f"{who} refused this request: {exc.message}", status=403)
+        return ProviderError(f"{who} refused this request: {exc.message}", status=403, hint=GITHUB_HINTS[403] if github else "")
     if isinstance(exc, openai.NotFoundError):
         return ProviderError(f"{who} does not know this model: {exc.message}", status=404,
-                             hint="Pick another model in Settings › Models & keys.")
+                             hint=GITHUB_HINTS[404] if github else "Pick another model in Settings › Models & keys.")
     if isinstance(exc, openai.RateLimitError):
         after = exc.response.headers.get("retry-after") if exc.response is not None else None
         return ProviderError(f"{who}'s rate limit: waiting before the next try.", retry=True, status=429,

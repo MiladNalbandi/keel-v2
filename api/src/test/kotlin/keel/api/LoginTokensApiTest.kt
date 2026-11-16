@@ -50,12 +50,18 @@ class LoginTokensApiTest : ApiTest() {
     }
 
     @Test
-    fun `GitHub Models takes GITHUB_TOKEN, else the old GH_TOKEN, else the GitHub sign-in's token, and says where it came from`() {
+    fun `GitHub Models takes GITHUB_TOKEN, else the GitHub sign-in's token, else the old GH_TOKEN, and says where it came from`() {
         val none = provider("copilot")
         assertThat(none["key_set"].asBoolean()).isFalse()
         assertThat(none["modes"][0]["ready"].asBoolean()).isFalse()
         assertThat(none["modes"][0]["detail"].asText()).isEqualTo("Add GITHUB_TOKEN, or sign in with GitHub.")
 
+        // the old Copilot CLI login's token (before 0.26) is used when nothing newer is there
+        put("/api/secrets/GH_TOKEN", mapOf("value" to "gho_OLD-copilot-login-def")).andExpect(status().isOk)
+        assertThat(provider("copilot")["key_hint"].asText()).isEqualTo("…def")
+        assertThat(provider("copilot")["modes"][0]["detail"].asText()).isEqualTo("Token saved.")
+
+        // a fresh GitHub sign-in wins over the old login's token
         secretStore.put("GITHUB_REPO_TOKEN", "gho_SIGNIN-token-abc")
         val signedIn = provider("copilot")
         assertThat(signedIn["key_set"].asBoolean()).isTrue()
@@ -65,14 +71,16 @@ class LoginTokensApiTest : ApiTest() {
         post("/api/connections/copilot/test").andExpect(status().isOk)
         assertThat(engine.lastBody("/providers/test")!!["key"].asText()).isEqualTo("gho_SIGNIN-token-abc")
 
-        // a sign-in to GitHub Enterprise: its token goes to that host only, never to GitHub Models
+        // a sign-in to GitHub Enterprise: its token goes to that host only, never to GitHub Models (the old token is used)
+        secretStore.put("GITHUB_REPO_INFO", """{"host":"ghe.example.com","login":"ana"}""")
+        assertThat(provider("copilot")["key_hint"].asText()).isEqualTo("…def")
+        jdbc.update("DELETE FROM secrets WHERE name = 'GITHUB_REPO_INFO'")
+        jdbc.update("DELETE FROM secrets WHERE name = 'GH_TOKEN'")
         secretStore.put("GITHUB_REPO_INFO", """{"host":"ghe.example.com","login":"ana"}""")
         assertThat(provider("copilot")["key_set"].asBoolean()).isFalse()
         jdbc.update("DELETE FROM secrets WHERE name = 'GITHUB_REPO_INFO'")
 
-        put("/api/secrets/GH_TOKEN", mapOf("value" to "gho_OLD-copilot-login-def")).andExpect(status().isOk)
-        assertThat(provider("copilot")["key_hint"].asText()).isEqualTo("…def")
-        assertThat(provider("copilot")["modes"][0]["detail"].asText()).isEqualTo("Token saved.")
+        // a GitHub Models token saved by the person wins over both
         put("/api/secrets/GITHUB_TOKEN", mapOf("value" to "ghp_MODELS-token-ghi")).andExpect(status().isOk)
         assertThat(provider("copilot")["key_hint"].asText()).isEqualTo("…ghi")
         post("/api/connections/copilot/test").andExpect(status().isOk)
