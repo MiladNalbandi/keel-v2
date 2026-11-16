@@ -1,6 +1,6 @@
 // keel 0.28 Home: one box to ask KeelBot or start a flow, then what waits for you, what runs now and the recent flows.
-// Asking comes first (⇥ in the empty box goes to Build a flow): it opens ⌘K in KeelBot mode with the question, where
-// the answer shows. Starting opens the Start a flow drawer with the text in it (its estimate, size and cap stay there).
+// Asking comes first (⇥ in the empty box goes to Build a flow): Ask starts a KeelBot chat with the question and opens
+// KeelBot's page on it (no ⌘K pop-up), where the answer streams in. Starting opens the Start a flow drawer with the text in it (its estimate, size and cap stay there).
 //
 //            Ask keel about greeter
 //   ┌───────────────────────────────────────────────┐
@@ -11,13 +11,12 @@
 //   Waiting for you (2) · Running now · Recent
 
 import { useRef, useState } from "react";
-import { api, type RunRow } from "../api";
+import { api, errorParts, type RunRow } from "../api";
 import { inboxApi, type InboxItem } from "../inboxApi";
-import { openLauncher } from "../components/launcher/Launcher";
 import { openStartFlow, runTone } from "../components/ShellNav";
 import { hashFor } from "../routes";
 import type { PageProps } from "../sdk/registry";
-import { useApp, useLoad } from "../state";
+import { go, useApp, useLoad } from "../state";
 
 const KIND: Record<string, string> = {
   gate: "Gate",
@@ -37,6 +36,8 @@ export function HomePage({ pid }: PageProps) {
   const [mode, setMode] = useState<"build" | "ask">("ask");
   const [text, setText] = useState("");
   const [err, setErr] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [fail, setFail] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
   const inbox = useLoad("home-inbox", () => inboxApi.list({}), { live: true });
   const runs = useLoad(pid ? `home-runs:${pid}` : null, () => api.runs(pid, undefined, 8), { live: true });
@@ -45,7 +46,7 @@ export function HomePage({ pid }: PageProps) {
   const running = all.filter((r) => runTone(r) === "run");
   const recent = all.filter((r) => runTone(r) !== "run").slice(0, 4);
 
-  const go = () => {
+  const send = () => {
     const t = text.trim();
     if (mode === "build") {
       if (!t) {
@@ -55,7 +56,30 @@ export function HomePage({ pid }: PageProps) {
       }
       openStartFlow(t);
     } else {
-      openLauncher({ text: t ? `?${t}` : "?" });
+      if (!t) {
+        go("helper");
+        return;
+      }
+      if (!pid || busy) return;
+      setBusy(true);
+      setFail("");
+      void (async () => {
+        try {
+          const s = await api.helperCreate(pid, { mode: "ask", title: t.slice(0, 80) });
+          await api.helperTurn(pid, s.id, { text: t });
+          try {
+            localStorage.setItem(`keel2.helper.${pid}.session`, s.id);
+          } catch {
+            /* private window */
+          }
+          setText("");
+          go("helper");
+        } catch (e) {
+          setFail(errorParts(e).message);
+        } finally {
+          setBusy(false);
+        }
+      })();
     }
   };
 
@@ -98,7 +122,7 @@ export function HomePage({ pid }: PageProps) {
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                go();
+                send();
               } else if (e.key === "Tab" && !e.shiftKey && !text) {
                 e.preventDefault();
                 setMode(mode === "build" ? "ask" : "build");
@@ -106,9 +130,10 @@ export function HomePage({ pid }: PageProps) {
             }}
           />
           {err && <p className="h2-err">Say what to build first.</p>}
+          {fail && <p className="h2-err" role="alert">{fail}</p>}
           <div className="h2-acts">
             <span className="h2-tip">
-              {mode === "build" ? "Workflow, size, cap and run mode come next." : "KeelBot reads the project; it changes nothing."}
+              {mode === "build" ? "Workflow, size, cap and run mode come next." : "Opens in KeelBot. It reads the project; it changes nothing."}
             </span>
             <span className="grow" />
             {mode === "build" && (
@@ -116,8 +141,8 @@ export function HomePage({ pid }: PageProps) {
                 More options
               </button>
             )}
-            <button type="button" className="btn primary" onClick={go}>
-              {mode === "build" ? "Start flow" : "Ask"} <kbd>↩</kbd>
+            <button type="button" className="btn primary" onClick={send} disabled={busy}>
+              {mode === "build" ? "Start flow" : busy ? "Asking…" : "Ask"} <kbd>↩</kbd>
             </button>
           </div>
         </div>
