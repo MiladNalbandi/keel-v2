@@ -164,7 +164,7 @@ export function SessionNow({ thread, onJump }: { thread: ThreadState; onJump?: (
   const waits = waitsForSession(thread);
   const gone = !!(thread.session?.gone || thread.waiting?.gone);
   return (
-    <div className="interrupt fl-waits sess-now" data-testid="session-now">
+    <div className="sess-now" data-testid="session-now">
       {waits && <b><Pill tone={gone ? "warn" : "run"}>{gone ? "session gone" : "waits for the session"}</Pill> {SAID[thread.waiting?.order?.kind ?? ""] ?? thread.waiting?.title}</b>}
       <SessionLine thread={thread} compact />
       {waits && <SessionTodos todos={thread.session?.todos ?? []} label="The session's todo list, live" />}

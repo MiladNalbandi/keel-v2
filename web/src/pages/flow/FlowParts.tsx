@@ -234,7 +234,10 @@ export function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, pe
   fold?: React.ReactNode;
 }) {
   const [view, setView] = useMapView("flow");
-  const waitAt = thread.status === "waiting" ? (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "") : null;
+  // 0.29 a work order for the connected session: the step is at work (the session's), not waiting for you
+  const bySession = waitsForSession(thread);
+  const waitAt = thread.status === "waiting" && !bySession ? (thread.waiting?.step ?? thread.current ?? "").replace(/__fix$/, "") : null;
+  const status = bySession ? "running" : thread.status;
   const onCanvas = !!waitAt && workflow.steps.some((s) => s.id === waitAt);
   const sendBacks = useMemo(() => sendBacksOf(thread.gate_log), [thread.gate_log]);
   const { liveText, liveSteps } = useApp();
@@ -265,6 +268,12 @@ export function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, pe
       </div>
       {waiting && !onCanvas && <div className="panel-body" style={{ paddingBottom: 0 }}>{waiting}</div>}
       <div className={`panel-body sx-scroll fl-scroll${view === "blocks" ? " is-blocks" : ""}`}>
+        {bySession && view === "blocks" && (
+          <div className="fl-needs sess-needs" role="status">
+            <span>The connected session works on <b>{nameOf(thread.waiting?.step ?? "")}</b>{thread.session?.gone || thread.waiting?.gone ? ": it is gone, you choose how to go on." : "."}</span>
+            {onJump && <button type="button" className="btn sm" onClick={onJump}>Go to it</button>}
+          </div>
+        )}
         {needs && view === "blocks" && (
           <div className={`fl-needs ${failedAt ? "is-bad" : ""}`} role="status">
             <span>{failedAt ? <><b>{nameOf(needs)}</b> failed. See why and what to do.</>
@@ -281,7 +290,7 @@ export function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, pe
           <>
             <Blocks ref={canvas} steps={workflow.steps} tokens={thread.status === "done" ? undefined : tokens} actual={actual} facts={facts} totals={totals} acFacts={perAc} sendBacks={sendBacks}
               foldKey={thread.thread_id} liveLine={liveLine} acCount={thread.acs.length || 3}
-              current={thread.current} status={thread.status} acs={thread.acs} currentAc={thread.ac} visited={visited} selected={selected}
+              current={thread.current} status={status} acs={thread.acs} currentAc={thread.ac} visited={visited} selected={selected}
               onOpenStep={onOpen} autoScroll={!still} inline={(id) => (onCanvas && id === waitAt ? <div className="sx-inline">{waiting}</div> : null)}
               label={`Steps of ${workflow.name}: ${workflow.steps.length} steps`} />
             {thread.acs.length > 0 && !workflow.steps.some((s) => s.per_ac) ? <AcChips acs={thread.acs} current={thread.ac} /> : null}
@@ -296,7 +305,7 @@ export function LiveCanvas({ thread, workflow, tokens, actual, facts, totals, pe
           <>
             {waiting && onCanvas && <div style={{ marginBottom: 12 }}>{waiting}</div>}
             <Zoom id="flow">
-              <Graph steps={workflow.steps} current={thread.current} status={thread.status} tokens={thread.status === "done" ? undefined : tokens}
+              <Graph steps={workflow.steps} current={thread.current} status={status} tokens={thread.status === "done" ? undefined : tokens}
                 acs={thread.acs} currentAc={thread.ac} onSelect={onOpen} selected={selected} />
             </Zoom>
             <AcChips acs={thread.acs} current={thread.ac} />
