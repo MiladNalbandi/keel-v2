@@ -66,6 +66,13 @@ KNOWN_MODELS = [
 ]
 UNCONFIRMED = "not in your plan's list"
 
+# 0.31 the live SDK sessions, kept between agent calls: the next KeelBot message of the same chat (or a send-back of the
+# same step) goes on in the session Copilot already has, instead of a new one that gets the whole text again. Closed
+# after LIVE_IDLE seconds without use, and the oldest when more than LIVE_MAX are open.
+LIVE_IDLE = float(os.environ.get("KEEL_COPILOT_LIVE_IDLE", "900"))
+LIVE_MAX = 8
+_live: dict[str, "_Conv"] = {}
+
 _clients: dict[str, Any] = {}
 _client_lock = asyncio.Lock()
 _models: dict[str, tuple[float, list[dict]]] = {}
@@ -284,6 +291,11 @@ class _Conv:
         self.wake = asyncio.Event()
         self.error: str | None = None
         self.note = ""
+        self.emit: Emit | None = None       # the current agent call's stream (a kept session serves the next call too)
+        self.tools: tuple[str, ...] = ()    # the tool names the session was opened with
+        self.used = time.monotonic()
+        self.busy = False
+        self.owner = 0                      # the agent call (provider object) that uses it now
 
 
 class CopilotProvider:
@@ -295,7 +307,7 @@ class CopilotProvider:
         self.model = model or DEFAULT_MODEL
         self._token = check_token(token)
         self._factory = factory              # tests: a fake CopilotClient class
-        self._convs: dict[str, _Conv] = {}
+        self._convs = _live                   # shared: a kept session outlives this provider object
 
     # ------------------------------------------------------------------ the SDK session
 
@@ -356,13 +368,25 @@ class CopilotProvider:
                 conv.session = await client.create_session(**opts)
             except Exception as exc2:
                 raise _error(exc2) from exc2
-        conv.session.on(lambda ev: self._event(conv, ev, emit))
+        conv.emit = emit
+        conv.tools = tuple(t.name for t in req.tools)
+        conv.session.on(lambda ev: self._event(conv, ev, conv.emit or (lambda *a, **k: None)))
 
     async def close(self) -> None:
-        """The agent call ended: its sessions end, and the plan's model list is read again for the picker."""
-        for key in list(self._convs):
-            await self._close(key)
+        """The agent call ended. Its sessions stay for the next message (see _live); old ones end. The plan's model
+        list is read again for the picker."""
+        for conv in self._convs.values():
+            if conv.owner == id(self):
+                conv.busy = False
+        await self.sweep()
         refresh_soon(self._token)
+
+    async def sweep(self, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        idle = sorted((c.used, k) for k, c in self._convs.items() if not c.busy)
+        for used, key in idle:
+            if now - used > LIVE_IDLE or len(self._convs) > LIVE_MAX:
+                await self._close(key)
 
     def _event(self, conv: _Conv, ev, emit: Emit) -> None:
         if _field(ev, "agent_id"):
@@ -384,9 +408,11 @@ class CopilotProvider:
             if content:
                 conv.final = content
         elif kind == "AssistantUsageData":
-            conv.usage.add(Usage(input=int(_field(data, "input_tokens") or 0), output=int(_field(data, "output_tokens") or 0),
-                                 cache_read=int(_field(data, "cache_read_tokens") or 0),
-                                 cache_write=int(_field(data, "cache_write_tokens") or 0)))
+            # Copilot's input_tokens already holds the cached part; keel's Usage counts input without it (as Anthropic's
+            # API does), else the cached tokens were counted twice
+            read, write = int(_field(data, "cache_read_tokens") or 0), int(_field(data, "cache_write_tokens") or 0)
+            conv.usage.add(Usage(input=max(int(_field(data, "input_tokens") or 0) - read - write, 0),
+                                 output=int(_field(data, "output_tokens") or 0), cache_read=read, cache_write=write))
             conv.model = str(_field(data, "model") or conv.model or "")
         elif kind == "SessionErrorData":
             conv.error = str(_field(data, "message") or "Copilot stopped with an error.")
@@ -407,9 +433,14 @@ class CopilotProvider:
 
     async def turn(self, req: Request, emit: Emit) -> Turn:
         root = (req.extra or {}).get("root")
-        key = _conv_key(req)
+        key = _conv_key(req) + ":" + self.model + ":" + _token_key(self._token)
         conv = self._convs.get(key)
+        if conv is not None and conv.busy and conv.owner != id(self):
+            conv = None                       # another agent call uses it right now: this one opens its own
+            key += ":" + uuid.uuid4().hex[:6]
         new = req.messages[conv.seen:] if conv and len(req.messages) >= conv.seen else None
+        if conv is not None and conv.tools != tuple(t.name for t in req.tools):
+            new = None                        # the tools changed (another mode, a tool loaded): a session with them
         if conv is None or new is None or not new or (conv.pending and not _answers(new, conv.pending)):
             if conv is not None:
                 await self._close(key)
@@ -431,14 +462,16 @@ class CopilotProvider:
                 conv.pending.clear()
             elif texts:
                 await self._send(conv, "\n\n".join(texts))
+        conv.emit, conv.busy, conv.owner, conv.used = emit, True, id(self), time.monotonic()
         try:
             turn = await self._next(conv)
         except ProviderError:
             await self._close(key)
             raise
         conv.seen = len(req.messages) + 1          # the runner adds this turn as the next assistant message
+        conv.used = time.monotonic()
         if turn.stop == END:
-            await self._close(key)
+            conv.busy = False                      # kept: the next message of this conversation goes on here
         return turn
 
     async def _next(self, conv: _Conv) -> Turn:
