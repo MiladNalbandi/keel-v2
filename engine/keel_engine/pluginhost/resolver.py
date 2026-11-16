@@ -135,6 +135,14 @@ def _entry_error(entry) -> str | None:
     return None
 
 
+def _starts_off(folder: Path) -> bool:
+    """Whether an image plugin's manifest says starts_off: true (a broken manifest is checked later, as always)."""
+    try:
+        return manifest.parse((folder / manifest.MANIFEST).read_text(encoding="utf-8")).starts_off
+    except (OSError, UnicodeDecodeError, ManifestError):
+        return False
+
+
 def _choose(res: Resolution, entries: dict, only: set[tuple[str, str]] | None) -> tuple[list[Found], dict[str, str]]:
     """One folder per name: an installed version wins over the image's (mode on only); "on": false turns a name off.
     Also returns why other names are not there ("off" or "left out")."""
@@ -148,6 +156,11 @@ def _choose(res: Resolution, entries: dict, only: set[tuple[str, str]] | None) -
         if why:
             res.problem(name, "", "", why)
             absent[name] = LEFT_OUT
+            continue
+        if name not in entries and name in image and _starts_off(image[name]):
+            # 0.31 in the image but off until a person turns it on (Add features, Settings › Plugins): no entry yet
+            res.off.append({"name": name, "version": image[name].name})
+            absent[name] = OFF
             continue
         if entry.get("on", True) is False:
             res.off.append({"name": name, "version": entry.get("version") or (image[name].name if name in image else "")})

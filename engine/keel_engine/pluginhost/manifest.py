@@ -41,6 +41,8 @@ class Manifest:
     content: str | None = None
     migrations: str | None = None
     per_project: bool = False
+    # 0.31 an image plugin that is installed but off until a person turns it on (keel Product: beta)
+    starts_off: bool = False
     publisher: str = ""
     summary: str = ""
     permissions: dict = field(default_factory=dict)   # what it may do (shown before install, docs/plugins/03-security.md)
@@ -181,9 +183,12 @@ def _check(data) -> Manifest:
     per_project = data.get("per_project", False)
     if not isinstance(per_project, bool):
         raise ManifestError("per_project must be true or false")
+    starts_off = data.get("starts_off", False)
+    if not isinstance(starts_off, bool):
+        raise ManifestError("starts_off must be true or false")
     sdk, keel, plugins = _requires(data)
     return Manifest(name=name, version=version, title=_text(data, "title") or name, sdk=sdk, keel=keel, plugins=plugins,
-                    per_project=per_project, publisher=_text(data, "publisher"), summary=_text(data, "summary"),
+                    per_project=per_project, starts_off=starts_off, publisher=_text(data, "publisher"), summary=_text(data, "summary"),
                     permissions=_permissions(data), python=_python(data), **_parts(data))
 
 

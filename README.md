@@ -116,7 +116,9 @@ keel is a small **core**. Everything else is a **plugin** that you turn on or of
    + Supervisor   + keel Product (beta)
 ```
 
-**Control › Plugins** shows them. All plugins come with keel and are on. Turn one off, or add one from the
+**Control › Plugins** and **Add features** show them. All plugins come with keel and are on, except **keel Product**
+(beta): it is in every keel (the Docker image, the native install and the keel app) but off until you turn it on in
+**Add features** (its card has On · Off; keel restarts once to load it). Turn one off, or add one from the
 **Marketplace**, and keel restarts in about 30 seconds. `keel2 start --core` starts keel with no plugin inside.
 
 ## Code Review

@@ -20,3 +20,5 @@ parts:
   content: content
   # no migrations part: Product runs its own Flyway history (ProductSchema)
 per_project: false
+# in every keel image and app, but off until a person turns it on (Add features or Settings › Plugins)
+starts_off: true

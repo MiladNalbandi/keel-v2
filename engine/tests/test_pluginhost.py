@@ -48,7 +48,7 @@ def write_sums(folder: Path) -> None:
 
 def plugin(root: Path, name: str, version: str = "1.0.0", *, needs: dict | None = None, package: str | None = None,
            requires: dict | None = None, parts: dict | None = None, files: dict | None = None, sums: bool = False,
-           doc: dict | None = None) -> Path:
+           doc: dict | None = None, extra: dict | None = None) -> Path:
     """A tiny plugin folder <root>/<name>/<version>/: a manifest, an optional engine package and other files."""
     d = root / name / version
     d.mkdir(parents=True)
@@ -65,6 +65,7 @@ def plugin(root: Path, name: str, version: str = "1.0.0", *, needs: dict | None 
         req["plugins"] = needs
     m = doc if doc is not None else {"schema": 1, "name": name, "title": name.title(), "version": version,
                                      "requires": req, "parts": parts}
+    m = {**m, **(extra or {})}
     (d / "keel-plugin.yml").write_text(yaml.safe_dump(m, sort_keys=False))
     if sums:
         write_sums(d)
@@ -260,6 +261,24 @@ def test_on_false_turns_an_image_plugin_off(image, data):
     installed(data, {"map": {"on": False}})
     res = resolver.resolve()
     assert names(res) == ["tasks"] and res.problems == [] and res.off == [{"name": "map", "version": "1.0.0"}]
+
+
+def test_an_image_plugin_with_starts_off_is_off_until_a_person_turns_it_on(image, data):
+    """0.31 keel Product is in every full image but starts off (starts_off: true); installed.json "on" decides then."""
+    plugin(image, "product", version="0.1.0-beta.1", package="keel_product", extra={"starts_off": True})
+    plugin(image, "tasks", package="keel_tasks")
+    res = resolver.resolve()
+    assert names(res) == ["tasks"] and res.problems == [] and res.off == [{"name": "product", "version": "0.1.0-beta.1"}]
+    installed(data, {"product": {"on": True}})
+    assert names(resolver.resolve()) == ["product", "tasks"]
+    installed(data, {"product": {"on": False}})
+    assert names(resolver.resolve()) == ["tasks"]
+
+
+def test_starts_off_must_be_true_or_false(image, data):
+    plugin(image, "x", package="keel_x", extra={"starts_off": "yes"})
+    with pytest.raises(manifest.ManifestError, match="starts_off must be true or false"):
+        manifest.parse((image / "x" / "1.0.0" / "keel-plugin.yml").read_text())
 
 
 def test_keel_plugins_off_and_image(image, data, monkeypatch):

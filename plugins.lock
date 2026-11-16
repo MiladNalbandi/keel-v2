@@ -5,7 +5,7 @@
 # One line per plugin:   <name> <version> <url> sha256:<hex>
 # The signature is at <url>.minisig, made with the keel publisher key; the build checks it with content/trust/keel.pub
 # (scripts/fetch-locked-plugins.sh). A plugin a locked plugin needs must be locked too. keel Product's line is used
-# only with EDITION=product.
+# in the full image too (0.31: off until a person turns it on).
 #
 # scripts/update-plugins-lock.sh [name …] writes the lines from the plugins' newest releases in keel-studio.
 # No plugin is released yet, so there is no line yet.
