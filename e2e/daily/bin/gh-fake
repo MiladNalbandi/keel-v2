@@ -13,7 +13,7 @@ case "$1 $2" in
     echo "! First copy your one-time code: AB12-CD34"
     echo "Press Enter to open https://github.com/login/device in your browser..."
     IFS= read -r enter
-    sleep 1
+    sleep 8   # the person needs a moment on github.com: the page shows the code meanwhile
     rm -f "$out";;
   "auth token") if [ -e "$out" ]; then echo "no oauth token found for github.com" >&2; exit 1; fi; echo "gho_fakefakefakefakefakefakefakefake1234";;
   "auth status") if [ -e "$out" ]; then echo "You are not logged into any GitHub hosts. To log in, run: gh auth login"; exit 1; fi
