@@ -132,12 +132,7 @@ class ReviewModeMarks(private val project: Project) : Disposable {
 
     fun commentOn(path: String, r: ChangeRange) {
         val (line, side) = if (r.kind == ChangeKind.DELETED) r.oldEnd.coerceAtLeast(1) to "LEFT" else r.end to "RIGHT"
-        val text = Messages.showMultilineInputDialog(project, "A comment on $path, ${r.label} (pending until you submit the review):", "Comment on this change", "", null, null)
-            ?.trim()?.ifEmpty { null } ?: return
-        ReviewSession.of(project).call({ api, pid, key -> api.addDraft(pid, key, path, line, side, text) }) { res ->
-            res.onSuccess { KeelNotifier.info(project, "Comment kept for your review", "$path:$line · send it with Submit review") }
-            res.onFailure { KeelNotifier.error(project, "Could not keep the comment", KeelProjectService.say(it)) }
-        }
+        dev.keel.jetbrains.core.ReviewComments.add(project, path, line, side, "$path, ${r.label}")
     }
 
     /** The old text of a block, with Ask / Comment / Show old. */

@@ -1,5 +1,7 @@
 package dev.keel.jetbrains.ui
 
+import dev.keel.jetbrains.api.markdownHtml
+
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
@@ -340,37 +342,35 @@ class KeelBotPanel(private val project: Project, parent: Disposable) : JPanel(Bo
         svc.io({ it.jobSteps(cid) }) { r -> r.onSuccess { steps[cid] = it; if (it.steps.isNotEmpty()) render() } }
     }
 
-    /** An answer as HTML: `code`, line breaks, and every path:line a link that opens the file there. */
-    private fun answer(text: String): JEditorPane {
-        val html = StringBuilder()
-        var at = 0
-        fileRefs(text).forEach { ref ->
-            html.append(inline(text.substring(at, ref.start)))
-            html.append("<a href=\"open:${KeelUi.esc(ref.path)}:${ref.line}\">${KeelUi.esc(text.substring(ref.start, ref.end))}</a>")
-            at = ref.end
-        }
-        html.append(inline(text.substring(at)))
-        return JEditorPane().apply {
-            editorKit = HTMLEditorKitBuilder.simple()
-            isEditable = false
-            isOpaque = false
-            border = JBUI.Borders.empty()
-            this.text = "<html><body>$html</body></html>"
-            addHyperlinkListener { e ->
-                if (e.eventType == HyperlinkEvent.EventType.ACTIVATED) {
-                    val d = e.description.removePrefix("open:")
-                    val line = d.substringAfterLast(':').toIntOrNull()
-                    val path = d.substringBeforeLast(':')
-                    if (!KeelUi.openFile(project, path, line)) note.text = "$path is not in this project folder."
-                }
-            }
+    /** An answer as HTML (KeelBot's Markdown: code blocks, lists, bold, links); every path:line opens the file there. */
+    private fun answer(text: String): JEditorPane = JEditorPane().apply {
+        val kit = HTMLEditorKitBuilder.simple()
+        val mono = com.intellij.openapi.editor.colors.EditorColorsManager.getInstance().globalScheme.editorFontName
+        val code = KeelUi.hex(KeelUi.CARD_BG)
+        val line = KeelUi.hex(KeelUi.LINE)
+        val muted = KeelUi.hex(UIUtil.getContextHelpForeground())
+        kit.styleSheet.addRule("body { font-family: ${UIUtil.getLabelFont().family}; font-size: ${JBUI.scale(13)}pt; margin: 0; }")
+        kit.styleSheet.addRule("p { margin: 0 0 6px 0; } ul, ol { margin: 0 0 6px 18px; } li { margin: 0 0 2px 0; }")
+        kit.styleSheet.addRule("h2, h3, h4, h5 { margin: 8px 0 4px 0; }")
+        kit.styleSheet.addRule("code { font-family: '$mono'; background-color: $code; }")
+        kit.styleSheet.addRule("pre { font-family: '$mono'; background-color: $code; border: 1px solid $line; padding: 6px 8px; margin: 0 0 8px 0; }")
+        kit.styleSheet.addRule(".lang { color: $muted; font-size: ${JBUI.scale(10)}pt; margin: 4px 0 0 0; }")
+        kit.styleSheet.addRule("blockquote { color: $muted; margin: 0 0 6px 8px; }")
+        editorKit = kit
+        isEditable = false
+        isOpaque = false
+        border = JBUI.Borders.empty()
+        this.text = "<html><body>${markdownHtml(text)}</body></html>"
+        addHyperlinkListener { e ->
+            if (e.eventType != HyperlinkEvent.EventType.ACTIVATED) return@addHyperlinkListener
+            val href = e.description
+            if (!href.startsWith("open:")) return@addHyperlinkListener com.intellij.ide.BrowserUtil.browse(href)
+            val d = href.removePrefix("open:")
+            val ln = d.substringAfterLast(':').toIntOrNull()
+            val path = d.substringBeforeLast(':')
+            if (!KeelUi.openFile(project, path, ln)) note.text = "$path is not in this project folder."
         }
     }
-
-    private fun inline(s: String): String = KeelUi.esc(s)
-        .replace(Regex("`([^`\n]+)`")) { "<code>${it.groupValues[1]}</code>" }
-        .replace(Regex("\\*\\*([^*\n]+)\\*\\*")) { "<b>${it.groupValues[1]}</b>" }
-        .replace("\n", "<br>")
 
     private fun renderChanges() {
         changed.removeAll()

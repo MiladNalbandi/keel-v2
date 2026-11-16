@@ -201,22 +201,42 @@ class AskWhatChangedAction : AnAction("Ask KeelBot What Changed Here"), DumbAwar
     }
 }
 
-/** Editor menu, on a changed block: Comment on this change (a pending comment of your review). */
+/**
+ * Editor menu in review mode: a pending comment of your review. On a changed block it is "Comment on This Change";
+ * on any other line of a file the PR changes it is "Comment on This Line" (the new side of that line).
+ */
 class CommentOnChangeAction : AnAction("Comment on This Change"), DumbAware {
     override fun getActionUpdateThread() = ActionUpdateThread.EDT
     override fun update(e: AnActionEvent) {
         val project = e.project
         val editor = e.getData(CommonDataKeys.EDITOR)
-        e.presentation.isEnabledAndVisible = project != null && editor != null &&
-            project.getServiceIfCreated(ReviewMode::class.java)?.active == true &&
-            ReviewModeMarks.of(project).rangeAtCaret(editor, e.getData(CommonDataKeys.VIRTUAL_FILE)) != null
+        val file = e.getData(CommonDataKeys.VIRTUAL_FILE)
+        val mode = project?.getServiceIfCreated(ReviewMode::class.java)
+        val inPr = project != null && editor != null && file != null && mode?.active == true && mode.relPath(file) != null
+        e.presentation.isEnabledAndVisible = inPr
+        if (inPr) e.presentation.text = when {
+            editor!!.selectionModel.hasSelection() -> "keel: Comment on Selection"
+            ReviewModeMarks.of(project!!).rangeAtCaret(editor, file) != null -> "keel: Comment on This Change"
+            else -> "keel: Comment on This Line"
+        }
     }
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
-        val (path, r) = ReviewModeMarks.of(project).rangeAtCaret(editor, e.getData(CommonDataKeys.VIRTUAL_FILE)) ?: return
-        ReviewModeMarks.of(project).commentOn(path, r)
+        val file = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
+        val path = ReviewMode.of(project).relPath(file) ?: return
+        val sel = editor.selectionModel
+        if (sel.hasSelection()) {
+            val doc = editor.document
+            val first = doc.getLineNumber(sel.selectionStart) + 1
+            var last = doc.getLineNumber(sel.selectionEnd) + 1
+            if (last > first && sel.selectionEnd == doc.getLineStartOffset(last - 1)) last-- // a selection that ends at a line's start
+            val where = if (last > first) "$path:$first–$last" else "$path:$last"
+            return dev.keel.jetbrains.core.ReviewComments.add(project, path, last, "RIGHT", where, first.takeIf { it < last }, sel.selectedText)
+        }
+        ReviewModeMarks.of(project).rangeAtCaret(editor, file)?.let { (p, r) -> return ReviewModeMarks.of(project).commentOn(p, r) }
+        dev.keel.jetbrains.core.ReviewComments.add(project, path, editor.caretModel.logicalPosition.line + 1, "RIGHT")
     }
 }
 

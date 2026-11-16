@@ -62,8 +62,11 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
     private val prSub = KeelUi.muted("")
     private val ci = KeelUi.muted("")
     private val tabs = JBTabbedPane()
-    private val files = CollectionListModel<ChangedFile>()
+    private val files = CollectionListModel<dev.keel.jetbrains.api.FileRow>()
     private val fileList = JBList(files)
+    private val fileSearch = com.intellij.ui.SearchTextField(false)
+    private val byFolder = com.intellij.ui.components.JBCheckBox("Folders", true)
+    private val closedFolders = mutableSetOf<String>()
     private val threads = CollectionListModel<ReviewThread>()
     private val threadList = JBList(threads)
     private val chips = mutableMapOf<ThreadState2, JToggleButton>()
@@ -74,6 +77,20 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
     private val summary = KeelUi.muted("")
     private val markViewed = com.intellij.ui.components.JBCheckBox("Mark a file viewed when I open it")
     private val mode = dev.keel.jetbrains.core.ReviewMode.of(project)
+    private val submit = JButton("Submit review")
+    private val approve = JButton("Approve")
+
+    private fun busy(on: Boolean) {
+        submit.isEnabled = !on
+        approve.isEnabled = !on
+    }
+
+    /** The open PR's Pending tab (after a comment is kept). */
+    fun showPending() {
+        if (session.key == null) return
+        show(PR)
+        tabs.selectedIndex = 2
+    }
 
     init {
         add(listCard(), LIST)
@@ -118,6 +135,9 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
             return
         }
         val f = filter.selectedItem as String
+        prs.removeAll()
+        prList.emptyText.text = "Loading pull requests…"
+        listNote.text = ""
         svc.io({ it.prs(pid, f) }) { r ->
             r.onSuccess {
                 prs.replaceAll(it.prs)
@@ -130,7 +150,14 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
     private fun openPr(n: Int) {
         session.open("pr:$n")
         mode.enter("pr:$n")
-        prTitle.text = "#$n …"
+        prTitle.text = "#$n"
+        prSub.text = ""
+        summary.text = ""
+        prNote.text = "Loading the pull request…"
+        files.removeAll()
+        threads.removeAll()
+        fileList.emptyText.text = "Loading…"
+        threadList.emptyText.text = "Loading…"
         show(PR)
     }
 
@@ -138,11 +165,11 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
     private fun prCard(): JPanel {
         val p = JPanel(BorderLayout())
         val head = KeelUi.stack().apply { border = JBUI.Borders.empty(6, 8) }
-        head.add(KeelUi.row(KeelUi.link("← Pull requests") { show(LIST); loadPrs() }, ci, KeelUi.link("Refresh") { session.reload(refresh = true) }).full())
+        head.add(KeelUi.row(KeelUi.link("← Pull requests") { show(LIST); loadPrs() }, ci, KeelUi.link("Refresh") { prNote.text = "Refreshing…"; session.reload(refresh = true) }).full())
         head.add(prTitle.full())
         head.add(prSub.full())
-        val submit = JButton("Submit review").apply { addActionListener { submitReview(null) } }
-        val approve = JButton("Approve").apply { addActionListener { submitReview("APPROVE") } }
+        submit.addActionListener { submitReview(null) }
+        approve.addActionListener { submitReview("APPROVE") }
         val checkout = JButton("Check out").apply { addActionListener { checkout() } }
         head.add(summary.full())
         val next = JButton("Next change ↓").apply { addActionListener { ReviewModeText.nextChange(project) } }
@@ -157,11 +184,29 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
         fileList.emptyText.text = "No changed files"
         fileList.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
-                val f = fileList.selectedValue ?: return
-                openChanged(f, diff = e.clickCount > 1 && e.isAltDown)
+                when (val row = fileList.selectedValue ?: return) {
+                    is dev.keel.jetbrains.api.FileRow.Folder -> {
+                        if (!closedFolders.remove(row.path)) closedFolders += row.path
+                        fillFiles()
+                    }
+                    is dev.keel.jetbrains.api.FileRow.File -> openChanged(row.file, diff = e.clickCount > 1 && e.isAltDown)
+                }
             }
         })
-        tabs.addTab("Changed files", JBScrollPane(fileList))
+        fileSearch.textEditor.emptyText.text = "Search files (words, or *.php)"
+        fileSearch.addDocumentListener(object : com.intellij.ui.DocumentAdapter() {
+            override fun textChanged(e: javax.swing.event.DocumentEvent) = fillFiles()
+        })
+        byFolder.isOpaque = false
+        byFolder.addActionListener { fillFiles() }
+        val fp = JPanel(BorderLayout())
+        fp.add(JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(4)
+            add(fileSearch, BorderLayout.CENTER)
+            add(byFolder, BorderLayout.EAST)
+        }, BorderLayout.NORTH)
+        fp.add(JBScrollPane(fileList), BorderLayout.CENTER)
+        tabs.addTab("Changed files", fp)
 
         val tp = JPanel(BorderLayout())
         val group = ButtonGroup()
@@ -202,17 +247,18 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
         val v = session.view
         if (session.key == null) return
         if (v == null) {
-            prNote.text = session.error.orEmpty()
+            prNote.text = session.error ?: "Loading the pull request…"
             return
         }
+        fileList.emptyText.text = "No changed files"
+        threadList.emptyText.text = "No threads here"
         prTitle.text = "#${v.number ?: ""} ${v.title}"
         prSub.text = listOfNotNull(v.author, "${v.base} ← ${v.branch}", if (v.draft) "draft" else null).joinToString(" · ")
         ci.text = ciSummary(v.checks)
         prNote.text = session.error.orEmpty()
-        files.replaceAll(v.files)
+        fillFiles()
         val counts = v.threads.groupingBy { threadStateOf(it, v.me) }.eachCount()
         chips.forEach { (s, b) -> b.text = "${s.label} · ${counts[s] ?: 0}" }
-        tabs.setTitleAt(0, "Changed files (${v.files.size})")
         summary.text = "+${v.added} −${v.removed} · ${v.files.size} file${if (v.files.size == 1) "" else "s"} · ${v.threads.size} thread${if (v.threads.size == 1) "" else "s"}" +
             if (mode.active && mode.prKey == v.key) " · ${mode.viewed.size} viewed" else ""
         tabs.setTitleAt(1, "Threads ${v.threads.size}")
@@ -222,6 +268,15 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
         fillOverview(v)
     }
 
+    private fun fillFiles() {
+        val v = session.view ?: return
+        val q = fileSearch.text.trim()
+        files.replaceAll(dev.keel.jetbrains.api.fileRows(v.files, q, byFolder.isSelected, closedFolders))
+        fileList.emptyText.text = if (q.isEmpty()) "No changed files" else "No file matches \"$q\""
+        val shown = v.files.count { dev.keel.jetbrains.api.fileMatches(it.path, q) }
+        tabs.setTitleAt(0, if (q.isEmpty()) "Changed files (${v.files.size})" else "Changed files ($shown of ${v.files.size})")
+    }
+
     private fun fillThreads() {
         val v = session.view ?: return
         threads.replaceAll(v.threads.filter { threadStateOf(it, v.me) == chip })
@@ -229,9 +284,19 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
 
     private fun fillPending(v: ReviewView) {
         pending.removeAll()
-        if (v.drafts.isEmpty()) pending.add(KeelUi.muted("No pending comments. In a file's diff, right-click a line: keel: Comment on This Line.").full())
+        if (v.drafts.isEmpty()) {
+            pending.add(KeelUi.bold("No pending comments yet").full())
+            pending.add(KeelUi.prose(
+                "To add one: open a changed file (Changed files tab), put the caret on a line or select some lines, then right-click › " +
+                    "keel: Comment on This Line (or Selection), or press Ctrl+Alt+Shift+C. It waits here, seen only by you, until you press Submit review.",
+            ).full())
+        }
         v.drafts.forEach { d ->
-            pending.add(KeelUi.row(KeelUi.bold("${d.path ?: "PR"}${d.line?.let { ":$it" } ?: ""}"), KeelUi.link("Delete") {
+            val where = "${d.path ?: "PR"}${d.line?.let { ":$it" } ?: ""}"
+            pending.add(KeelUi.row(KeelUi.link(where) { d.path?.let { p -> if (!KeelUi.openFile(project, p, d.line)) PrDiffEditor.open(project, p, d.line, d.side) } }, KeelUi.link("Edit") {
+                val now = Messages.showMultilineInputDialog(project, "Your pending comment on $where:", "Edit comment", d.body, null, null)?.trim()?.ifEmpty { null }
+                if (now != null && now != d.body) session.call({ api, pid, _ -> api.editDraft(pid, d.id, now) }) { r -> r.onFailure { prNote.text = KeelProjectService.say(it) } }
+            }, KeelUi.link("Delete") {
                 session.call({ api, pid, _ -> api.deleteDraft(pid, d.id) })
             }).full())
             pending.add(KeelUi.prose(d.body).full())
@@ -289,7 +354,9 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
             return
         }
         prNote.text = "Sending…"
+        busy(true)
         session.call({ api, pid, key -> api.submitReview(pid, key, event, body) }) { r ->
+            busy(false)
             prNote.text = r.fold({ "Sent (${it.posted} comment(s))." }, { KeelProjectService.say(it) })
         }
     }
@@ -329,16 +396,29 @@ class ReviewPanel(private val project: Project, parent: Disposable) : JPanel(Car
         mode.markViewed(f.path)
     }
 
-    private inner class FileRenderer : ListCellRenderer<ChangedFile> {
-        override fun getListCellRendererComponent(list: JList<out ChangedFile>, value: ChangedFile, index: Int, sel: Boolean, focus: Boolean): Component {
+    private inner class FileRenderer : ListCellRenderer<dev.keel.jetbrains.api.FileRow> {
+        override fun getListCellRendererComponent(list: JList<out dev.keel.jetbrains.api.FileRow>, row: dev.keel.jetbrains.api.FileRow, index: Int, sel: Boolean, focus: Boolean): Component {
+            if (row is dev.keel.jetbrains.api.FileRow.Folder) {
+                return KeelUi.row().apply {
+                    border = JBUI.Borders.empty(5, 4, 2, 6)
+                    isOpaque = true
+                    background = if (sel) UIUtil.getListSelectionBackground(focus) else UIUtil.getListBackground()
+                    add(com.intellij.ui.components.JBLabel(if (row.open) "▾" else "▸"))
+                    add(com.intellij.ui.components.JBLabel(com.intellij.icons.AllIcons.Nodes.Folder))
+                    add(KeelUi.bold(row.path).apply { if (sel) foreground = UIUtil.getListSelectionForeground(focus) })
+                    add(KeelUi.muted("${row.count}"))
+                }
+            }
+            val fr = row as dev.keel.jetbrains.api.FileRow.File
+            val value = fr.file
             val st = dev.keel.jetbrains.api.prFileStatusOf(value.status)
             val p = KeelUi.row().apply {
-                border = JBUI.Borders.empty(3, 6)
+                border = JBUI.Borders.empty(3, if (fr.indent) 26 else 6, 3, 6)
                 isOpaque = true
                 background = if (sel) UIUtil.getListSelectionBackground(focus) else UIUtil.getListBackground()
             }
             p.add(com.intellij.ui.components.JBLabel(st.mark).apply { foreground = ReviewModeText.color(st) })
-            val name = com.intellij.ui.components.JBLabel(if (st == dev.keel.jetbrains.api.PrFileStatus.DELETED) "<html><s>${KeelUi.esc(value.path)}</s></html>" else value.path)
+            val name = com.intellij.ui.components.JBLabel(if (st == dev.keel.jetbrains.api.PrFileStatus.DELETED) "<html><s>${KeelUi.esc(fr.name)}</s></html>" else fr.name)
             if (sel) name.foreground = UIUtil.getListSelectionForeground(focus)
             p.add(name)
             val bits = listOfNotNull(

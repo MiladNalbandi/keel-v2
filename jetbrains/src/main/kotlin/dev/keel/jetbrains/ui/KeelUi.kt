@@ -37,6 +37,9 @@ object KeelUi {
     val CARD_BG = JBColor(Color(0xF7F7F9), Color(0x2B2D30))
     val LINE = JBColor.border()
 
+    /** A colour as #rrggbb for HTML styles (the current theme's side of a JBColor). */
+    fun hex(c: java.awt.Color): String = String.format("#%02x%02x%02x", c.red, c.green, c.blue)
+
     fun muted(text: String): JBLabel = JBLabel(text).apply {
         foreground = UIUtil.getContextHelpForeground()
         font = JBFont.small()

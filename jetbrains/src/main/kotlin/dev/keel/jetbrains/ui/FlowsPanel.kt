@@ -53,6 +53,14 @@ class FlowsPanel(private val project: Project, parent: Disposable) : JPanel(Bord
         list.addListSelectionListener {
             if (!it.valueIsAdjusting) list.selectedValue?.let { r -> if (r.threadId != selected) showFlow(r.threadId) }
         }
+        // a click on the flow that is already selected opens it again (it may have failed to load, or show old state)
+        list.addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                val i = list.locationToIndex(e.point).takeIf { it >= 0 && list.getCellBounds(it, it)?.contains(e.point) == true } ?: return
+                val r = model.getElementAt(i)
+                if (r.threadId == selected) showFlow(r.threadId)
+            }
+        })
         val split = JBSplitter(true, 0.38f).apply {
             firstComponent = JBScrollPane(list)
             secondComponent = JBScrollPane(detail).apply { border = JBUI.Borders.empty(); verticalScrollBar.unitIncrement = JBUI.scale(16) }
@@ -81,9 +89,10 @@ class FlowsPanel(private val project: Project, parent: Disposable) : JPanel(Bord
         if (pid == null) {
             model.removeAll()
             status.text = ""
-            showEmpty()
+            if (waitingOpen == null) showEmpty()
             return
         }
+        waitingOpen?.let { waitingOpen = null; showFlow(it) }
         if (loading) return
         loading = true
         svc.io({ it.runs(pid) }) { r ->
@@ -116,25 +125,33 @@ class FlowsPanel(private val project: Project, parent: Disposable) : JPanel(Bord
         detail.repaint()
     }
 
+    private var waitingOpen: String? = null
+
     private fun showFlow(tid: String, quiet: Boolean = false) {
-        val pid = svc.pid ?: return
         selected = tid
+        val pid = svc.pid ?: run {
+            // keel is not connected yet: open it once the project is known
+            waitingOpen = tid
+            detail.removeAll()
+            detail.add(KeelUi.muted("Connecting to keel…").full())
+            detail.revalidate()
+            detail.repaint()
+            return
+        }
         if (activity?.threadId != tid) {
             activity?.let { com.intellij.openapi.util.Disposer.dispose(it) }
             activity = FlowActivity(project, pid, tid, life)
         }
         if (!quiet) {
             detail.removeAll()
-            detail.add(KeelUi.muted("Loading…").full())
+            detail.add(KeelUi.muted("Loading the flow…").full())
             detail.revalidate()
+            detail.repaint()
         }
         svc.io({ it.flowOf(pid, tid) }) { r ->
             if (selected != tid) return@io
-            r.onSuccess { render(it) }.onFailure {
-                detail.removeAll()
-                detail.add(KeelUi.prose(KeelProjectService.say(it)).full())
-                detail.revalidate()
-            }
+            r.onSuccess { if (it.thread != null) render(it) else if (!quiet) failed(tid, "keel has no flow $tid in this project any more.") }
+                .onFailure { if (!quiet) failed(tid, KeelProjectService.say(it)) }
         }
     }
 
@@ -217,6 +234,16 @@ class FlowsPanel(private val project: Project, parent: Disposable) : JPanel(Bord
             pendingSpec = false
             specFile(t.title)?.let { KeelUi.openFile(project, it, 1) }
         }
+        detail.revalidate()
+        detail.repaint()
+    }
+
+    private fun failed(tid: String, why: String) {
+        detail.removeAll()
+        detail.add(KeelUi.bold("Could not open the flow").full())
+        detail.add(KeelUi.prose(why).full())
+        detail.add(KeelUi.gap(6))
+        detail.add(KeelUi.link("Try again") { showFlow(tid) }.full())
         detail.revalidate()
         detail.repaint()
     }
