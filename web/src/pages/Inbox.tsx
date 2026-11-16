@@ -6,6 +6,7 @@
 // keel 0.28 (the redesign) a list on the left (kind, project, age, title, one line) and the selected item's card on the
 // right; keys answer it (J K move, A approve, R to the reason box, 1–9 a choice, O open the flow, L later on a task),
 // and after an answer the next item is selected. The filters are chips with counts.
+// keel 0.28 (fix) the two columns follow the page's own width (the window minus the menu): too narrow for both, they stack.
 // A part shows the items of its own kinds with its own card (the slot inbox.card: the Tasks plugin's task items).
 // v0.16.0 an agent's (or a workflow's) request to install a plugin is keel's own card: Approve and install, or Deny.
 
@@ -496,10 +497,17 @@ export function InboxPage() {
     await Promise.all([r.reload(), reloadProjects()]);
   };
 
+  // the list and the card stack on a phone and when the page is too narrow for both (rd-inbox.css, the @container):
+  // the card is under the list then
+  const stacked = () => {
+    const l = listRef.current?.getBoundingClientRect();
+    const d = detailRef.current?.getBoundingClientRect();
+    return !!l && !!d && l.height > 0 && d.top >= l.bottom - 1;
+  };
   const pick = (it: InboxItem) => {
     setSel(keyOf(it));
-    // stacked (a phone): the card is under the list, so it comes into view
-    if (window.matchMedia?.("(max-width: 900px)").matches) {
+    // stacked: the card is under the list, so it comes into view
+    if (stacked()) {
       window.setTimeout(() => cardEl(keyOf(it))?.scrollIntoView?.({ behavior: "smooth", block: "start" }), 0);
     }
   };
