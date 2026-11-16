@@ -125,10 +125,23 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
     if engine:
         # #101 flow: the flow asked for (the default); harness: the harness flow (one session plans, the person approves,
         # the same session builds) with what was asked for as its intent. No setting sends work there any more.
-        if engine not in ("flow", "harness"):
-            raise ApiError("engine is flow (keel's own flow, as asked) or harness (one session plans and builds it).")
+        # 0.29 session: the harness flow, its plan and build done by the person's connected session (keel_session_open)
+        if engine not in ("flow", "harness", "session"):
+            raise ApiError("engine is flow (keel's own flow, as asked), harness (keel's harness plans and builds it in one "
+                           "session) or session (your connected session plans and builds it; keel_session_open first).")
         intent = HARNESS_INTENTS.get(str(body.get("workflow_id") or ""))
-        if engine == "harness" and intent:
+        if engine == "session":
+            if not intent and body.get("workflow_id") != "harness":
+                raise ApiError(f"engine=session runs the harness flow: type harness, or a build flow it stands in for "
+                               f"({', '.join(HARNESS_INTENTS)}); {type} runs on keel's own agents.")
+            live = (api.get("/sessions", project=p["id"]) or {}).get("connected")
+            if not live:
+                raise ApiError(f"no session is connected to keel for {p['id']} now. In your Claude Code or OpenCode session "
+                               "call keel_session_open, then keel_session_next (it waits for the work orders); or start "
+                               "with engine='harness' (keel's own harness, API key).")
+            body["options"] = {**(body.get("options") or {}), "runner": "session", "session": live.get("id"),
+                               "session_client": live.get("client")}
+        if engine in ("harness", "session") and intent:
             body["options"] = {**(body.get("options") or {}), "intent": intent, "requested_workflow": body["workflow_id"]}
             body["workflow_id"] = "harness"
     try:
@@ -176,7 +189,12 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
         # 0.22.0 never a silent swap (a field report: feature was asked for, harness ran, and the answer said feature)
         out.insert(0, f"You asked for {type} with engine='harness': keel runs it as the harness flow (one session plans, "
                       f"you approve the plan, the same session builds it). To run {type} itself, leave engine out."
-                      if ran == "harness" and engine == "harness" else f"You asked for {type}; keel runs {ran} instead.")
+                      if ran == "harness" and engine == "harness" else
+                      f"You asked for {type} with engine='session': keel runs it as the harness flow, and your connected "
+                      "session plans and builds it (keel_session_next hands out the work orders)."
+                      if ran == "harness" and engine == "session" else f"You asked for {type}; keel runs {ran} instead.")
+    if engine == "session" and tid:
+        out.append("Your connected session does its plan and build: call keel_session_next now for the first work order.")
     if ignored:
         out.insert(0, "ignored on this computer (.git/info/exclude): " + ", ".join(ignored))
     if first:
@@ -865,7 +883,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
                               run_mode: Literal["manual", "important", "auto", "readonly"] | None = None,
                               allow_dirty: bool = False, ignore: list[str] | None = None, force: bool = False,
                               branch: Literal["new", "continue"] | None = None, base: str | None = None, wait: int = 0,
-                              engine: Literal["flow", "harness"] | None = None, ctx: Context | None = None) -> str:
+                              engine: Literal["flow", "harness", "session"] | None = None, ctx: Context | None = None) -> str:
         """Start a keel flow on the project, as the dashboard's "Start a flow" does. No type: every flow the project can
         start (quick, small, implement, change, feature, fix, spike, clarify, review-pr, ...), one line each on what it is for
         and the inputs it reads. type: the workflow id; request (or idea): in your words what to build, fix or find out (a flow that builds
@@ -885,7 +903,9 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         base: the branch the flow's new branch starts from, a local branch or <remote>/<branch> (e.g. upstream/main);
         keel fetches every remote at the start and its answer says how far the base is behind each one.
         engine: flow (the default) runs the flow asked for; harness runs a build flow (change, quick, small, implement,
-        feature, fix) as the harness flow: one session plans, you approve the plan, the same session builds it.
+        feature, fix) as the harness flow: one session plans, you approve the plan, the same session builds it; session
+        runs it as the harness flow done by your own connected session (call keel_session_open first, then
+        keel_session_next for its work orders; keel keeps the gates, its tests and the commits).
 
         It answers at once with the thread id, its status (starting, running or waiting) and how to follow it
         (keel_status, keel_flows; keel_read_gate and keel_answer when it waits); wait: up to that many seconds (at most
@@ -1418,6 +1438,95 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
             return guard(more.start_options, api)
         what = ", ".join(f"{'turn' if v else 'turn off'} {k}{' on' if v else ''}" for k, v in (("Docker access", docker), ("the Wi-Fi", wifi)) if v is not None)
         return await act(ctx, "keel_start_options", f"{what} at keel's next start", more.start_options, api, docker, wifi)
+
+    # ---------------------------------------------------------------- 0.29 connected session (mcp_session.py)
+    # after keel_start_options, before the marketplace's
+
+    from . import mcp_session as sess
+
+    session_state: dict = {}          # this server's connected session: one per client process (keel2 mcp)
+
+    def _client_of(ctx: Context | None) -> str | None:
+        try:
+            params = ctx.session.client_params if ctx else None
+            return params.clientInfo.name if params and params.clientInfo else None
+        except Exception:  # noqa: BLE001 - no request context (a test calls the tool directly)
+            return None
+
+    def _as(ctx: Context | None, name: str) -> tuple[Any, str | None]:
+        client = _client_of(ctx) or (api._proof.get("client") if hasattr(api, "_proof") else None)
+        return (api.acting(client or "an MCP client", name) if hasattr(api, "acting") else api), client
+
+    @reg(rw)
+    async def keel_session_open(project: str | None = None, ctx: Context | None = None) -> str:
+        """Work for keel as its connected session: registers this Claude Code / OpenCode session with keel (by the
+        client's own name) so the person can pick "Run with: Connected session" for the harness flow (plan, approve,
+        build). Returns how it works: call keel_session_next, do each work order in the project folder with your own
+        tools, report with keel_session_plan / keel_session_todo / keel_session_done, never commit or push (keel
+        checks the change after each step and makes the commits), then call keel_session_next again. Also says
+        whether a work order waits now. project: the keel project (default: the one that holds your folder)."""
+        mine, client = _as(ctx, "keel_session_open")
+        return await anyio.to_thread.run_sync(lambda: guard(sess.open_session, mine, project, client, session_state))
+
+    @reg(rw)
+    async def keel_session_next(project: str | None = None, wait: int = sess.NEXT_WAIT, ctx: Context | None = None) -> str:
+        """Wait for keel's next work order for this connected session and return it: plan this, build the plan, or fix
+        the failing tests, with the full instructions (the request, the approved plan, the person's notes, keel's
+        failing test output) and the flow id to report on. It waits up to `wait` seconds (default 240, at most 600)
+        and calls keel every few seconds meanwhile, which keeps this session connected; "Nothing yet" means call it
+        again. Opens the session first when keel_session_open was not called (or keel restarted)."""
+        mine, client = _as(ctx, "keel_session_next")
+        wait_s = max(0, min(int(wait if wait is not None else sess.NEXT_WAIT), sess.NEXT_WAIT_MAX))
+        deadline = time.monotonic() + wait_s
+        n = 0
+        while True:
+            try:
+                order = await anyio.to_thread.run_sync(lambda: sess.poll_once(mine, project, client, session_state))
+            except ApiError as exc:
+                return f"keel: {exc}"
+            if order:
+                return sess.order_text(order)
+            if time.monotonic() >= deadline:
+                return sess.nothing_yet(wait_s)
+            n += 1
+            if ctx is not None:
+                try:
+                    await ctx.report_progress(min(n * sess.POLL, wait_s), wait_s, "waiting for keel's next work order")
+                except Exception:  # noqa: BLE001 - a client without progress still gets its answer
+                    pass
+            await anyio.sleep(sess.POLL)
+
+    @reg(rw)
+    async def keel_session_plan(flow: str, plan: str, todos: list[dict[str, Any]] | None = None,
+                                project: str | None = None, ctx: Context | None = None) -> str:
+        """Finish a "plan this" work order: flow is the work order's flow id; plan is the whole plan in Markdown (goal,
+        acceptance criteria, files, tests, risks) and its last line "PLAN: ready" or "PLAN: blocked <why>"; todos is
+        your list [{text, status: pending | in_progress | done}]. The person reads the plan at keel's plan gate. keel
+        refuses a report for a flow that does not wait for a plan from this session, and says why."""
+        mine, client = _as(ctx, "keel_session_plan")
+        return await anyio.to_thread.run_sync(lambda: guard(sess.plan, mine, project, client, session_state, flow, plan, todos))
+
+    @reg(rw)
+    async def keel_session_todo(flow: str, todos: list[dict[str, Any]], project: str | None = None,
+                                ctx: Context | None = None) -> str:
+        """Your live progress on the current work order, shown on keel's Flow page like a coding agent's todo list:
+        todos [{text, status: pending | in_progress | done}] (the whole list each time). Send it when the list or a
+        status changes."""
+        mine, client = _as(ctx, "keel_session_todo")
+        return await anyio.to_thread.run_sync(lambda: guard(sess.todo, mine, project, client, session_state, flow, todos))
+
+    @reg(rw)
+    async def keel_session_done(flow: str, summary: str, status: Literal["done", "blocked"] = "done",
+                                todos: list[dict[str, Any]] | None = None, project: str | None = None,
+                                ctx: Context | None = None) -> str:
+        """Finish a "build the plan" or "fix the failing tests" work order: summary says what you changed, the test
+        command you ran and its result; status blocked when you could not finish (say why in the summary). Do not
+        commit: keel then checks your change against the project's rules, runs the project's tests (a failure comes
+        back as a fix work order) and commits after the person looked at it. Refused, with why, when the flow does not
+        wait for this session's build."""
+        mine, client = _as(ctx, "keel_session_done")
+        return await anyio.to_thread.run_sync(
+            lambda: guard(sess.done, mine, project, client, session_state, flow, summary, status, todos))
 
     @reg(ro)
     def keel_marketplace_search(q: str = "", category: str | None = None) -> str:
