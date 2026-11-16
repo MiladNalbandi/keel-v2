@@ -156,7 +156,11 @@ export type ThreadState = {
   ac: string | null;
   acs: { id: string; layer: string; title: string; status: AcStatus }[];
   waiting?: {
-    step: string; kind: "gate" | "budget" | "fix" | "clarify" | "crash"; title: string; detail: string; options: ("approve" | "reject")[];
+    step: string; kind: "gate" | "budget" | "fix" | "clarify" | "crash" | "session"; title: string; detail: string; options: ("approve" | "reject")[];
+    /** 0.29 kind "session": the work order the connected session gets (its long texts cut) */
+    order?: SessionOrder;
+    /** 0.29 kind "session": no session was seen for 10 minutes, so the Inbox asks the person */
+    gone?: boolean;
     /** v0.3.1: the question's id (the inbox sends it back so a stale page cannot answer the next question) */
     id?: string;
     labels?: { approve?: string; reject?: string }; questions?: ClarifyQuestion[];
@@ -189,6 +193,38 @@ export type ThreadState = {
   run_mode?: RunMode;
   /** v0.3.1: the last 50 gate decisions as text; "auto-approved (mode …)" marks the run mode's own. */
   gate_log?: string[];
+  /** 0.29 who does the harness flow's agent steps: "session" = the person's connected Claude Code / OpenCode */
+  runner?: "session";
+  /** 0.29 the connected session of this flow: who, the work order that waits, its todo list, its turns, keel's checks */
+  session?: ThreadSession;
+};
+
+/** 0.29 one item of a connected session's todo list (keel_session_todo). */
+export type SessionTodo = { text: string; status: "pending" | "in_progress" | "done" };
+/** 0.29 a connected session as keel sees it (engine runtime/sessions.py): seen within 2 minutes = connected. */
+export type SessionPresence = {
+  id: string; project: string; client: string; folder?: string | null; connected_since: string; last_seen: string; seen_ago_s: number;
+  connected: boolean;
+};
+/** 0.29 GET /api/sessions?project= */
+export type SessionsView = {
+  project: string; connected_s: number; gone_s: number; connected: SessionPresence | null; sessions: SessionPresence[];
+  waiting: (SessionOrder & { waiting_since?: string; claimed_by?: string | null })[];
+};
+/** 0.29 a work order: what keel's harness agent would be told, for the connected session to do. */
+export type SessionOrder = {
+  id?: string; kind: "plan" | "build" | "fix"; said?: string; step?: string; step_name?: string; published_at?: string; root?: string;
+  branch?: string; head?: string; instructions?: string; plan?: string; notes?: string; failure?: string; flow?: string; title?: string;
+};
+/** 0.29 one finished turn of the connected session (or of keel's harness, when the person chose it for a step). */
+export type SessionTurn = {
+  step: string; kind: "plan" | "build" | "fix"; by: string; at: string; published_at?: string; status: "done" | "blocked"; summary?: string;
+  todos?: SessionTodo[]; findings?: number;
+};
+export type SessionFinding = { step: string; kind: "put-back" | "lint" | "head" | "committed"; path?: string; text: string };
+export type ThreadSession = {
+  runner: "session"; client: string | null; session: SessionPresence | null; connected: boolean; log: SessionTurn[];
+  findings: SessionFinding[]; todos: SessionTodo[]; order?: SessionOrder; gone?: boolean; waiting_since?: string;
 };
 /** v0.4.1 run modes (engine runtime/run_mode.py). */
 export type RunMode = "manual" | "important" | "auto" | "readonly";
@@ -1340,6 +1376,8 @@ export const api = {
   saveCap: (pid: string, c: Cap) => put<Cap>(`/projects/${e(pid)}/caps/${e(c.id)}`, c),
   deleteCap: (pid: string, id: string) => del(`/projects/${e(pid)}/caps/${e(id)}`),
   limits: () => get<Limit[]>("/limits"),
+  /** 0.29 the project's connected sessions (engine /sessions: the person's own Claude Code / OpenCode working for keel) */
+  sessions: (pid: string) => get<SessionsView>(`/sessions?project=${e(pid)}`),
   /** #101 part 3 the flow doctor: what crashed in keel's flows, what keel repaired, what to improve */
   doctorReport: (days = 7) => get<DoctorReport>(`/flow-doctor/report?days=${days}`),
   clearCrashes: () => del<{ removed: number }>("/flow-doctor/crashes"),

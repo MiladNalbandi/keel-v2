@@ -126,6 +126,48 @@
 .gc-read { text-decoration: none; display: inline-flex; align-items: center; }
 .rdfl-gate .interrupt textarea { border-radius: 10px; background: var(--panel-2); padding: 10px 12px; }
 
+/* ---------- 0.29 a connected session (the person's own Claude Code / OpenCode) ---------- */
+.rdfl-av.k-session { --c: var(--accent); background: var(--accent-soft); color: var(--accent); font: 700 14px/1 var(--f-mono, monospace); }
+.sess-line { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--panel); font-size: 13px; }
+.sess-line.compact { padding: 6px 10px; font-size: 12.5px; }
+.sess-line-t { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-width: 0; color: var(--dim); }
+.sess-line-t > * + *::before { content: "·"; margin: 0 7px; color: var(--dim); }
+.sess-line-t b { color: var(--fg); font-weight: 600; }
+.sess-line-t .mono { color: var(--fg); overflow-wrap: anywhere; }
+.sess-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--dim); }
+.sess-line.is-on .sess-dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.sess-line.is-gone { border-color: color-mix(in srgb, var(--warn) 50%, var(--border)); }
+.sess-line.is-gone .sess-dot { background: var(--warn); }
+.sess-order-said { display: inline-flex; align-self: flex-start; align-items: center; height: 24px; padding: 0 10px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--fg); font-size: 12.5px; font-weight: 600; }
+.sess-card { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 14px; background: color-mix(in srgb, var(--accent-soft) 35%, var(--panel)); animation: k-rise .36s cubic-bezier(.2,.7,.2,1) both; min-width: 0; }
+.sess-card.is-gone { border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); background: color-mix(in srgb, var(--warn-soft) 45%, var(--panel)); }
+.sess-card-h { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.sess-card-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.sess-card-t .sub { font-size: 12.5px; overflow-wrap: anywhere; }
+.sess-gone { padding: 10px 12px; border-radius: 10px; background: var(--panel); font-size: 13.5px; line-height: 1.5; }
+.sess-todos-w { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.sess-todos-n { font-size: 12px; }
+.sess-todos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
+.sess-todos li { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.sess-mark { width: 14px; flex: none; text-align: center; font: 600 13px/1 var(--f-mono, monospace); }
+.sess-todo-t { min-width: 0; overflow-wrap: anywhere; }
+.sess-todos li.is-done { color: var(--dim); }
+.sess-todos li.is-done .sess-mark { color: var(--ok); }
+.sess-todos li.is-in_progress { color: var(--fg); font-weight: 600; }
+.sess-todos li.is-in_progress .sess-mark { color: var(--accent); }
+.sess-todos li.is-pending .sess-mark { color: var(--dim); font-weight: 400; }
+.sess-order { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 13px; }
+.sess-order .hs-pre { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.sess-honest { margin: 0; font-size: 12.5px; }
+.sess-none { margin: 0; font-size: 13px; }
+.sess-actions { gap: 8px; flex-wrap: wrap; }
+.sess-now { gap: 10px; }
+.sess-connect .hs-line { margin-top: 0; }
+@media (prefers-reduced-motion: reduce) { .sess-card { animation: none; } }
+
 /* ---------- the Details drawer ---------- */
 .rdfl .rdfl-details { gap: 0; padding: 0; border-left: 1px solid var(--border); background: color-mix(in srgb, var(--panel-2) 35%, var(--bg)); min-height: 420px;
   display: flex; flex-direction: column; animation: k-rise .36s cubic-bezier(.2,.7,.2,1) both .14s; }

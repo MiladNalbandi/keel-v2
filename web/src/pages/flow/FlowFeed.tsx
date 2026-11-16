@@ -14,6 +14,7 @@ import { shortDur, usd } from "../../format";
 import { useJobSteps } from "../Live";
 import { stepIdOf } from "./FlowParts";
 import type { GateSaid } from "./Gate";
+import { SessionLine, SessionTurnItem } from "./SessionParts";
 
 /** How many of the running agent's newest steps the feed shows before "Show all". */
 const LIVE_LAST = 6;
@@ -45,12 +46,19 @@ export function FlowFeed({ thread, workflow, runs, job, selected, onClear, gate,
   const jobStep = job ? stepIdOf(workflow, job.step) : null;
   const liveId = job && job.status === "running" ? job.id : null;
   const shown = selected ? turns.filter((t) => t.id === selected) : turns;
+  // 0.29 the connected session's finished turns (a step keel's harness did instead shows as its own agent call)
+  const sessLog = thread.session?.log;
+  const entries = useMemo(() => {
+    const sess = (sessLog ?? []).filter((t) => t.by !== "keel's harness" && (!selected || t.step === selected));
+    return [...shown.map((x) => ({ at: Date.parse(x.r.started_at), run: x, sess: null })),
+      ...sess.map((t) => ({ at: Date.parse(t.at), run: null, sess: t }))].sort((a, b) => a.at - b.at);
+  }, [shown, sessLog, selected]);
   // the running call has no row yet: it shows as a turn of its own
   const extra = liveId && !turns.some((t) => t.r.call_id === liveId) && (!selected || selected === jobStep) ? job : null;
   const over = thread.status === "done" || thread.status === "failed" || thread.status === "stopped";
   const selName = selected ? nameOf(selected, selected) : "";
   // what you answered last sits where it happened: before the first turn that started after it (else at the end)
-  const saidAt = said ? shown.findIndex((t) => Date.parse(t.r.started_at) > said.at) : -1;
+  const saidAt = said ? entries.findIndex((t) => t.at > said.at) : -1;
   const saidLine = said && !gate ? (
     <li className="rdfl-said-li">
       <div className={`rdfl-said ${said.decision === "approve" ? "is-ok" : ""}`} role="status">
@@ -75,16 +83,18 @@ export function FlowFeed({ thread, workflow, runs, job, selected, onClear, gate,
           </>
         ) : <span className="sub">The whole flow · newest at the bottom · click a block to follow one step</span>}
       </div>
+      {thread.runner === "session" && <SessionLine thread={thread} />}
       <ol className="rdfl-turns" aria-label={selected ? `What ${selName} did` : "What the steps did"}>
-        {shown.map(({ r, id }, n) => (
-          <Fragment key={`${r.call_id}:${r.ac ?? ""}`}>
+        {entries.map((x, n) => (
+          <Fragment key={x.run ? `${x.run.r.call_id}:${x.run.r.ac ?? ""}` : `sess:${x.sess!.step}:${x.sess!.at}`}>
             {n === saidAt && saidLine}
-            <Turn run={r} name={nameOf(id, r.step)} kind={workflow.steps.find((s) => s.id === id)?.kind ?? "agent"} live={r.call_id === liveId} />
+            {x.run ? <Turn run={x.run.r} name={nameOf(x.run.id, x.run.r.step)} kind={workflow.steps.find((s) => s.id === x.run!.id)?.kind ?? "agent"} live={x.run.r.call_id === liveId} />
+              : <SessionTurnItem turn={x.sess!} name={nameOf(x.sess!.step, x.sess!.step)} />}
           </Fragment>
         ))}
         {saidAt < 0 && saidLine}
         {extra && <LiveJobTurn job={extra} name={nameOf(jobStep, extra.step)} kind={workflow.steps.find((s) => s.id === jobStep)?.kind ?? "agent"} />}
-        {!shown.length && !extra && (
+        {!entries.length && !extra && (
           <li className="rdfl-none">
             {runs === null ? <span className="sub">Loading what the steps did…</span>
               : selected ? <><b>Not run in this flow yet</b><span className="sub">{selName} shows here once it runs.</span></>
