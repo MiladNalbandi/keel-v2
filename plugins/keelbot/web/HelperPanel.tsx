@@ -18,7 +18,7 @@ import {
 import { AgentCard, CiCard, FlowCard, QuestionsCard, RuleCard, SkillCard, SlotCard, StackCard, splitActions, StartCard, WorkflowCard } from "./Actions";
 import { ChangesBox, DoneFailed, fixRequest, PermissionCard, SideBar } from "./FixParts";
 import { kb } from "./keelbotApi";
-import { answerModel, fileLink, folderBanner, messageTokens, PREFILL_KEY, replaceTyping, sessionTokens, starters, typingAt, usageText, type Typing } from "./model";
+import { answerModel, fileLink, folderBanner, messageTokens, PREFILL_KEY, replaceTyping, sessionTokens, starters, typingAt, usageParts, usageText, type Typing } from "./model";
 import { ChatList, ConfirmRow } from "./ChatList";
 import { dropDraft, getDraft, getListOpen, getNewMode, getScroll, saveListOpen, saveNewMode, saveScroll, setDraft } from "./chats";
 import { markSeen, useKeelBotUnread, useSeen } from "./unread";
@@ -794,7 +794,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
           {chatFolder && <span className="hp-cur-f">{chatFolder} /</span>}
           <span className="hp-cur-t">{s?.title ?? (loadingChat ? "…" : "New chat")}</span>
         </span>
-        {s && <span className="hp-usage" title="What this chat used">{usageText(sessionTokens(s), s.cost_usd)}</span>}
+        {s && <span className="hp-usage" title={`What this chat used. ${usageParts(s).title}`}>{usageText(sessionTokens(s), s.cost_usd)}</span>}
         {s && !listOpen && (
           <button type="button" className="hp-tb" onClick={() => setConfirmDel((v) => !v)} aria-label="Delete this chat" title="Delete this chat"
             aria-expanded={confirmDel}>Delete</button>
@@ -870,7 +870,8 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
               later={messages.some((x) => x.n > m.n && x.role === "user")} />}
             {m.call_id && <TurnSteps callId={m.call_id} live={liveSteps[m.call_id] ?? []} running={false} />}
             {m.role === "helper" && (
-              <p className="hp-meta">{m.data.model ? `${provLabel(m.data.provider)} ${answerModel(m.data)} · ` : ""}{usageText(messageTokens(m), m.data.cost_usd ?? 0)}
+              <p className="hp-meta" title={usageParts(m.data).title}>{m.data.model ? `${provLabel(m.data.provider)} ${answerModel(m.data)} · ` : ""}{usageText(messageTokens(m), m.data.cost_usd ?? 0)}
+                {(m.data.tokens_cached ?? 0) > 0 || (m.data.tokens_in ?? 0) > 0 ? ` (${usageParts(m.data).line})` : ""}
                 {m.data.ms ? ` · ${(m.data.ms / 1000).toFixed(1)} s` : ""}</p>
             )}
           </div>
