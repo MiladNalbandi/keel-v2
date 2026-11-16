@@ -45,6 +45,12 @@ CONTINUES = 3                   # a reply cut off by the length limit, continued
 REPEAT_NOTE, REPEAT_STOP = 3, 6
 COMPACT_AT = 0.75               # keel's own compaction: this share of the model's window
 KEEP_RECENT = 8                 # messages kept whole after a compaction
+# 0.31 KeelBot's chats compact much earlier: a chat sends its whole history again with every message, so a long one
+# costs on every "hi". Older turns become a summary; the last CHAT_KEEP_TURNS questions and their answers stay whole.
+CHAT_AGENTS = frozenset({"helper"})
+CHAT_COMPACT_AT = int(os.environ.get("KEEL_CHAT_COMPACT_AT") or 40_000)
+CHAT_SERVER_COMPACT_AT = 50_000    # Anthropic's server-side compaction does not trigger lower
+CHAT_KEEP_TURNS = 6
 TODO_EVERY = 10                 # turns without TodoWrite before keel shows the open tasks again
 
 GUIDE = """\
@@ -95,6 +101,30 @@ def _tokens(messages: list[dict], system: str) -> int:
     return (len(system) + len(json.dumps(messages, ensure_ascii=False, default=str))) // 4
 
 
+def _k(n: int) -> str:
+    return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+
+def context_parts(request: Request, tool_count: int) -> dict:
+    """What one model call carries, in tokens (four characters a token): the system text, the tools, the earlier
+    conversation and what is new since the model's last turn. Shown per turn in "Show what it did"."""
+    msgs = request.messages
+    last = max((i for i, m in enumerate(msgs) if m.get("role") == "assistant"), default=-1)
+    dump = lambda x: json.dumps(x, ensure_ascii=False, default=str)  # noqa: E731
+    tools = [{"name": t.name, "description": t.description, "input_schema": t.schema} for t in request.tools]
+    return {"system": len(request.system) // 4, "tools": len(dump(tools)) // 4, "tool_count": tool_count,
+            "chat": len(dump(msgs[:last + 1])) // 4 if last >= 0 else 0, "new": len(dump(msgs[last + 1:])) // 4}
+
+
+def context_line(parts: dict, u: Usage) -> str:
+    sent = parts["system"] + parts["tools"] + parts["chat"] + parts["new"]
+    line = (f"context: system {_k(parts['system'])} · tools {parts['tool_count']} ({_k(parts['tools'])}) · chat "
+            f"{_k(parts['chat'])} · new {_k(parts['new'])} = about {_k(sent)}")
+    if u.input or u.cache_read or u.cache_write:
+        line += f" · the provider counted {_k(u.input + u.cache_write)} new + {_k(u.cache_read)} cached, {_k(u.output)} out"
+    return line
+
+
 def _env(req: AgentRequest) -> str:
     return (f"<environment>\nProject folder: {req.root}\nToday: {date.today().isoformat()}\nPlatform: linux\n"
             "</environment>")
@@ -105,6 +135,7 @@ class HarnessRunner:
 
     def __init__(self, provider=None):
         self._provider = provider          # tests: a provider made already
+        self._chat = False                 # a KeelBot chat (CHAT_AGENTS): earlier compaction
 
     async def _resolve(self, req: AgentRequest):
         if self._provider is not None:
@@ -135,11 +166,19 @@ class HarnessRunner:
                        used: Usage, model: dict, key: str | None, server_side: bool) -> None:
         """When the conversation passes COMPACT_AT of the window: the model summarizes it, and the session starts again
         from that summary and the last messages. Current Claude models compact on the server instead (providers/anthropic)."""
+        chat = self._chat
         if server_side or len(session.messages) <= KEEP_RECENT + 2:
             return
-        if _tokens(session.view(), system) < window * COMPACT_AT:
+        if _tokens(session.view(), system) < (min(CHAT_COMPACT_AT, window * COMPACT_AT) if chat else window * COMPACT_AT):
             return
         cut = len(session.messages) - KEEP_RECENT
+        if chat:
+            # a chat keeps its last CHAT_KEEP_TURNS questions whole (each a user message with text), with their answers
+            asks = [i for i, m in enumerate(session.messages)
+                    if m["role"] == "user" and any(b.get("type") == "text" for b in m["content"])]
+            if len(asks) <= CHAT_KEEP_TURNS:
+                return
+            cut = asks[-CHAT_KEEP_TURNS]
         # keep from a message the model can start from: a user message with text (not only tool results)
         while cut < len(session.messages) and not (session.messages[cut]["role"] == "user" and
                                                   any(b["type"] == "text" for b in session.messages[cut]["content"])):
@@ -163,6 +202,7 @@ class HarnessRunner:
 
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
         provider = await self._resolve(req)
+        self._chat = req.agent in CHAT_AGENTS
         await asyncio.to_thread(transcript.sweep)
         session, fresh = self._session(req, provider, emit)
         used = Usage()
@@ -172,7 +212,7 @@ class HarnessRunner:
         effort = catalog.effort_for(req.model)
         window = self._window(req)
         server_side = provider.name == "anthropic" and _server_compacts(provider.model)
-        extra = {"compact_at": min(150_000, int(window * 0.6)), "root": req.root}
+        extra = {"compact_at": min(CHAT_SERVER_COMPACT_AT if self._chat else 150_000, int(window * 0.6)), "root": req.root}
 
         if fresh and req.history:
             for role, text in req.history:
@@ -201,11 +241,15 @@ class HarnessRunner:
                 err.max_turns = True
                 raise err
             await self._compact(provider, session, system, window, emit, used, model, req.key, server_side)
-            request = Request(system=system, messages=session.view(), tools=tools.specs(), effort=effort,
+            specs = tools.specs()
+            request = Request(system=system, messages=session.view(), tools=specs, effort=effort,
                               web_search=web, extra=extra)
+            parts = context_parts(request, len(specs))
             turn = await self._turn(provider, request, emit, used, model, req.key)
             used.add(turn.usage)
-            emit("usage", **_usage_dict(model, req.key, used))         # the run's tokens and cost so far, live
+            # the run's tokens and cost so far, live; and what this call carried, part by part
+            emit("usage", **_usage_dict(model, req.key, used), context={**parts, "cached": turn.usage.cache_read})
+            emit("context", context_line(parts, turn.usage), **parts, cached=turn.usage.cache_read)
             session.add("assistant", turn.blocks, api=provider.name, model=provider.model, raw=turn.raw)
             turns_since_todo += 1
             for b in turn.blocks:
@@ -242,6 +286,7 @@ class HarnessRunner:
                 outs[call["id"]] = out
                 steps.tool_step(emit, req.toolbox, call, out, ms, n_writes)
 
+            tools.note_calls(calls)          # a deferred tool called straight away: it runs, and is loaded from now on
             results = await run_calls(tools.tools, calls, done)
             key = json.dumps([(c["name"], c.get("input")) for c in calls], sort_keys=True, default=str) + \
                 json.dumps([outs.get(c["id"]) for c in calls], default=str)
@@ -355,8 +400,11 @@ class HarnessRunner:
 
         found_skills = await asyncio.to_thread(skills_mod.find_skills, box.root)
         agents = await asyncio.to_thread(skills_mod.agent_types)
+        # 0.31 deferred tools for every provider that takes a tool list per call; GitHub Copilot registers its tools
+        # when its session opens, so it gets them all until it can take new ones mid-session (dynamic_tools)
+        lazy = bool(getattr(provider, "dynamic_tools", getattr(provider, "name", "") != "copilot"))
         return ToolSet(box, web=self._web(req), todos=todos, task=task, mcp=mcp_tools, mcp_check=mcp_check,
-                       skills=found_skills, agents=agents)
+                       skills=found_skills, agents=agents, lazy=lazy, loaded=session.tools, on_load=session.set_tools)
 
     @staticmethod
     def _reminders(tools: ToolSet, session: transcript.Session, turns_since_todo: int) -> str:

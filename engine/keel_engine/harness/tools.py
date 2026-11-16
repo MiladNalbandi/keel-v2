@@ -35,6 +35,25 @@ LINE_CHARS = 2000              # a longer line is cut
 WEB_MAX = 2_000_000            # bytes WebFetch downloads
 WEB_TEXT = 40_000              # characters of a page the model reads
 
+# 0.31 deferred tools (as Claude Code does it): these are not in the tool list the model gets at first; LoadTools lists
+# them in one short line each and loads the ones the model asks for. A loaded tool stays for the rest of the session and
+# is added at the END of the list, so the cached start of every request stays the same. Every MCP / plugin tool is one.
+DEFERRED = frozenset({"NotebookEdit", "BashOutput", "KillShell", "Skill", "Task", "WebFetch"})
+LOAD_TOOLS = "LoadTools"
+
+
+def deferrable(name: str) -> bool:
+    return name in DEFERRED or name.startswith("mcp__")
+
+
+def _first_sentence(text: str, n: int = 110) -> str:
+    s = " ".join(str(text or "").split())
+    for end in (". ", ": ", "; "):
+        i = s.find(end)
+        if 0 < i < n:
+            return s[:i + 1].rstrip(":;") + ("" if s[i] == "." else "")
+    return s if len(s) <= n else s[:n - 1].rstrip() + "…"
+
 
 @dataclass
 class Tool:
@@ -262,7 +281,8 @@ class ToolSet:
     def __init__(self, box, *, web: list[str] | None = None, todos: Callable[[list[dict]], None] | None = None,
                  task: Callable[[str, str, str | None], Awaitable[str]] | None = None, mcp: list | None = None,
                  mcp_check: Callable[[str, dict], str | None] | None = None, skills: dict | None = None,
-                 agents: dict | None = None, shell: bool = True):
+                 agents: dict | None = None, shell: bool = True, lazy: bool = False, loaded: list[str] | None = None,
+                 on_load: Callable[[list[str]], None] | None = None):
         from .context import FolderNotes
         from .shells import Shells
 
@@ -272,6 +292,12 @@ class ToolSet:
         self.shells = Shells(box)
         self.notes = FolderNotes(box)
         self._build(web or [], todos, task, mcp or [], mcp_check, skills or {}, agents or {}, shell)
+        # 0.31 deferred tools (see DEFERRED): lazy keeps them out of the list until the model loads them
+        self.deferred: list[str] = [n for n in self.tools if lazy and deferrable(n)]
+        self.loaded: list[str] = [n for n in dict.fromkeys(loaded or []) if n in self.deferred]
+        self._on_load = on_load
+        if self.deferred:
+            self._add_loader(skills or {}, agents or {})
 
     def close(self) -> None:
         self.shells.close()
@@ -530,8 +556,57 @@ class ToolSet:
     def _add(self, tool: Tool) -> None:
         self.tools[tool.name] = tool
 
+    def _add_loader(self, skills: dict, agents: dict) -> None:
+        lines = []
+        for n in self.deferred:
+            line = f"- {n}: {_first_sentence(self.tools[n].description)}"
+            if n == "Skill" and skills:
+                line += " Skills: " + ", ".join(list(skills)[:30])
+            if n == "Task" and agents:
+                line += " Agent types: " + ", ".join(sorted(agents)[:30])
+            lines.append(line)
+
+        async def load(a: dict) -> str:
+            want = [str(x) for x in (a.get("names") or [])]
+            unknown = [n for n in want if n not in self.tools]
+            got = self.load([n for n in want if n in self.deferred])
+            have = [n for n in want if n in self.tools and n not in self.deferred]
+            parts = []
+            if got:
+                parts.append(f"Loaded: {', '.join(got)}. Call them now; their full descriptions are in your tool list.")
+            already = [n for n in want if n in self.loaded and n not in got] + have
+            if already:
+                parts.append(f"Already in your tool list: {', '.join(already)}.")
+            if unknown:
+                parts.append(f"ERROR: no tool called {', '.join(unknown)}. Tools you can load: {', '.join(self.deferred)}.")
+            return " ".join(parts) or "Say which tools to load (names)."
+
+        self.tools[LOAD_TOOLS] = Tool(
+            LOAD_TOOLS, "Load more tools before you use them; a loaded tool stays for this session. Load only what the "
+            "work needs. Tools you can load:\n" + "\n".join(lines),
+            _obj({"names": {"type": "array", "items": {"type": "string"}, "minItems": 1}}, ["names"]), load, read_only=True)
+
+    def load(self, names: list[str]) -> list[str]:
+        """Load deferred tools (LoadTools, or a call to one that is not loaded yet): the new ones, in order."""
+        new = [n for n in dict.fromkeys(names) if n in self.deferred and n not in self.loaded]
+        if new:
+            self.loaded.extend(new)
+            if self._on_load:
+                self._on_load(list(self.loaded))
+        return new
+
+    def note_calls(self, calls: list[dict]) -> list[str]:
+        """A call straight to a deferred tool that is not loaded yet: it runs (all tools can run), and is loaded now so
+        the model sees it from the next turn on. No turn is lost to a LoadTools call it did not make."""
+        return self.load([c["name"] for c in calls if c.get("name") in self.deferred])
+
     def specs(self) -> list[ToolSpec]:
-        return [t.spec for t in self.tools.values()]
+        """The tools the model gets: the base ones in their order, LoadTools, then the loaded ones in the order they
+        were loaded (the list only grows at its end: a provider's cache of the request's start stays valid)."""
+        if not self.deferred:
+            return [t.spec for t in self.tools.values()]
+        base = [t.spec for n, t in self.tools.items() if n not in self.deferred and n != LOAD_TOOLS]
+        return base + [self.tools[LOAD_TOOLS].spec] + [self.tools[n].spec for n in self.loaded]
 
 
 def _mcp_tool(t, check: Callable[[str, dict], str | None] | None) -> Tool:
