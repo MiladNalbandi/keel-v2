@@ -115,7 +115,7 @@ reset
 "$KEEL2" start --core "$WORK/project" > "$WORK/out" 2>&1 || true
 check "start --core: the :core image" ran_with "ghcr.io/miladnalbandi/keel-v2:core$"
 check "start --core: the container remembers it (label keel2.core=1)" ran_with "--label keel2.core=1"
-check "start --core: it says how to add plugins" grep -q "Control › Plugins" "$WORK/out"
+check "start --core: it says how to add plugins" grep -q "Settings › Plugins" "$WORK/out"
 
 reset
 KEEL_IMAGE=keel-v2:mine "$KEEL2" start --core "$WORK/project" > "$WORK/out" 2>&1 || true
@@ -130,7 +130,7 @@ check "status: and its image" grep -q "image      ghcr.io/miladnalbandi/keel-v2:
 reset
 "$KEEL2" start "$WORK/project" > /dev/null 2>&1 || true
 "$KEEL2" status > "$WORK/out" 2>&1 || true
-check "status: a full image says edition full" grep -q "edition    full (every plugin inside)" "$WORK/out"
+check "status: a full image says edition full" grep -q "edition    full (every plugin inside, and keel Product" "$WORK/out"
 reset
 KEEL_PLUGINS=off "$KEEL2" start "$WORK/project" > /dev/null 2>&1 || true
 "$KEEL2" status > "$WORK/out" 2>&1 || true

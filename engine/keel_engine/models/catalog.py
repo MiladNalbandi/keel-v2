@@ -206,7 +206,10 @@ def efforts_for(provider: str, mode: str, model_id: str) -> list[str] | None:
 
         return vertex.efforts(model_id)
     if provider == "copilot":
-        return []           # Copilot picks the effort of the model it runs
+        # 0.31 the efforts Copilot lists for the model (auto: none, Copilot decides; a model keel has not seen: None)
+        from ..harness.providers.copilot_sdk import efforts_of
+
+        return efforts_of(model_id)
     return []
 
 
@@ -223,7 +226,19 @@ def effort_for(model: dict | None) -> str | None:
 def _copilot_models() -> list[dict]:
     from ..harness.providers.copilot_sdk import cached_models
 
-    return cached_models()
+    from ..harness.providers.copilot_sdk import UNCONFIRMED
+
+    # a model the plan's list did not name: offered with a badge (it runs as auto, with a note, if the plan lacks it)
+    return [{"id": m["id"], "label": m["label"], "efforts": list(m.get("efforts") or []),
+             **({"badge": UNCONFIRMED} if m.get("unconfirmed") else {})} for m in cached_models()]
+
+
+def _copilot_efforts() -> list[str]:
+    """Every effort any of the plan's models takes, in order (the provider's row; each model lists its own)."""
+    from ..harness.providers.copilot_sdk import EFFORTS
+
+    have = {e for m in _copilot_models() for e in m["efforts"]}
+    return [e for e in EFFORTS if e in have]
 
 
 def build_catalog(keys: dict | None = None) -> dict:
@@ -243,7 +258,7 @@ def build_catalog(keys: dict | None = None) -> dict:
         "codex": {"label": "OpenAI", "modes": {"api": CODEX_BUILTIN}, "efforts": CODEX_EFFORTS,
                   "default": {"mode": "api", "model": "gpt-5.5", "effort": "medium"}, "source": "builtin"},
         # GitHub Copilot (your plan): the models the plan has, as the last Test or call listed them; auto always works
-        "copilot": {"label": "GitHub Copilot (your plan)", "modes": {"api": _copilot_models()}, "efforts": [],
+        "copilot": {"label": "GitHub Copilot (your plan)", "modes": {"api": _copilot_models()}, "efforts": _copilot_efforts(),
                     "default": {"mode": "api", "model": "auto"}, "source": "builtin"},
     }
     vx = vertex.catalog_entry(keys.get("vertex"))

@@ -11,7 +11,7 @@
 #                               also offer keel v1's MCP server (optional, off until you turn it on in Tools)
 #   keel2 start --safe [dir]    same, in safe mode: only the plugins inside the image load (installed ones wait)
 #   keel2 start --core [dir]    same, with keel's core only (the :core image: no plugin inside; add the ones you need
-#                               in Control › Plugins). restart and update keep it
+#                               in Settings › Plugins). restart and update keep it
 #   keel2 stop | restart        stop keel / start it again with the same project and options (they ask first
 #                               when agents are working; --force does not ask; restart --safe: in safe mode)
 #   keel2 add <folder> [<folder> …]
@@ -75,7 +75,7 @@
 # Phone: KEEL_BIND (127.0.0.1 default; --wifi = 0.0.0.0), KEEL_LAN_IP (the Wi-Fi address to show, when the guess is wrong),
 # KEEL_CLOUDFLARED_IMAGE (the tunnel's image when cloudflared is not installed), KEEL_YES=1 (yes to the tunnel's question).
 # Added folders are listed in ${XDG_CONFIG_HOME:-~/.config}/keel2/<KEEL_NAME>.folders (one path per line).
-# Logins: dashboard › Control › Connections › "Set up login". They are saved encrypted in keel's database on the
+# Logins: dashboard › Settings › Connections › "Set up login". They are saved encrypted in keel's database on the
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
@@ -640,7 +640,7 @@ cmd_start() {
   # Plugins (docker/keel-start): on = the image's and the installed ones; image = safe mode; off = none
   if [ -n "$plugins" ]; then args+=(-e "KEEL_PLUGINS=$plugins" --label "keel2.plugins=$plugins"); fi
   if [ "$plugins" = image ]; then warn "Safe mode: only the plugins inside the image load. 'keel2 restart' loads all again."; fi
-  if [ "$core" = 1 ]; then info "  ${D}keel's core only: add the plugins you need in Control › Plugins (or a set: Developer, Review…).${N}"; fi
+  if [ "$core" = 1 ]; then info "  ${D}keel's core only: add the plugins you need in Settings › Plugins (or a set: Developer, Review…).${N}"; fi
 
   # phone access: --wifi / KEEL_BIND publishes keel on the network instead of 127.0.0.1 (remembered by the label)
   local i; for i in "${!args[@]}"; do [ "${args[$i]}" = "127.0.0.1:$port:8080" ] && args[i]="$(publish_host "$bind"):$port:8080"; done
@@ -681,9 +681,9 @@ cmd_start() {
   register_added "$port" ${added[@]+"${added[@]}"}
   # a restart keeps the logins (the volume): say so, instead of asking for a login that is there
   if has_model_login "$port"; then
-    info "  ${D}Your model logins are saved: Control › Connections shows which (keys and logins stay across restarts).${N}"
+    info "  ${D}Your model logins are saved: Settings › Connections shows which (keys and logins stay across restarts).${N}"
   else
-    info "  ${D}Next: open Control › Connections › Set up login (Claude, Codex or GitHub Copilot).${N}"
+    info "  ${D}Next: open Settings › Connections › Set up login (Claude, Codex or GitHub Copilot).${N}"
   fi
   info "  ${D}Stop: keel2 stop · Status: keel2 status · Problems: keel2 doctor${N}"
   [ "${KEEL_OPEN:-1}" = 1 ] && open_signed_in "$port" || true
@@ -900,7 +900,7 @@ cmd_status() {
 edition_text() {
   local e; e="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$NAME" 2>/dev/null | sed -n 's/^KEEL_EDITION=//p' | head -1)"
   case "$e" in
-    core)    echo "core (keel's core only, no plugin inside: add them in Control › Plugins)" ;;
+    core)    echo "core (keel's core only, no plugin inside: add them in Settings › Plugins)" ;;
     product) echo "product (an old edition: keel2 update moves it to the full image, which has keel Product inside)" ;;
     full|dev|"") echo "full (every plugin inside, and keel Product: turn it on in Add features)" ;;
     *)       echo "$e" ;;
@@ -1606,7 +1606,7 @@ try:
 except Exception:
     pass' 2>/dev/null || true)"
     die "Not saved: $(printf '%s\n' "$why" | sed -n 1p | grep . || echo "keel answered $code.")" \
-      "$(printf '%s\n' "$why" | sed -n 2p | grep . || echo "Try the dashboard: Control › Connections.")"
+      "$(printf '%s\n' "$why" | sed -n 2p | grep . || echo "Try the dashboard: Settings › Connections.")"
   fi
   ok "saved $name in keel's database (encrypted) · $(printf '%s' "$out" | kpy -c 'import json,sys; print(json.load(sys.stdin).get("hint",""))' 2>/dev/null || true)"
 }

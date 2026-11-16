@@ -100,6 +100,8 @@ class FakeClient:
     async def create_session(self, **opts):
         if opts.get("model") in FakeClient.missing:
             raise RuntimeError(f'Execution failed: Model "{opts["model"]}" is not available.')
+        if opts.get("reasoning_effort") and opts.get("model") in FakeClient.no_effort:
+            raise RuntimeError(f'Execution failed: Model "{opts["model"]}" does not support reasoning effort.')
         s = FakeSession(opts, FakeClient.scripts.pop(0))
         FakeClient.sessions.append(s)
         return s
@@ -107,8 +109,11 @@ class FakeClient:
     async def get_auth_status(self):
         return SimpleNamespace(isAuthenticated=True, login="demo-user", statusMessage="ok")
 
+    listed: list = []
+    no_effort: set = set()
+
     async def list_models(self):
-        return []
+        return list(FakeClient.listed)
 
 
 @pytest.fixture(autouse=True)
@@ -116,7 +121,10 @@ def fresh():
     copilot_sdk._clients.clear()
     copilot_sdk._models.clear()
     FakeClient.sessions, FakeClient.scripts, FakeClient.missing = [], [], set()
+    FakeClient.listed, FakeClient.no_effort = [], set()
+    copilot_sdk._models_file().unlink(missing_ok=True)
     yield
+    copilot_sdk._models_file().unlink(missing_ok=True)
 
 
 def provider(model="auto", token="gho_demo"):
@@ -233,6 +241,61 @@ def test_the_model_list_always_has_auto_and_fills_the_catalog():
     row = catalog.build_catalog()["copilot"]
     assert row["label"] == "GitHub Copilot (your plan)" and row["modes"]["api"][0]["id"] == "auto"
     assert not any("/" in m["id"] for m in row["modes"]["api"])          # no GitHub Models names left
+
+
+def test_a_models_efforts_come_from_copilot_reach_the_picker_and_the_session_and_stay_after_a_restart():
+    from keel_engine.models import catalog
+
+    FakeClient.listed = [
+        SimpleNamespace(id="claude-sonnet-5.5", name="Claude Sonnet 5.5", supported_reasoning_efforts=["low", "medium", "high"]),
+        SimpleNamespace(id="gpt-4.1", name="GPT-4.1", supported_reasoning_efforts=None),
+    ]
+    run(copilot_sdk.list_models("gho_demo", factory=FakeClient, fresh=True))
+    row = catalog.build_catalog()["copilot"]
+    by = {m["id"]: m["efforts"] for m in row["modes"]["api"] if "badge" not in m}
+    assert by == {"auto": [], "claude-sonnet-5.5": ["low", "medium", "high"], "gpt-4.1": []}
+    assert row["efforts"] == ["low", "medium", "high"]
+    # the effort the person picks is kept for a model that takes it, dropped for one that does not, passed on for one
+    # keel has not seen in a list
+    eff = lambda m, e: catalog.effort_for({"provider": "copilot", "mode": "api", "model": m, "effort": e})  # noqa: E731
+    assert eff("claude-sonnet-5.5", "high") == "high" and eff("claude-sonnet-5.5", "max") is None
+    assert eff("gpt-4.1", "high") is None and eff("auto", "high") is None and eff("typed-by-hand", "high") == "high"
+    # ... and reaches the Copilot session
+    FakeClient.scripts = [[("say", "ok")]]
+    run(provider("claude-sonnet-5.5").turn(Request(system="s", messages=[user("hi")], tools=[], effort="high"), lambda *a, **k: None))
+    assert FakeClient.sessions[0].opts["reasoning_effort"] == "high"
+    # after a restart (nothing in memory) the list is still the plan's, not only auto
+    copilot_sdk._models.clear()
+    assert [m["id"] for m in catalog.build_catalog()["copilot"]["modes"]["api"]][:3] == ["auto", "claude-sonnet-5.5", "gpt-4.1"]
+
+
+def test_every_model_copilot_knows_is_offered_the_plans_first():
+    from keel_engine.models import catalog
+
+    FakeClient.listed = [SimpleNamespace(id="claude-sonnet-5.5", name="Claude Sonnet 5.5", supported_reasoning_efforts=["high"])]
+    run(copilot_sdk.list_models("gho_demo", factory=FakeClient, fresh=True))
+    ids = [m["id"] for m in catalog.build_catalog()["copilot"]["modes"]["api"]]
+    assert ids[:2] == ["auto", "claude-sonnet-5.5"] and ids.count("claude-sonnet-5.5") == 1
+    assert {"claude-opus-5.5", "gpt-6.1-sol", "gemini-4-argon"} <= set(ids)
+    rows = {m["id"]: m for m in catalog.build_catalog()["copilot"]["modes"]["api"]}
+    assert rows["claude-opus-5.5"]["badge"] == "not in your plan's list" and "badge" not in rows["claude-sonnet-5.5"]
+    # an unconfirmed model passes the effort on (Copilot checks it); auto takes none
+    assert catalog.efforts_for("copilot", "api", "claude-opus-5.5") is None and catalog.efforts_for("copilot", "api", "auto") == []
+
+
+def test_a_free_plan_with_an_empty_list_still_offers_every_model():
+    from keel_engine.models import catalog
+
+    run(copilot_sdk.list_models("gho_demo", factory=FakeClient, fresh=True))
+    ids = [m["id"] for m in catalog.build_catalog()["copilot"]["modes"]["api"]]
+    assert ids[0] == "auto" and len(ids) == 1 + len(copilot_sdk.KNOWN_MODELS)
+
+
+def test_an_effort_the_model_refuses_runs_without_it_and_says_so():
+    FakeClient.no_effort = {"typed-by-hand"}
+    FakeClient.scripts = [[("say", "ok")]]
+    turn = run(provider("typed-by-hand").turn(Request(system="s", messages=[user("hi")], tools=[], effort="high"), lambda *a, **k: None))
+    assert "reasoning_effort" not in FakeClient.sessions[0].opts and "does not take the effort 'high'" in turn.note
 
 
 # ---------------------------------------------------------------- live (opt-in): a real tool-using harness run

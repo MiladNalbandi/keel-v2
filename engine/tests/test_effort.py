@@ -41,7 +41,8 @@ def test_effort_for_keeps_only_what_the_model_takes():
     assert eff({"provider": "codex", "mode": "api", "model": "gpt-6-sol", "effort": "ultra"}) == "ultra"
     # #101 GitHub Models takes none, also for a model once saved for the Copilot CLI or OpenCode
     assert eff({"provider": "copilot", "mode": "api", "model": "openai/gpt-5", "effort": "high"}) is None
-    assert eff({"provider": "copilot", "mode": "opencode", "model": "claude-sonnet-4.5", "effort": "high"}) is None
+    # 0.31 GitHub Copilot (your plan): a model keel has not seen in the plan's list passes the effort on (Copilot checks it)
+    assert eff({"provider": "copilot", "mode": "opencode", "model": "claude-sonnet-4.5", "effort": "high"}) == "high"
     assert eff({"provider": "fake", "mode": "api", "model": "fake", "effort": "low"}) == "low"
     assert eff(None) is None
 

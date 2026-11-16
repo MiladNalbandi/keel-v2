@@ -106,7 +106,7 @@ def check_shape(cat):
         assert p["default"]["mode"] in p["modes"]
         assert p["default"]["model"] in [m["id"] for m in p["modes"][p["default"]["mode"]]]
         for items in p["modes"].values():
-            assert items and all({"id", "label"} <= set(m) <= {"id", "label", "efforts"} for m in items)
+            assert items and all({"id", "label"} <= set(m) <= {"id", "label", "efforts", "badge"} for m in items)
 
 
 def test_the_catalog_lists_api_models_only(no_clis):
