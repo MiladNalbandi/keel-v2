@@ -160,6 +160,14 @@ def _explain(wf: Workflow, i: int, root: str | None, agents: dict, ctx, state: d
                             "text": ("the opening skip menu may turn it off; " +
                                      ("its push gate still waits for a fresh verdict" if step.skippable == "deferred"
                                       else "nothing later needs it"))}
+    if step.kind == "code" and step.action == "verify_release" and real_root:
+        from . import blockers
+
+        if blockers.gates_off(real_root):
+            # the person turned the whole test suite off for pushes: this step is skipped and the push does not wait
+            out["off"] = f"{blockers.RELEASE_OFF}; this step is skipped and the push does not wait for a release verdict"
+            if "skippable" in out:
+                out["skippable"]["text"] = f"{blockers.RELEASE_OFF}: skipped, and its push gate does not wait for it"
     if step.kind in ("agent", "parallel"):
         out["agent"] = agent_info(wf, i, phase, real_root or root, agents, ctx, state)
     if step.kind == "branch" and step.agent:

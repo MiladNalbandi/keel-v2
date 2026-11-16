@@ -199,6 +199,8 @@ class McpLevelGuard(
             put("^/api/threads/[^/]+/document$"),
             // 0.18.65 the base branch and the canonical remote (keel_base_branch asks the person first)
             put("^/api/projects/[^/]+/base$"),
+            // the whole test suite before a push (keel_release_check: off needs the person's approval in the Inbox)
+            put("^/api/projects/[^/]+/release-check$"),
             // keel_answer and keel_approve_gate answer a flow's question (an approval the api asked itself needs more:
             // InboxService.act)
             post("^/api/inbox/[^/]+/act$"),

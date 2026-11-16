@@ -206,6 +206,12 @@ class WorktreeAdd(BaseModel):
     start: str | None = None            # the commit or branch it starts from (default: the folder's HEAD)
 
 
+class ReleaseCheckBody(BaseModel):
+    """The project's switch for the whole test suite before a push (runtime/blockers.py set_release_required)."""
+    root: str
+    required: bool
+
+
 class BaseChoice(BaseModel):
     """0.18.65 a person's answer about the project's base (runtime/bases.py choose): remote, track, pick, canonical."""
     root: str
@@ -915,6 +921,20 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         except bases.BaseError as exc:
             raise EngineError(exc.status, exc.message, exc.hint) from exc
         return await asyncio.to_thread(bases.view, root)
+
+    # the whole test suite before a push: required (keel's default) or off (CI runs it); the person's choice, keel
+    # writes release.required into .keel/config.yml (runtime/blockers.py)
+    @app.get("/release-check")
+    async def get_release_check(root: str):
+        from .runtime import blockers
+
+        return await asyncio.to_thread(blockers.release_view, project_root(root))
+
+    @app.put("/release-check")
+    async def put_release_check(body: ReleaseCheckBody):
+        from .runtime import blockers
+
+        return await asyncio.to_thread(blockers.set_release_required, project_root(body.root), body.required)
 
     # 0.18.57 what Start a flow says before a start: can a worktree flow run the tests, is the base behind its remote
     @app.get("/start-check")

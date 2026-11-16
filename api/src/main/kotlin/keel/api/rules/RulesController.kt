@@ -15,6 +15,9 @@ import org.springframework.web.bind.annotation.RestController
 
 data class RulePackBody(val yaml: String = "")
 
+/** PUT /api/projects/{pid}/release-check: the whole test suite before a push, required (true) or off (false: CI runs it). */
+data class ReleaseCheckBody(val required: Boolean? = null)
+
 /** v0.17.2 the Rules page and "Rules now" (RulesService). Writes are admin for MCP clients (McpLevels.kt). */
 @RestController
 @RequestMapping("/api")
@@ -26,6 +29,14 @@ class RulesController(private val rules: RulesService) {
     /** Change guards / mcp / rules / boundaries in the project's .keel/config.yml. */
     @PutMapping("/projects/{pid}/rules/config")
     fun config(@PathVariable pid: String, @RequestBody patch: Map<String, Any?>): JsonNode = rules.setConfig(pid, patch)
+
+    /** The whole test suite before a push: required (keel's default) or off (CI runs it). keel writes release.required
+     *  in .keel/config.yml; turning it off is the person's choice (MCP keel_release_check asks them first). */
+    @GetMapping("/projects/{pid}/release-check")
+    fun releaseCheck(@PathVariable pid: String): JsonNode = rules.releaseCheck(pid)
+
+    @PutMapping("/projects/{pid}/release-check")
+    fun setReleaseCheck(@PathVariable pid: String, @RequestBody body: ReleaseCheckBody): JsonNode = rules.setReleaseCheck(pid, body)
 
     @GetMapping("/rules/library")
     fun library(): JsonNode = rules.library()

@@ -12,7 +12,7 @@ import { ErrorBox, Panel, Pill, Ticks } from "../../components/ui";
 import { codeHref, kfmt, usd } from "../../format";
 import { go, useApp, useLoad } from "../../state";
 import { useHasPage } from "../../sdk/registry";
-import { hashFor } from "../../routes";
+import { hashFor, settingsHash } from "../../routes";
 import { askAssistant } from "../../sdk/assistant";
 import { fixRequest } from "../../askFix";
 import { AcCodeSection, dropSection } from "./AcCode";
@@ -98,7 +98,8 @@ export function gateLabels(w: NonNullable<ThreadState["waiting"]>, acId?: string
 
 const GATE_LABEL: Record<string, string> = { release: "release", coverage: "coverage", deps: "dependencies", knowledge: "knowledge", secrets: "secrets" };
 
-export function BeforeShipPanel({ blockers }: { blockers?: Blocker[] }) {
+/** `off`: the push gates the person turned off for this project (the whole test suite: CI runs it); they block nothing. */
+export function BeforeShipPanel({ blockers, off, pid }: { blockers?: Blocker[]; off?: Blocker[]; pid?: string }) {
   return (
     <Panel title="Before ship" extra={<span className="hint">checked before the push and after every commit</span>}>
       {!blockers ? <span className="sub">Not checked yet. keel checks it before the push.</span> : !blockers.length ? (
@@ -109,6 +110,16 @@ export function BeforeShipPanel({ blockers }: { blockers?: Blocker[] }) {
             <div key={i} className="blocker">
               <div className="row"><Pill tone={b.gate === "secrets" ? "bad" : "warn"}>{GATE_LABEL[b.gate] ?? b.gate}</Pill><span>{b.why}</span></div>
               {b.fix && <span className="sub">Fix: {b.fix}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+      {!!off?.length && (
+        <div className="blockers" aria-label="Off for pushes in this project">
+          {off.map((g, i) => (
+            <div key={i} className="blocker">
+              <div className="row"><Pill tone="idle">{GATE_LABEL[g.gate] ?? g.gate}: off</Pill><span>{g.why}</span></div>
+              <span className="sub">It does not block a push. <a href={settingsHash("general", pid ? encodeURIComponent(pid) : undefined)}>Settings › Flow and gates</a></span>
             </div>
           ))}
         </div>
