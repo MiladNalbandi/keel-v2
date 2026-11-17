@@ -2,6 +2,8 @@ id: clarify
 name: clarify (keel)
 keel_rules: true
 version: 1
+about: "ask the open questions before anyone codes"
+group: plan
 # Ask before you code: the clarify-loop skill from your own ai-coding-toolkit plugin (skills/clarify-loop), as a keel
 # flow; its questions, wording and output templates are kept. The rule: never start any coding task without answering
 # these questions first. An explorer reads the request and the code first (so every option names its file:line and

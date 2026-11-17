@@ -10,6 +10,7 @@ import { RunModePicker } from "./RunMode";
 import { Drawer, ErrorBox } from "./ui";
 import { WorkspaceDoctor } from "./WorkspaceDoctor";
 import { SIZE_FLOWS, suggestFlow } from "../flowSize";
+import { groupFlows, pickable } from "../flowGroups";
 import { InitAsk, isInitFlow, needsInit, useStartInit } from "./InitAsk";
 import { SESSION_SENTENCE, seenWords, sinceWords, useSessions } from "./Session";
 
@@ -128,7 +129,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
     api.workflows(p).then((list) => {
       if (gone) return;
       setWfs(list);
-      setWid((w) => (w && list.some((x) => x.id === w) ? w : list.find((x) => x.id === "feature")?.id ?? list[0]?.id ?? ""));
+      setWid((w) => (w && list.some((x) => x.id === w) ? w : list.find((x) => x.id === "feature")?.id ?? pickable(list)[0]?.id ?? ""));
     }, (e) => !gone && setErr(errorParts(e)));
     api.projectSettings(p).then((s) => {
       if (gone) return;
@@ -287,7 +288,11 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         <label htmlFor="sf-w">Workflow</label>
         <select id="sf-w" value={wid} onChange={(e) => setWid(e.target.value)} disabled={!wfs}>
           {!wfs && <option>Loading…</option>}
-          {wfs?.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+          {wfs && groupFlows(wfs, wid).groups.map((g) => (
+            <optgroup key={g.id} label={g.title}>
+              {g.flows.map((w) => <option key={w.id} value={w.id} title={w.about}>{w.name}</option>)}
+            </optgroup>
+          ))}
         </select>
       </div>
       {sessionFit && (

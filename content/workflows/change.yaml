@@ -2,6 +2,8 @@ id: change
 name: change (keel)
 keel_rules: true
 version: 1
+about: "a change to the code: 1–3 criteria, test-first, then ship"
+group: build
 # Work without a spec. Triage asks one question: could a test notice a difference? No → trivial (one refactor commit).
 # Yes → small (1 to change.max_inline_acs criteria, CHG-<n>.<m>, the test-first loop, one gate at the end) unless it
 # touches the contract, a migration or auth, needs more criteria, or rests on outside docs the repo does not hold (0.18.21:

@@ -2,6 +2,8 @@ id: product-plan
 name: plan (keel Product)
 keel_rules: false
 version: 1
+about: "who builds what, in which order, as stories"
+group: product
 # keel Product, stage Plan. The planner maps every part of the impact to the team that owns it and puts the work in
 # order (contract first, so teams can start at the same time); the story writer cuts it into stories with keel's tagged
 # acceptance criteria, following each team's own pages. keel checks the plan (ids, loops, the critical path) and the

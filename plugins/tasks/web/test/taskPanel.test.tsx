@@ -74,13 +74,13 @@ describe("Task drawer (new page): keel suggests", () => {
     ).toBeInTheDocument();
   });
 
-  it("Use another flow shows the flows as chips, and Start starts the picked one", async () => {
+  it("More flows shows the flows as chips, and Start starts the picked one", async () => {
     const user = userEvent.setup();
     const d = await openTask("tk_1", "ABC-1 · Rank players weekly");
     const s = within(d).getByRole("region", { name: "Start a flow" });
     await within(s).findByTestId("suggested-flow");
     await user.click(
-      within(s).getByRole("button", { name: "Use another flow" }),
+      within(s).getByRole("button", { name: "More flows" }),
     );
     const chips = within(s).getByRole("group", { name: "Pick another flow" });
     expect(
@@ -104,6 +104,71 @@ describe("Task drawer (new page): keel suggests", () => {
         run_mode: "manual",
       }),
     );
+  });
+
+  it("0.34 shows keel's pick and 3 more of its group, More flows shows every flow under its group, own-page flows left out", async () => {
+    const user = userEvent.setup();
+    const grp: Record<string, string> = { feature: "build", fix: "fix", init: "ship" };
+    db.workflows.forEach((w) => { (w as { group?: string }).group = grp[w.id]; });
+    for (const [id, group, start] of [["change", "build"], ["small", "build"], ["quick", "build"], ["implement", "build"],
+      ["review", "check"], ["lead-intake", "org", "own-page"], ["ci-fix", "fix", "own-page"], ["mine", ""]] as const) {
+      db.workflows.push({ id, name: id === "lead-intake" ? "lead a mission" : `${id} (keel)`, keel_rules: true, version: 1, yaml: "", steps: [],
+        ...(group ? { group } : {}), ...(start ? { start } : {}), about: `${id} in one line` } as never);
+    }
+    const d = await openTask("tk_1", "ABC-1 · Rank players weekly");
+    const s = within(d).getByRole("region", { name: "Start a flow" });
+    await within(s).findByTestId("suggested-flow");
+    const first = within(s).getByRole("group", { name: "Pick a flow" });
+    expect(within(first).getAllByRole("button").map((b) => b.textContent)).toEqual(
+      ["feature (keel's pick)", "change", "small", "quick"]);
+    expect(within(first).getByRole("button", { name: "change" })).toHaveAttribute("title", "change in one line");
+    await user.click(within(s).getByRole("button", { name: "More flows" }));
+    const all = within(s).getByRole("group", { name: "Pick another flow" });
+    expect(within(all).getAllByRole("heading", { level: 4 }).map((h) => h.textContent)).toEqual(
+      ["Build", "Fix", "Check", "Ship & set up", "Your flows"]);
+    expect(all).not.toHaveTextContent("lead a mission");
+    expect(all).not.toHaveTextContent("ci-fix");
+    expect(within(s).getByRole("button", { name: "Fewer flows" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("0.34 Hand to Org gives the task to an org's lead with a budget, and the task shows the mission", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("/api/org/orgs", () => HttpResponse.json([
+        { id: "small-team", name: "Small team", problems: [], projects: [], roles: [
+          { id: "me", title: "You", human: true, workflows: [], boss: null, team: ["lead"] },
+          { id: "lead", title: "Tech lead", human: false, workflows: ["lead-intake"], boss: "me", team: ["fe"] },
+          { id: "fe", title: "Frontend engineer", human: false, workflows: ["small"], boss: "lead", team: [] }] },
+        { id: "broken", name: "Broken", problems: ["no roles"], roles: [] }])),
+      http.post("/api/tasks/:id/org", async ({ request, params }) => {
+        const b = (await request.json()) as Record<string, unknown>;
+        db.calls.push({ method: "POST", path: `/api/tasks/${params.id}/org`, body: b } as never);
+        const t = db.tk.tasks.find((x) => x.id === params.id)!;
+        Object.assign(t, { status: "in_progress", mission: { id: "m_1", org: b.org, status: "running" },
+          parts: [{ id: "tk_p1", title: "The ranks API", status: "todo", external_key: "ABC-101", mission_status: "queued" }] });
+        return HttpResponse.json(withWaiting(String(params.id)));
+      }),
+    );
+    const d = await openTask("tk_1", "ABC-1 · Rank players weekly");
+    const s = within(d).getByRole("region", { name: "Start a flow" });
+    await within(s).findByTestId("suggested-flow");
+    await user.click(within(s).getByRole("button", { name: "Hand to Org" }));
+    const form = within(s).getByRole("group", { name: "Hand to Org" });
+    expect(form).toHaveTextContent("each part becomes a task and a Jira sub-task");
+    const org = await within(form).findByLabelText("Org");
+    expect(within(org).getAllByRole("option").map((o) => o.textContent)).toEqual(["Small team"]);   // one with problems is left out
+    const to = within(form).getByLabelText("To");
+    expect(within(to).getAllByRole("option").map((o) => o.textContent)).toEqual(["its lead (the org decides)", "Tech lead"]);
+    await user.type(within(form).getByLabelText("Budget (optional)"), "400k");
+    await user.click(within(form).getByRole("button", { name: "Give to Small team" }));
+    await waitFor(() => expect(calls("POST", "/api/tasks/tk_1/org")).toHaveLength(1));
+    expect(calls("POST", "/api/tasks/tk_1/org")[0].body).toEqual({ org: "small-team", cap_tokens: 400000 });
+    const m = await within(d).findByRole("region", { name: "Org mission" });
+    expect(m).toHaveTextContent("Org small-team");
+    expect(m).toHaveTextContent("working");
+    expect(within(m).getByRole("link", { name: "Open on the Org page ▸" })).toHaveAttribute("href", "#/org/small-team");
+    expect(within(m).getByRole("link", { name: "ABC-101 · The ranks API" })).toHaveAttribute("href", "#/tasks/tk_p1");
+    expect(within(d).queryByRole("region", { name: "Start a flow" })).toBeNull();   // the Org works on it: no second start
   });
 
   it("Not now closes the task without starting anything", async () => {

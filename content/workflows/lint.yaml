@@ -2,6 +2,8 @@ id: lint
 name: lint (keel)
 keel_rules: true
 version: 1
+about: "the project's static checks and their fixes"
+group: check
 # Static checks for this project: the `tools:` of its stacks and of .keel/config.yml (docs/CONTRACT.md, "v0.4.1: lint and
 # static checks"). Inputs (StartThread.data, the api's `options`):
 #   scope: diff (default: the branch diff and uncommitted files) | all (the whole project)

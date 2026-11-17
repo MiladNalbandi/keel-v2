@@ -3,6 +3,8 @@ name: design review (keel)
 keel_rules: true
 own_branch: false
 version: 1
+about: "a design document read by fresh reviewers, then fixed"
+group: check
 # keel 0.20.0 Google's Elephant-Goldfish Model (EGM, https://github.com/google/elephant-goldfish-model): a design document
 # (a spec, a plan) is read by goldfish, reviewers in a fresh session each with no history, that see only the document and
 # the files it names. EGM's five stages run in order (keel_engine/runtime/design_actions.py); keel merges the findings

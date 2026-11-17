@@ -110,7 +110,9 @@ TOOLS: dict[str, tuple[str, ...]] = {
               # the whole test suite before push: off needs the person's approval in keel's Inbox, on asks nothing
               "keel_release_check",
               # 0.29 a connected session (the person's own Claude Code / OpenCode) does the harness flow's work orders
-              "keel_session_open", "keel_session_next", "keel_session_plan", "keel_session_todo", "keel_session_done"),
+              "keel_session_open", "keel_session_next", "keel_session_plan", "keel_session_todo", "keel_session_done",
+              # 0.34 a task on the Tasks page (the Tasks plugin); it starts nothing
+              "keel_task_create"),
     "admin": ("keel_delete_run", "keel_add_project", "keel_remove_project",
               # 0.19.x what the dashboard and keel TUI do with projects: pause a flow, switch the focused project
               "keel_pause", "keel_focus",

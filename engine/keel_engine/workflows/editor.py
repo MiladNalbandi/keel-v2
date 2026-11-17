@@ -17,7 +17,7 @@ from .model import Step, slug
 
 # the documented order: a workflow's head (the api's WorkflowDoc order), then a step's (id, kind, name, phase, then
 # what the kind needs in the Step model's order, instructions last; content/workflows/fix.yaml says the same)
-HEAD_ORDER = ("id", "name", "source", "version", "about", "est_tokens", "mcp", "needs_plugins", "based_on", "keel_rules",
+HEAD_ORDER = ("id", "name", "source", "version", "about", "group", "start", "est_tokens", "mcp", "needs_plugins", "based_on", "keel_rules",
               "own_branch", "budget", "steps")
 STEP_ORDER = ("id", "kind", "name", "phase",
               *[f.alias or k for k, f in Step.model_fields.items() if k not in ("id", "kind", "name", "phase", "instructions")],

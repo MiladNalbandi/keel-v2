@@ -87,6 +87,15 @@ export type Workflow = {
   /** 0.16.1 plugin track: a workflow installed from the marketplace (docs/plugins/21-workflow-marketplace.md §3): its
    *  catalog, its name there, the version it has, and a newer version that fits (null: none). Absent for the others. */
   market?: { catalog: string; name: string; version: string; update: string | null } | null;
+  /** v0.11.0 a plugin's own workflow (ci-fix: ci), v0.13.0 an add-on's (keel Product: product), v0.16.0 the plugins it needs. */
+  plugin?: string | null;
+  addon?: string | null;
+  needs_plugins?: string[];
+  /** 0.34 what it is for in one line; its group in pickers (build, fix, check, plan, ship, product, support); own-page: only
+   *  its own page starts it (the Org's runner, Goals, Desk, Answers, CI), so pickers leave it out. */
+  about?: string;
+  group?: string;
+  start?: "anywhere" | "own-page";
 };
 
 /** v0.9.0: one flow of a project's history (GET /api/projects/{pid}/runs). */

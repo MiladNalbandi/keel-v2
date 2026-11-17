@@ -43,6 +43,10 @@ class TaskController(private val tasks: TaskService, private val automations: Ta
     @PostMapping("/tasks/{id}/start")
     fun start(@PathVariable id: String, @RequestBody(required = false) body: StartTask?): TaskView = tasks.start(id, body ?: StartTask())
 
+    /** 0.34 Hand to Org: the task goes to an org (the Org plugin) as a mission; its status follows the mission. */
+    @PostMapping("/tasks/{id}/org")
+    fun handToOrg(@PathVariable id: String, @RequestBody body: HandToOrg): TaskView = tasks.handToOrg(id, body)
+
     @PostMapping("/tasks/{id}/confirm")
     fun confirm(@PathVariable id: String, @RequestBody body: ConfirmTask): TaskView = tasks.confirm(id, body)
 

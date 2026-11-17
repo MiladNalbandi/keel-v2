@@ -243,13 +243,21 @@ class Workflow(BaseModel):
     # The plugins it needs (plugin names): keel refuses to start it while one of them is not loaded, and the api asks a
     # person to install it (docs/plugins/13-step4-contract.md §8).
     needs_plugins: list[str] | None = None
+    # 0.34 how pickers (the task card, Start flow) show it: one line on when to use it, its group (build, fix, check,
+    # plan, ship, product, support; a group keel does not know shows under "Your flows"), and where it starts: anywhere,
+    # or own-page (only its own page starts it: the Org's runner, Goals, Desk, Answers, CI), which pickers leave out
+    about: str | None = None
+    group: str | None = None
+    start: Literal["anywhere", "own-page"] | None = None
 
     @model_serializer(mode="wrap")
     def _without_empty_needs(self, handler):
-        """needs_plugins only when a workflow has it: every other workflow's JSON stays as it was."""
+        """needs_plugins, about, group and start only when a workflow has them: every other workflow's JSON stays as it was."""
         data = handler(self)
-        if isinstance(data, dict) and not data.get("needs_plugins"):
-            data.pop("needs_plugins", None)
+        if isinstance(data, dict):
+            for k in ("needs_plugins", "about", "group", "start"):
+                if not data.get(k):
+                    data.pop(k, None)
         return data
 
     @model_validator(mode="before")
@@ -313,6 +321,9 @@ def slug(text: str) -> str:
 
 def to_dict(wf: Workflow) -> dict:
     data = {"id": wf.id, "name": wf.name}
+    for k in ("about", "group", "start"):         # 0.34 how pickers show it
+        if getattr(wf, k):
+            data[k] = getattr(wf, k)
     if wf.based_on:
         data["based_on"] = wf.based_on
     data["keel_rules"] = wf.keel_rules

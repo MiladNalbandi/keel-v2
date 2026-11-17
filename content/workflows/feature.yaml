@@ -2,6 +2,8 @@ id: feature
 name: feature (keel)
 keel_rules: true
 version: 2
+about: "a new feature: spec, contract, criteria, reviews, ship"
+group: build
 # The spec flow, ported from keel v1 skills/feature. Preflight and the flow's own branch; 0.18.21 web research when the
 # feature depends on outside docs (web_check: an explorer answers WEB: yes | no; web_docs: the web-researcher, only on
 # yes; the spec cites what it confirmed and turns the rest into open questions); the interview (0.18.21: one question

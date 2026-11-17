@@ -377,4 +377,41 @@ class JiraTasksApiTest : ApiTest() {
         assertThat(jira["scope"].asText()).isEqualTo("project")
         assertThat(jira["fields"].map { it["key"].asText() }).contains("kind", "base_url", "email", "token", "project_key")
     }
+
+    @Test
+    fun `0_34 a Jira task handed to the Org gets a Jira sub-task for each part, and a Jira error does not stop the parts`() {
+        cloud.reset()
+        cloud.add("ABC-7", "Carrier size rules", "To Do", "Story", "Store a carrier's limits.")
+        val (pid, _) = newProject("tasks-org-jira")
+        connect(pid, cloud, mapOf("project_key" to "ABC"))
+        post("/api/projects/$pid/tasks/sync").andExpect(status().isOk)
+        val id = get("/api/projects/$pid/tasks").json()["tasks"].single()["id"].asText()
+        val mid = post("/api/tasks/$id/org", mapOf("org" to "small-team")).andExpect(status().isOk).json()["mission"]["id"].asText()
+        assertThat(engine.lastBody("/org/orgs/small-team/missions")!!["source"].asText()).isEqualTo("ABC-7")
+
+        fun delegated(vararg kids: Pair<String, String>) = mapOf("type" to "org.mission.delegated", "thread_id" to "", "project_id" to pid,
+            "at" to "2026-10-06T10:00:00Z", "data" to mapOf("mission_id" to mid, "parent_id" to null, "org" to "small-team",
+                "status" to "delegated", "task_id" to id, "root_task_id" to id,
+                "children" to kids.map { (m, title) -> mapOf("mission_id" to m, "role" to "fe", "title" to title, "request" to "Do $title") }))
+
+        send(delegated("m_a" to "The API"))
+        val part = task(task(id)["parts"].single()["id"].asText())
+        assertThat(part["external_key"].asText()).startsWith("ABC-")
+        assertThat(part["source"].asText()).isEqualTo("jira")
+        val made = cloud.calls("POST", "/rest/api/2/issue").last().body!!["fields"]
+        assertThat(made["parent"]["key"].asText()).isEqualTo("ABC-7")
+        assertThat(made["issuetype"]["name"].asText()).isEqualTo("Sub-task")
+        assertThat(made["summary"].asText()).isEqualTo("The API (fe)")
+        assertThat(notes(task(id))).anyMatch { it.startsWith("Jira: made the sub-task ABC-") }
+
+        // Jira has no sub-task type: the part is still made, both histories say why
+        cloud.missingTypes += "Sub-task"
+        send(delegated("m_a" to "The API", "m_b" to "The table"))
+        val parts = task(id)["parts"]
+        assertThat(parts.size()).isEqualTo(2)
+        val second = task(parts[1]["id"].asText())
+        assertThat(second["external_key"].isNull).isTrue()
+        assertThat(notes(second).last()).contains("Jira: no sub-task under ABC-7").contains("no sub-task issue type")
+        assertThat(notes(task(id))).anyMatch { it.startsWith("Jira: no sub-task for the part \"The table\"") }
+    }
 }

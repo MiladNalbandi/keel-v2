@@ -4,6 +4,8 @@ keel_rules: true
 own_branch: false
 version: 1
 about: The first flow of an Org mission. The lead reads the mission and the code, asks you what it must, plans, and gives the work to its team (each member runs its own flow). It only reads.
+group: org
+start: own-page
 budget: { max_tokens: 300000, on_limit: pause }
 # Started by the Org plugin's runner, with the mission as the request and data.org (the mission, its key, the role, the
 # role's autonomy). The plan gate asks only when the role's autonomy is "propose"; "act" goes on by itself.

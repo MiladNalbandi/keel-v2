@@ -9,7 +9,9 @@
     PUT    /org/orgs/{oid} {yaml}             saves it (400 with the problems when it has any)
     DELETE /org/orgs/{oid}                    only when no mission of it is open
     GET    /org/orgs/{oid}/missions           the missions you gave (the top of each tree), newest first
-    POST   /org/orgs/{oid}/missions {role, project_id, title, request, source?, workflow?, cap_tokens?}
+    POST   /org/orgs/{oid}/missions {role?, project_id, title, request, source?, workflow?, cap_tokens?, task_id?}
+                                          (no role: the role a person of the org gives work to; task_id: the Tasks
+                                          plugin's task the mission works on, told back in org.mission.* events)
     GET    /org/missions/{mid}                the mission, its tree, its flows and its history
     POST   /org/missions/{mid}/start | stop | accept {why?}
 """
@@ -41,13 +43,22 @@ class YamlBody(BaseModel):
 
 class AssignBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    role: str
+    role: str = Field(default="", max_length=80)
     project_id: str = Field(min_length=1, max_length=200)
     title: str = Field(min_length=1, max_length=200)
     request: str = Field(default="", max_length=20_000)
     source: str | None = Field(default=None, max_length=200)
     workflow: str | None = Field(default=None, max_length=80)
     cap_tokens: int | None = Field(default=None, ge=1000)
+    task_id: str | None = Field(default=None, max_length=80)
+
+
+def lead_of(org_: config.Org) -> str | None:
+    """The role a mission goes to when none is named: the first agent role a person of the org gives work to (else the
+    first agent role)."""
+    agents = [r for r, x in org_.roles.items() if not x.human]
+    humans = config.humans(org_)
+    return next((r for r in agents if any(config.may(org_, h, r, "delegate") for h in humans)), agents[0] if agents else None)
 
 
 class WhyBody(BaseModel):
@@ -201,22 +212,23 @@ async def assign(oid: str, body: AssignBody, request: Request) -> dict:
         org_ = config.parse(row["yaml"])
     except config.OrgError as exc:
         raise OrgErr(409, "Fix the org before you give it work", "; ".join(exc.problems)) from None
-    role = org_.roles.get(body.role)
+    name = body.role.strip() or lead_of(org_) or ""
+    role = org_.roles.get(name)
     if role is None:
-        raise OrgErr(400, f"The org has no role {body.role}", f"Its roles: {', '.join(org_.roles)}.")
+        raise OrgErr(400, f"The org has no role {name or '(none named)'}", f"Its roles: {', '.join(org_.roles)}.")
     if role.human:
-        raise OrgErr(400, f"{body.role} is a person: give the mission to an agent role", None)
+        raise OrgErr(400, f"{name} is a person: give the mission to an agent role", None)
     humans = config.humans(org_)
-    if humans and not any(config.may(org_, h, body.role, "delegate") for h in humans):
-        raise OrgErr(400, f"You do not give work to {body.role} in this org",
-                     f"Add a link {{ from: {humans[0]}, to: {body.role}, can: [delegate] }}, or give it to a role you lead.")
+    if humans and not any(config.may(org_, h, name, "delegate") for h in humans):
+        raise OrgErr(400, f"You do not give work to {name} in this org",
+                     f"Add a link {{ from: {humans[0]}, to: {name}, can: [delegate] }}, or give it to a role you lead.")
     if body.workflow and body.workflow not in role.workflows:
-        raise OrgErr(400, f"{body.role} may not run {body.workflow}", f"Its workflows: {', '.join(role.workflows)}.")
+        raise OrgErr(400, f"{name} may not run {body.workflow}", f"Its workflows: {', '.join(role.workflows)}.")
     if org_.projects and body.project_id not in org_.projects:
         raise OrgErr(400, f"This org does not work on {body.project_id}", f"Its projects: {', '.join(org_.projects)}.")
-    m = await runner.assign(oid, org_, role=body.role, project_id=body.project_id, title=body.title.strip(),
+    m = await runner.assign(oid, org_, role=name, project_id=body.project_id, title=body.title.strip(),
                             request=body.request.strip(), source=(body.source or "").strip() or None, workflow=body.workflow,
-                            cap_tokens=body.cap_tokens)
+                            cap_tokens=body.cap_tokens, task_id=(body.task_id or "").strip() or None)
     return _public(m)
 
 
