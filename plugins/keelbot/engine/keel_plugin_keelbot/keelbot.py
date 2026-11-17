@@ -70,6 +70,18 @@ ABOUT_AGENT = re.compile(r"\bagents?\b|\bsub-?agents?\b", re.I)
 ABOUT_SKILL = re.compile(r"\bskills?\b|\bskill\.md\b", re.I)
 ABOUT_STACK = re.compile(r"\bstacks?\b|\bhow (this|the) project (builds|tests)\b", re.I)
 
+QUESTIONS = """- A question for the person, when you need their choice before you can go on (keel 0.18.9): one keel-questions block \
+with up to 4 questions, each 2 to 4 options, the recommended one first with "recommended": true, and "multiple": true \
+when several options can be true together. The person picks (or writes their own answer) and the answers come back as \
+your next message. Whenever the person must choose between options, ask with this block: never write the choice as a \
+question in your text ("A or B?"), and do not go on as if they had chosen. Never use it to ask leave to read, search \
+or explain ("Read the handler first?"): that needs no OK, do it:
+```keel-questions
+[{"id": "<short word>", "question": "<the question>", "why": "<what the answer changes>", \
+"options": [{"label": "<option>", "description": "<what it costs>", "recommended": true}, {"label": "<option>"}]}]
+```
+"""
+
 ACTIONS = """Buttons (actions). You never start or save anything yourself: you give the person a button, and nothing \
 happens until they press it. Put each one as its own fenced block at the end of your answer:
 - Start a flow:
@@ -90,17 +102,7 @@ keel-workflow.
 keel-skill block; its front matter may name the agents that should load it, as `agents: [<id>, <id>]`.
 - A new stack (how this project builds and tests: its lane, the files that detect it, test layers, the project's own \
 commands and tools; keel checks it, then Save writes .keel/stacks/<name>.yml): its whole YAML in a keel-stack block.
-- A question for the person, when you need their choice before you can go on (keel 0.18.9): one keel-questions block \
-with up to 4 questions, each 2 to 4 options, the recommended one first with "recommended": true, and "multiple": true \
-when several options can be true together. The person picks (or writes their own answer) and the answers come back as \
-your next message. Whenever the person must choose between options, ask with this block: never write the choice as a \
-question in your text ("A or B?"), and do not go on as if they had chosen. Never use it to ask leave to read, search \
-or explain ("Read the handler first?"): that needs no OK, do it:
-```keel-questions
-[{"id": "<short word>", "question": "<the question>", "why": "<what the answer changes>", \
-"options": [{"label": "<option>", "description": "<what it costs>", "recommended": true}, {"label": "<option>"}]}]
-```
-- Decide a gate, stop flows, or change a flow's run mode (the flow ids are in the flows list above; the person sees \
+"""+QUESTIONS+"""- Decide a gate, stop flows, or change a flow's run mode (the flow ids are in the flows list above; the person sees \
 the button and presses it, so offer it whenever they ask for one of these, never say you cannot):
 ```keel-flow
 {"do": "approve", "flow": "<flow id>"}
@@ -274,10 +276,30 @@ def format_block(plugins: list[str] | None = None) -> str:
     return "\n\n".join(parts)
 
 
+# 0.31 KeelBot's prompt is in every message. The full block (every workflow with its steps, the flows in detail, every
+# button format: about 3.4k tokens) comes only when the question is about keel's work; any other question gets the short
+# one (the ids, the flows that wait, the two buttons a coding answer uses: about 0.3k).
+ABOUT_KEEL = re.compile(
+    r"\b(work ?flows?|flows?|gates?|approve|reject|stop|run ?mode|mode|start|spec|criteri|ship|pull request|prs?|"
+    r"wait(s|ing)?|answer|button|rules?|agents?|skills?|stacks?|keel|build|implement|feature|ticket|plan|review|"
+    r"deploy|release|which .{0,40}fit|how (do|should|can|would) (i|we)|add|make|create|write|new|fix|bug|change|suggest|recommend|options?|choices?|questions)\b", re.I)
+
+ACTIONS_SHORT = """Buttons: you never start anything yourself; end your answer with a fenced block the person presses.
+- Start a flow:
+```keel-start
+{"workflow": "<an id from the list>", "title": "<one short line>", "request": "<what to build or fix>"}
+```
+""" + QUESTIONS + """
+When the person asks about flows, gates, workflows or how to build something, keel gives you the details and the \
+other buttons (approve, answer, stop, a run mode, a new workflow)."""
+
+
 def keel_block(keel: dict | None, question: str) -> str:
     """What KeelBot knows about keel in this project, for its prompt; "" when the api sent nothing."""
     if not keel:
         return ""
+    if not ABOUT_KEEL.search(question or ""):
+        return _short_block(keel)
     parts = []
     wfs = [w for w in keel.get("workflows") or [] if w.get("id")]
     if wfs:
@@ -303,6 +325,22 @@ def keel_block(keel: dict | None, question: str) -> str:
         parts.append(formats.SKILL)
     elif ABOUT_AGENT.search(q) and WRITE_WORDS.search(q):
         parts.append(formats.AGENT)
+    return "\n\n".join(parts)
+
+
+def _short_block(keel: dict) -> str:
+    """The short keel block of a question that is not about keel's work: workflow ids, the flows that wait, two buttons."""
+    parts = []
+    ids = [str(w["id"]) for w in keel.get("workflows") or [] if w.get("id")]
+    if ids:
+        parts.append("keel's workflows here (a flow is one run of one): " + ", ".join(ids) + ".")
+    flows = list(keel.get("flows") or [])[:MAX_FLOWS]
+    busy = [f for f in flows if f.get("status") in ("running", "waiting")]
+    if busy:
+        parts.append("This project's flows that run or wait now:\n" + "\n".join(_flow_line(f) for f in busy))
+    parts.append(ACTIONS_SHORT)
+    on = list(keel.get("plugins") or [])
+    parts += [kb["prompt"] for kb in extensions.keelbot(on) if kb.get("prompt")]     # the parts on (Database ...)
     return "\n\n".join(parts)
 
 
