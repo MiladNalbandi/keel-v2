@@ -77,7 +77,7 @@ def run(provider, req):
 
 
 def kinds(steps):
-    return [k for k, _t, _e in steps if k not in ("delta", "usage")]
+    return [k for k, _t, _e in steps if k not in ("delta", "usage", "context")]
 
 
 # ------------------------------------------------------------------ the loop and its tools
@@ -105,7 +105,7 @@ def test_a_run_reads_searches_edits_and_answers(project):
     first = p.requests[0].messages[0]["content"][0]["text"]
     assert f"Project folder: {project}" in first and first.endswith("Fix it")
     assert "keel's harness" in p.requests[0].system and p.requests[0].system.startswith("You are keel's implementer.")
-    assert {t.name for t in p.requests[0].tools} >= {"Read", "Write", "Edit", "Glob", "Grep", "Bash", "RunTests", "TodoWrite", "Task"}
+    assert {t.name for t in p.requests[0].tools} >= {"Read", "Write", "Edit", "Glob", "Grep", "Bash", "RunTests", "TodoWrite", "LoadTools"}
     saved = transcript.Session.load(sessions[0])
     assert [m["role"] for m in saved.messages] == ["user", "assistant", "user", "assistant", "user", "assistant"]
 

@@ -160,7 +160,11 @@ def test_skills_are_listed_and_loaded_when_needed(project):
         "---\nname: house-style\ndescription: How this project names things.\n---\n# House style\nShort names.\n")
     p = Scripted([turn(call("Skill", 1, skill="house-style"), call("Skill", 2, skill="debugging")), turn(text("ok"))])
     run(p, request(project))
-    desc = next(t for t in p.requests[0].tools if t.name == "Skill").description
+    # 0.31 Skill is a deferred tool: LoadTools names it with the skills; called straight away, it runs and is loaded
+    loader = next(t for t in p.requests[0].tools if t.name == "LoadTools").description
+    assert "- Skill:" in loader and "house-style" in loader and "debugging" in loader
+    assert "Skill" not in [t.name for t in p.requests[0].tools]
+    desc = next(t for t in p.requests[1].tools if t.name == "Skill").description
     assert "- house-style: How this project names things." in desc and "- debugging:" in desc
     own, lib = p.requests[1].messages[-1]["content"]
     assert own["content"].startswith("<skill name=\"house-style\">\n# House style\nShort names.")
