@@ -287,7 +287,7 @@ function GcloudLogin({ gcloud, setGcloud, reload, onAdded }: {
   });
 
   return (
-    <div className="kc-gcloud" style={{ display: "grid", gap: 10, padding: "10px 12px", border: "1px solid var(--line)", borderRadius: 8 }}>
+    <div className="kc-gcloud" style={{ display: "grid", gap: 10, padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 8 }}>
       <span className="sub">
         gcloud {gcloud.version ?? ""}{gcloud.plugin ? " · gke-gcloud-auth-plugin" : ""} ·{" "}
         {gcloud.owned ? "keel's own Google login (kept in keel's data)" : "the gcloud login of this computer"}
