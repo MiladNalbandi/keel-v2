@@ -161,7 +161,10 @@ async def list_models(token: str | None, factory=None, fresh: bool = False) -> l
                 # 0.31 the efforts Copilot says this model takes (low … max): the model picker offers exactly those
                 efforts = [e for e in (_field(m, "supported_reasoning_efforts", "supportedReasoningEfforts", default=None) or [])
                            if e in EFFORTS]
-                out.append({"id": mid, "label": str(_field(m, "name", default=mid) or mid), "efforts": efforts})
+                billing = _field(m, "billing") or {}
+                mult = _field(billing, "multiplier")
+                out.append({"id": mid, "label": str(_field(m, "name", default=mid) or mid), "efforts": efforts,
+                            **({"multiplier": float(mult)} if mult is not None else {})})
     except ProviderError:
         raise
     except Exception:  # noqa: BLE001 - an empty or failing list leaves auto, which always works
@@ -303,6 +306,11 @@ class CopilotProvider:
 
     name = "copilot"
     dynamic_tools = True     # 0.31 a tool keel loads mid-session (LoadTools) is added with the SDK's set_tools
+    # 0.32 Copilot's own tool search (defer="auto") is ready but off: measured 2026-11-17 on Copilot auto, KeelBot "hi"
+    # with 8 plugins on cost 9.5k tokens with it (every tool's schema still went to the model) against 5.6k with keel's
+    # LoadTools, and a whole chat about 30% more. Turn it on (KEEL_COPILOT_TOOL_SEARCH=1) to measure it on another plan.
+    native_deferral = os.environ.get("KEEL_COPILOT_TOOL_SEARCH") == "1"
+    min_cache_tokens = 0     # Copilot does not publish one
 
     def __init__(self, model: str, token: str | None, factory=None):
         self.model = model or DEFAULT_MODEL
@@ -327,7 +335,8 @@ class CopilotProvider:
             # none of Copilot's own tools: only keel's, so keel's rules check every call
             # (custom:* = every tool keel itself supplies, also one added later with set_tools; Copilot's built-in
             # tools stay off)
-            "available_tools": ["custom:*"] if req.tools else [],
+            "available_tools": (["custom:*", "builtin:tool_search_tool"] if any(t.deferrable for t in req.tools)
+                                else ["custom:*"]) if req.tools else [],
             "system_message": {"mode": "replace", "content": req.system or "You are a helpful assistant."},
         }
         if approve_all is not None:
@@ -336,6 +345,8 @@ class CopilotProvider:
             opts["working_directory"] = root
         if req.effort in EFFORTS:
             opts["reasoning_effort"] = req.effort
+        if any(t.deferrable for t in req.tools):
+            opts["tool_search"] = {"enabled": True, "defer_threshold": 0}    # defer every defer="auto" tool
         try:
             try:
                 conv.session = await client.create_session(**opts)
@@ -401,9 +412,17 @@ class CopilotProvider:
             # Copilot's input_tokens already holds the cached part; keel's Usage counts input without it (as Anthropic's
             # API does), else the cached tokens were counted twice
             read, write = int(_field(data, "cache_read_tokens") or 0), int(_field(data, "cache_write_tokens") or 0)
+            # 0.32 what the call cost: copilot_usage.total_nano_aiu (nano AI units; 1 AI credit = $0.01). The SDK docs
+            # ask to confirm the 1e9 division, so the panel shows it as "about"
+            nano = _field(_field(data, "copilot_usage") or {}, "total_nano_aiu", "totalNanoAiu") or 0
             conv.usage.add(Usage(input=max(int(_field(data, "input_tokens") or 0) - read - write, 0),
-                                 output=int(_field(data, "output_tokens") or 0), cache_read=read, cache_write=write))
+                                 output=int(_field(data, "output_tokens") or 0), cache_read=read, cache_write=write,
+                                 ai_credits=float(nano) / 1e9 if nano else 0.0))
             conv.model = str(_field(data, "model") or conv.model or "")
+        elif kind == "SessionCompactionCompleteData":
+            # 0.32 Copilot compacted the conversation (an extra model call, no turn events): its tokens are billed too
+            used = _field(data, "compaction_tokens_used") or {}
+            conv.usage.add(Usage(compaction=int(_field(used, "input_tokens") or 0) + int(_field(used, "output_tokens") or 0)))
         elif kind == "SessionErrorData":
             conv.error = str(_field(data, "message") or "Copilot stopped with an error.")
             conv.idle.set()
@@ -428,7 +447,8 @@ class CopilotProvider:
             return handler
 
         return [Tool(name=t.name, description=t.description, parameters=t.schema, handler=handler_for(t.name),
-                     overrides_built_in_tool=True, skip_permission=True) for t in specs]
+                     overrides_built_in_tool=True, skip_permission=True, defer="auto" if t.deferrable else "never")
+                for t in specs]
 
     async def _grow_tools(self, conv: _Conv, specs) -> bool:
         """The live session gets the tools keel loaded since it opened (only ever more: the list grows at its end)."""

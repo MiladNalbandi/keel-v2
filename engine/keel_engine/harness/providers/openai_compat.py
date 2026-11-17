@@ -91,6 +91,8 @@ class OpenAICompatProvider:
         self._key = api_key
         self._base = base_url
         self._client = client
+        # 0.32 OpenAI's own API caches a prefix from 1,024 tokens; a local server or another gateway: keel cannot tell
+        self.min_cache_tokens = 1024 if base_url is None and who == "OpenAI" else 0
         if client is None and not api_key:
             raise ProviderError(f"No key for {who}.", hint="Add it in Settings › Models & keys.")
 
@@ -110,6 +112,9 @@ class OpenAICompatProvider:
                                                             "parameters": t.schema}} for t in req.tools]
         if req.effort and self.reasoning:
             p["reasoning_effort"] = req.effort
+        if self._base is None and self.who == "OpenAI" and req.extra.get("cache_key"):
+            # 0.32 one cache key per keel session: OpenAI routes its requests to the same cache (prompt caching guide)
+            p["prompt_cache_key"] = str(req.extra["cache_key"])[:64]
         return p
 
     async def turn(self, req: Request, emit: Emit) -> Turn:
@@ -126,9 +131,12 @@ class OpenAICompatProvider:
             async for chunk in stream:
                 if getattr(chunk, "usage", None):
                     u = chunk.usage
-                    cached = int(getattr(getattr(u, "prompt_tokens_details", None), "cached_tokens", 0) or 0)
-                    usage = Usage(input=max(int(u.prompt_tokens or 0) - cached, 0), cache_read=cached,
-                                  output=int(u.completion_tokens or 0))
+                    details = getattr(u, "prompt_tokens_details", None)
+                    cached = int(getattr(details, "cached_tokens", 0) or 0)
+                    # GPT-5.6 and later also say what they wrote to the cache (billed 1.25x)
+                    wrote = int(getattr(u, "cache_write_tokens", 0) or getattr(details, "cache_write_tokens", 0) or 0)
+                    usage = Usage(input=max(int(u.prompt_tokens or 0) - cached - wrote, 0), cache_read=cached,
+                                  cache_write=wrote, output=int(u.completion_tokens or 0))
                 for choice in chunk.choices or []:
                     d = choice.delta
                     if d is not None:

@@ -65,7 +65,7 @@ class Shells:
     # -------------------------------------------------- the foreground
 
     def run(self, command: str, timeout: int) -> str:
-        out = self.box.run_command(command, timeout, run_as=wrap(command, self.cwd))
+        out = self.box.run_command(command, timeout, run_as=wrap(command, self.cwd), keep=0)
         if out.startswith("REFUSED"):
             return out
         body, pwd = split_pwd(out)

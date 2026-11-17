@@ -21,10 +21,13 @@ They run with a scripted model, no key and no network. Flow tests that need a mo
 | Turn limit | done | the agent file's `maxTurns`, at most 150 (`KEEL_HARNESS_MAX_TURNS`) |
 | Stops a loop of the same call | done | a note after 3 repeats, a stop after 6 |
 | Refusal and max-tokens stops | done | reported to the flow in plain words |
-| Usage and cost while it runs | done | `agent.usage` after every turn; the token cap warns while the step runs |
-| Prompt caching | done | Anthropic: cached system + automatic tail; OpenAI-compatible: stable prefix; GitHub Copilot: one live session per chat, so the next message goes on where Copilot is (0.31) |
-| Tools loaded on demand | done (0.31) | the model gets a small base set (Read, Write, Edit, Glob, Grep, Bash, RunTests, TodoWrite) and `LoadTools`; Task, Skill, WebFetch, NotebookEdit, background shells and every MCP/plugin tool load when needed, stay loaded for the session and join the end of the list (GitHub Copilot: added to its live session) |
+| Usage and cost while it runs | done | `agent.usage` after every turn; the token cap warns while the step runs. 0.32: cache writes and a provider's compaction tokens are counted and priced; GitHub Copilot's own AI credits (from `copilot_usage.total_nano_aiu`, shown as "about") |
+| Cache health | done (0.32) | each turn's `context:` line says new / written to the cache / read from it, a **cache break** (the cached part fell to under a tenth of the last call's), when the fixed start is below the model's cache minimum (Anthropic 512–4,096 by model, OpenAI 1,024), and a compaction's tokens |
+| Prompt caching | done | Anthropic: cached system + automatic tail, 1-hour TTL for KeelBot chats (0.32), 5 minutes for flow steps; OpenAI: stable prefix and one `prompt_cache_key` per keel session (0.32); GitHub Copilot: one live session per chat, so the next message goes on where Copilot is (0.31) |
+| Tools loaded on demand | done (0.31, cache-safe 0.32) | Task, Skill, WebFetch, NotebookEdit, background shells and every MCP/plugin tool load when needed. 0.32: Anthropic (4.5 and later, also on Vertex) and GitHub Copilot get every tool from the first request, the deferrable ones marked (`defer_loading` + Anthropic's BM25 tool search; Copilot `defer="auto"` + its own tool search), so the tool list never changes and the cache stays valid; an endpoint that refuses tool search gets every tool plainly. OpenAI-compatible providers keep the small base set (Read, Write, Edit, Glob, Grep, Bash, RunTests, TodoWrite) plus `LoadTools`, loaded tools joining the end of the list |
 | What each turn sends | done (0.31) | a `context:` step per model call: system, tools, chat, new text and the provider's new / cached tokens |
+| One output policy for every tool | done (0.32) | a result longer than its cap (about 10k tokens; a command, a page or a plugin tool 30k characters) keeps its start and its end, and the whole output is saved to a file the model reads with Read (offset / limit) or Grep; kept 7 days. A Read is cut instead (the file is there to read in parts) |
+| Old tool results cleared | done (0.32) | as Anthropic's context editing and OpenCode's prune, for every provider: the newest 40k tokens of tool results (a KeelBot chat: 12k) and the last 3 stay; older ones become a one-line stub ("Read src/x.py (240 lines): run it again if you need it"), only in batches of at least 20k (chat: 6k) so the cached start changes seldom; kept in the session |
 | Effort / thinking | done | Anthropic adaptive thinking + `output_config.effort`; OpenAI `reasoning_effort` |
 | Fallback model on a refusal | done | Anthropic server-side fallback on the newest models |
 | A step that fails does not end the flow | done (part 3) | the flow doctor (`flowdoctor/`): a busy, limited or unreachable provider is waited out, a conversation too long runs again in a new session, a stale git lock is removed; else the flow waits with what happened and what to do |
@@ -44,7 +47,7 @@ They run with a scripted model, no key and no network. Flow tests that need a mo
 | Bash | done | keel's command rules first; the folder stays between calls (inside the project) |
 | Bash in the background, BashOutput, KillShell | done | every background shell stops when the agent call ends |
 | TodoWrite | done | kept in the session; open items are recalled every 10 turns |
-| Task (helpers) with agent types | done | keel's agents as types; a helper writes only when its agent and the step may |
+| Task (helpers) with agent types | done | keel's agents as types; a helper writes only when its agent and the step may. A helper has its own conversation (none of the parent's) and answers in about 2k tokens (0.32: longer is cut, saved whole) |
 | Skill | done | keel's skills + the project's `.claude/skills` and `.keel/skills`, loaded on demand |
 | WebSearch | done | Anthropic's server tool; not on the OpenAI-compatible providers |
 | WebFetch | partial | public pages only (no private network); the `prompt` is not yet run over the page by a small model |
@@ -63,7 +66,7 @@ They run with a scripted model, no key and no network. Flow tests that need a mo
 | Git state at the start | done | branch, changed files, last 5 commits |
 | Environment (folder, date, platform) | done | |
 | Note when a file changed since the agent read it | done | changes by the agent's own Write/Edit do not count |
-| Compaction of a long conversation | done | Claude: on the server; other models: keel summarizes at 75% of the window. KeelBot chats (0.31): from 40k tokens, keeping the last 6 questions whole |
+| Compaction of a long conversation | done | one owner: Claude on the server, other models keel's own summary at 85% of the window (0.32; peers 80–95%). KeelBot chats: from 40k tokens, keeping about the last 16k tokens whole (from a question on). The summary uses a structured template (goal, instructions, discoveries, files, decisions, done, next), is asked with the conversation's own system and tools (it reads the cached start), and keel adds what it knows itself: the task list, the files changed, the files read last and the project's notes |
 | Memory the person adds (`#` in Claude Code) | keel's way | keel's knowledge and agent memory |
 | Output styles | not here | keel's agents have their own role text |
 

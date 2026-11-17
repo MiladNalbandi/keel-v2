@@ -7,6 +7,7 @@ retry, a send-back, KeelBot's next message) continues where the agent was.
         {"t": "summary", "text", "at"}          a compaction keel made itself (OpenAI-compatible models): later loads
                                                 start from it
         {"t": "todos", "items": [...]}          the agent's task list (harness/tools.py todo_write)
+        {"t": "cleared", "stubs": {id: text}}   0.32 old tool results replaced by a stub (harness/runner.py)
 
 Append-only, so a crash never loses an earlier turn, and an assistant turn always goes back to its model exactly as it
 came (the newest Claude models refuse an edited history). A line that cannot be read (the last one, after a crash in
@@ -99,6 +100,8 @@ class Session:
                 s.todos = list(e.get("items") or [])
             elif t == "tools":
                 s.tools = [str(x) for x in e.get("names") or []]
+            elif t == "cleared":
+                s._apply_cleared(e.get("stubs") or {})
         s.close_open_calls()
         return s
 
@@ -137,6 +140,19 @@ class Session:
         self.messages = []
         for m in keep:
             self.add(m["role"], m["content"], **{k: v for k, v in m.items() if k not in ("role", "content")})
+
+    def clear_results(self, stubs: dict[str, str]) -> None:
+        """0.32 old tool results replaced by a one-line stub (harness/runner.py clear_old_results), in memory and on disk."""
+        if stubs:
+            self._apply_cleared(stubs)
+            self._write({"t": "cleared", "stubs": stubs})
+
+    def _apply_cleared(self, stubs: dict[str, str]) -> None:
+        for m in self.messages:
+            if m["role"] != "user":
+                continue
+            m["content"] = [{**b, "content": stubs[b["id"]]} if b.get("type") == "tool_result" and b.get("id") in stubs
+                            else b for b in m.get("content") or []]
 
     def set_tools(self, names: list[str]) -> None:
         """The deferred tools loaded so far: a continued session (KeelBot's next message, a send-back) has them at once."""
