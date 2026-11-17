@@ -2,7 +2,8 @@
 // the right; under it the settings menu (a column on the left on a wide screen, a row of chips on a phone) and the tab.
 // The menu is keel's own tabs plus the parts' (slot settings.tab: the Database plugin's Databases), by their order.
 
-import { useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useContext, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useNarrow } from "../../components/page";
 import { usePageKeys } from "../../components/rdBuild";
 import { CORE_SETTINGS_TABS, settingsHash } from "../../routes";
@@ -105,8 +106,53 @@ function SettingsMenu({ tab, phone }: { tab: string; phone: boolean }) {
   );
 }
 
+// 0.35 the Settings page keeps one frame (its head and menu) while the tab changes: only the tab's panel is drawn again,
+// not the whole page. SettingsShell owns the frame; a tab's SettingsFrame inside it puts its head into the shell's head
+// (a portal) and its content into the shell's content column.
+const ShellHead = createContext<HTMLDivElement | null | undefined>(undefined);
+
+/** The Settings page's frame that stays while the tab changes: the head's place, the menu and the content column. */
+export function SettingsShell({ tab, children }: { tab: string; children: ReactNode }) {
+  const phone = useNarrow(900);
+  // the head's place exists from the first render (the tab draws into it at once: no second render, no flash)
+  const [head] = useState<HTMLDivElement | null>(() => {
+    if (typeof document === "undefined") return null;
+    const el = document.createElement("div");
+    el.style.display = "contents";
+    return el;
+  });
+  const place = (n: HTMLDivElement | null) => {
+    if (n && head && head.parentNode !== n) n.appendChild(head);
+  };
+  return (
+    <ShellHead.Provider value={head}>
+      <div className="ss-page rdb rdb-settings" data-testid="settings-page">
+        <div className="ss-head" ref={place} />
+        {phone && <SettingsMenu tab={tab} phone />}
+        <div className="ss-body">
+          {!phone && <SettingsMenu tab={tab} phone={false} />}
+          <div className="ss-content">{children}</div>
+        </div>
+      </div>
+    </ShellHead.Provider>
+  );
+}
+
+function HeadParts({ title, line, actions }: { title: string; line: ReactNode; actions?: ReactNode }) {
+  return (
+    <>
+      <div className="ss-head-t">
+        <span className="ss-crumb">Settings ›</span>
+        <h1>{title}</h1>
+        <p>{line}</p>
+      </div>
+      {actions && <div className="ss-head-a">{actions}</div>}
+    </>
+  );
+}
+
 /** One tab: the head (Settings › name, one line, its buttons), the menu, and the tab's content. Overlays (drawers) go in
- *  `after`, outside the content column. */
+ *  `after`, outside the content column. Inside SettingsShell it draws only its head and content. */
 export function SettingsFrame({
   tab,
   title,
@@ -124,16 +170,20 @@ export function SettingsFrame({
 }) {
   // one menu at a time: the chips on a phone (and a narrow window), the column beside the tab on a wide screen
   const phone = useNarrow(900);
+  const shell = useContext(ShellHead);
   usePageKeys();
+  if (shell !== undefined)
+    return (
+      <>
+        {shell && createPortal(<HeadParts title={title} line={line} actions={actions} />, shell)}
+        <div className="ss-tab" data-testid={`settings-${tab}`}>{children}</div>
+        {after}
+      </>
+    );
   return (
     <div className="ss-page rdb rdb-settings" data-testid={`settings-${tab}`}>
       <div className="ss-head">
-        <div className="ss-head-t">
-          <span className="ss-crumb">Settings ›</span>
-          <h1>{title}</h1>
-          <p>{line}</p>
-        </div>
-        {actions && <div className="ss-head-a">{actions}</div>}
+        <HeadParts title={title} line={line} actions={actions} />
       </div>
       {phone && <SettingsMenu tab={tab} phone />}
       <div className="ss-body">
