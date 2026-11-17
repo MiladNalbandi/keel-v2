@@ -143,6 +143,8 @@ class _Client:
 
 
 def test_copilot_registers_every_tool_with_its_own_tool_search_and_counts_credits_and_compaction():
+    # off by default (measured more expensive on Copilot auto): this test turns it on
+    copilot_sdk.CopilotProvider.native_deferral = True
     copilot_sdk._clients.clear()
     copilot_sdk._live.clear()
     _Client.made = []
@@ -151,7 +153,8 @@ def test_copilot_registers_every_tool_with_its_own_tool_search_and_counts_credit
     opts = _Client.made[0].opts
     assert {x.name: x.defer for x in opts["tools"]} == {"Read": "never", "Task": "auto", "mcp__db__query": "auto"}
     assert opts["tool_search"] == {"enabled": True, "defer_threshold": 0}
-    assert opts["available_tools"] == ["custom:*", "builtin:tool_search_tool"] and copilot_sdk.CopilotProvider.native_deferral
+    assert opts["available_tools"] == ["custom:*", "builtin:tool_search_tool"]
+    copilot_sdk.CopilotProvider.native_deferral = False
     assert t.usage.compaction == 3200 and round(t.usage.ai_credits, 3) == 0.12 and t.usage.input == 100
 
 
@@ -178,3 +181,8 @@ def test_keels_summary_request_keeps_the_same_deferred_tools_so_it_reuses_the_ca
     assert any(t.get("defer_loading") for t in b["tools"]) and any(t.get("name", "").startswith("tool_search") for t in b["tools"])
     plain = p.params(Request(system="s", messages=[user("hi"), user("Write a summary")], tools=[]))
     assert "tools" not in plain or not any(t.get("defer_loading") for t in plain.get("tools") or [])
+
+
+def test_copilot_uses_keels_load_tools_by_default():
+    # measured cheaper on Copilot (5.6k against 9.5k tokens for a "hi" with 8 plugins on)
+    assert not copilot_sdk.CopilotProvider.native_deferral and copilot_sdk.CopilotProvider.dynamic_tools

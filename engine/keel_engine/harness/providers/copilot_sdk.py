@@ -306,10 +306,10 @@ class CopilotProvider:
 
     name = "copilot"
     dynamic_tools = True     # 0.31 a tool keel loads mid-session (LoadTools) is added with the SDK's set_tools
-    # 0.32 every tool from the session's start; Task, Skill, WebFetch and plugin tools with defer="auto", found by
-    # Copilot's own tool search: the tool list never changes, so Copilot's cache stays valid (set_tools broke it for
-    # Claude models through Copilot, per the SDK's caching docs)
-    native_deferral = True
+    # 0.32 Copilot's own tool search (defer="auto") is ready but off: measured 2026-11-17 on Copilot auto, KeelBot "hi"
+    # with 8 plugins on cost 9.5k tokens with it (every tool's schema still went to the model) against 5.6k with keel's
+    # LoadTools, and a whole chat about 30% more. Turn it on (KEEL_COPILOT_TOOL_SEARCH=1) to measure it on another plan.
+    native_deferral = os.environ.get("KEEL_COPILOT_TOOL_SEARCH") == "1"
     min_cache_tokens = 0     # Copilot does not publish one
 
     def __init__(self, model: str, token: str | None, factory=None):
