@@ -21,6 +21,7 @@ import json
 import re
 import socket
 import time
+import uuid
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
@@ -29,7 +30,12 @@ from urllib.parse import urlsplit
 
 from .providers.base import ToolSpec
 
-MAX_RESULT = 30_000            # characters of one tool result the model reads
+MAX_RESULT = 30_000            # characters of one tool result the model reads (a command, a page, a plugin tool)
+# 0.32 one output policy for every tool (as Codex, OpenCode and Claude Code do): a result longer than its cap keeps its
+# start and its end, and the whole output goes to a file the model can Read in parts (offset / limit). OUT_MAX is the
+# last line of defence for any tool (about 10k tokens); a smaller cap of a tool (MAX_RESULT, WEB_TEXT) stays.
+OUT_MAX = 40_000
+OUTPUT_DAYS = 7                # saved outputs are removed after this
 READ_LINES = 2000              # a Read without a limit
 LINE_CHARS = 2000              # a longer line is cut
 WEB_MAX = 2_000_000            # bytes WebFetch downloads
@@ -91,12 +97,55 @@ def check_input(tool: Tool, args: Any) -> str | None:
     return None
 
 
-def cap(text: str, n: int = MAX_RESULT) -> str:
+def outputs_folder() -> Path:
+    """Where keel keeps a tool's whole output when the model gets only its start and end."""
+    from .. import config
+
+    p = Path(config.data_dir()) / "harness" / "outputs"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def sweep_outputs(now: float | None = None) -> int:
+    cutoff = (now or time.time()) - OUTPUT_DAYS * 86400
+    n = 0
+    for f in outputs_folder().glob("*.txt"):
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+                n += 1
+        except OSError:
+            continue
+    return n
+
+
+def saved_output(path: str) -> Path | None:
+    """A file keel saved a whole output to (the model reads it with Read), or None for any other path."""
+    try:
+        p = Path(path).resolve()
+        folder = outputs_folder().resolve()
+    except OSError:
+        return None
+    return p if p.parent == folder and p.suffix == ".txt" and p.is_file() else None
+
+
+def cap(text: str, n: int = MAX_RESULT, *, save: bool = True) -> str:
+    """At most n characters: the start and the end, and (save) the whole text in a file whose path the model gets."""
     text = str(text or "")
     if len(text) <= n:
         return text
     head = n * 2 // 3
-    return text[:head] + f"\n… ({len(text) - n} characters left out) …\n" + text[-(n - head):]
+    where = ""
+    if save:
+        try:
+            f = outputs_folder() / f"{uuid.uuid4().hex}.txt"
+            f.write_text(text, encoding="utf-8")
+            lines = text.count("\n") + 1
+            where = (f" The whole output ({lines} lines) is in {f}: Read it with offset and limit, or Grep it, when you "
+                     "need the part left out.")
+        except OSError:
+            where = ""
+    return text[:head] + f"\n… ({len(text) - n} characters left out.{where}) …\n" + text[-(n - head):]
 
 
 def numbered(text: str, start: int) -> str:
@@ -346,6 +395,16 @@ class ToolSet:
 
         async def read(a: dict):
             path = a["file_path"]
+            spilled = saved_output(path)
+            if spilled is not None:
+                # 0.32 the whole output of an earlier tool call (cap saved it): read in parts, numbered like a file
+                lines = spilled.read_text(encoding="utf-8", errors="replace").splitlines()
+                start = max(int(a.get("offset") or 1), 1)
+                n = int(a.get("limit") or READ_LINES)
+                part = [ln[:LINE_CHARS] for ln in lines[start - 1:start - 1 + n]]
+                more = f"\n… {len(lines) - (start - 1 + len(part))} more lines (offset {start + len(part)})" \
+                    if start - 1 + len(part) < len(lines) else ""
+                return numbered("\n".join(part), start) + more
             r = self._rel(path)
             ext = Path(path).suffix.lower()
             if r and ext in IMAGES:
@@ -451,7 +510,7 @@ class ToolSet:
             return await asyncio.to_thread(self.shells.kill, a["shell_id"])
 
         async def tests(a: dict) -> str:
-            return cap(await asyncio.to_thread(box.run_tests, a.get("ac")))
+            return cap(await asyncio.to_thread(box.run_tests, a.get("ac"), 0))
 
         self._add(Tool("Read", "Read a file of the project (or, read only, of another project registered in keel: its "
                        "absolute path). Lines come numbered (cat -n); the numbers are not part of the file. Without a limit "
@@ -655,6 +714,12 @@ async def run_calls(tools: dict[str, Tool], calls: list[dict], on_done: Callable
                     err = out.startswith(("ERROR", "REFUSED"))
                 except Exception as exc:  # noqa: BLE001 - the model reads what went wrong
                     out, err = f"ERROR: {call['name']} failed: {type(exc).__name__}: {str(exc)[:500]}", True
+        if len(out) > OUT_MAX:
+            # 0.32 the output policy's last line: any tool. A Read is cut (the file is there to read in parts), any
+            # other output is saved whole and the model gets its start, its end and the file's path
+            out = cap(out, OUT_MAX, save=call["name"] != "Read")
+            if call["name"] == "Read":
+                out += "\n(keel cut this Read: give offset and limit to read the rest in parts.)"
         ms = int((time.monotonic() - t0) * 1000)
         on_done(call, out, ms)
         res = {"type": "tool_result", "id": call["id"], "content": out, "is_error": err}

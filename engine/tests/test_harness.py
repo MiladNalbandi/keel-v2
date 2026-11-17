@@ -277,7 +277,10 @@ def test_a_long_conversation_is_summarized_and_goes_on_from_the_summary(project,
     p = Scripted(script)
     res, steps = run(p, request(project))
     summary_req = next(r for r in p.requests if r.messages[-1]["content"][0].get("text", "").startswith("Write a summary"))
-    assert summary_req.tools == []
+    # 0.32 the summary call has the conversation's own tools and system, so it reads the cached start of the request
+    before = p.requests[p.requests.index(summary_req) - 1]
+    assert [t.name for t in summary_req.tools] == [t.name for t in before.tools] and summary_req.system == before.system
+    assert "## Goal" in summary_req.messages[-1]["content"][0]["text"]
     after = p.requests[-1].messages
     assert after[0]["content"][0]["text"].startswith("Summary of the work so far") and "SUMMARY: looked at six patterns." in \
         after[0]["content"][0]["text"]

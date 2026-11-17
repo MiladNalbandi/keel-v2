@@ -171,6 +171,10 @@ def _grep(base: Path, pattern: str, glob: str | None, type_: str | None, mode: s
     return out, len(left)
 
 
+# 0.32 the most of a command's output keel keeps in memory for its harness (which saves it to a file and shows the start
+# and the end: harness/tools.py cap)
+BIG_OUTPUT = 2_000_000
+
 class ToolBox:
     flow = ""                       # 0.18.64 the flow this run belongs to, in words: a refused commit names it
 
@@ -346,27 +350,28 @@ class ToolBox:
                 return self._refuse("run_command", "", why, command=command)
         return None
 
-    def run_command(self, command: str, timeout: int = 300, run_as: str | None = None) -> str:
+    def run_command(self, command: str, timeout: int = 300, run_as: str | None = None, keep: int = 8000) -> str:
         """Run a shell command keel's rules allow. `run_as`: what actually runs when it differs from what was judged
-        (#101 the harness's Bash wraps the command to keep its working folder between calls)."""
+        (#101 the harness's Bash wraps the command to keep its working folder between calls). `keep`: the characters of
+        the output kept (its end); 0.32 keel's harness keeps all of it and applies its own output policy."""
         refused = self.check_command(command)
         if refused:
             return refused
-        code, out = testcmd.run(self.root, run_as or command, timeout=timeout, env=command_env())
+        code, out = testcmd.run(self.root, run_as or command, timeout=timeout, env=command_env(), keep=keep or BIG_OUTPUT)
         if code != 0:
             self.failed_command = failed(command, out, code)
             repeats.remember(self.no_repeat, self.root, command, out)
-        return f"exit {code}\n{out[-8000:]}"
+        return f"exit {code}\n{out[-keep:] if keep else out}"
 
-    def run_tests(self, ac: str | None = None) -> str:
+    def run_tests(self, ac: str | None = None, keep: int = 8000) -> str:
         if ac and not testcmd.valid_ac(ac):
             # 0.18.64 (security audit F14) the id goes into a shell command: only keel's ids (AC-6, CHG-1.2)
             return self._refuse("run_tests", "", f"{ac[:60]!r} is not a criterion id (AC-6, CHG-1.2).")
         cmd = testcmd.command_for(self.root, ac or self.ac, self.ac_layer)
         if not cmd:
             return "ERROR: no test command found. Add commands to .keel/config.yml."
-        code, out = testcmd.run(self.root, cmd, env=command_env())
-        return f"$ {cmd}\nexit {code}\n{out[-8000:]}"
+        code, out = testcmd.run(self.root, cmd, env=command_env(), keep=keep or BIG_OUTPUT)
+        return f"$ {cmd}\nexit {code}\n{out[-keep:] if keep else out}"
 
     # ------------------------------------------------------------------ keel's harness (issue #101): Edit, Glob, Grep
 

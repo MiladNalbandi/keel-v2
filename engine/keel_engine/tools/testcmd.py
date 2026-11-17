@@ -460,7 +460,8 @@ def run_split(root: str, command: str, timeout: int = 120, env: dict | None = No
     return proc.returncode, stdout or "", (stderr or "")[-20000:]
 
 
-def run(root: str, command: str, timeout: int = 600, env: dict | None = None, as_agent: bool = True) -> tuple[int, str]:
+def run(root: str, command: str, timeout: int = 600, env: dict | None = None, as_agent: bool = True,
+        keep: int = 20000) -> tuple[int, str]:
     """Run a shell command in the repo. Returns (exit code, combined output trimmed to the tail).
 
     The shell runs in its own process group: on a timeout the whole group is killed (gradle and the JVM it started
@@ -470,7 +471,7 @@ def run(root: str, command: str, timeout: int = 600, env: dict | None = None, as
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
         _done(root, as_agent)
-        return proc.returncode, ((stdout or "") + (stderr or ""))[-20000:]
+        return proc.returncode, ((stdout or "") + (stderr or ""))[-keep:]
     except subprocess.TimeoutExpired:
         _kill(proc)
         try:

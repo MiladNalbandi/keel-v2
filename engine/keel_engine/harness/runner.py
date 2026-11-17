@@ -36,21 +36,31 @@ from ..models.base import AgentRequest, AgentResult, Emit, ModelError
 from . import context, providers, steps, transcript
 from . import skills as skills_mod
 from .providers.base import MAX_TOKENS, PAUSE, REFUSAL, ProviderError, Request, Turn, Usage
-from .tools import ToolSet, run_calls
+from .tools import ToolSet, cap, run_calls, sweep_outputs
 
 MAX_TURNS = int(os.environ.get("KEEL_HARNESS_MAX_TURNS") or 150)
 SUB_TURNS = 40                  # a Task helper
 RETRIES = 6                     # tries of one turn on a passing error
 CONTINUES = 3                   # a reply cut off by the length limit, continued
 REPEAT_NOTE, REPEAT_STOP = 3, 6
-COMPACT_AT = 0.75               # keel's own compaction: this share of the model's window
-KEEP_RECENT = 8                 # messages kept whole after a compaction
+COMPACT_AT = 0.85               # keel's own compaction: this share of the model's window (0.32; peers use 0.80–0.95)
+KEEP_RECENT = 8                 # messages kept whole after a compaction (a flow step)
+# 0.32 old tool results are cleared before anything is compacted (Anthropic's context editing, OpenCode's prune): the
+# newest CLEAR_KEEP tokens of tool results stay whole, older ones become a one-line stub, and only in batches of at least
+# CLEAR_MIN tokens, so the start of the request (the cache) changes seldom. The last CLEAR_KEEP_USES results always stay.
+CLEAR_KEEP = int(os.environ.get("KEEL_CLEAR_KEEP") or 40_000)
+CLEAR_MIN = int(os.environ.get("KEEL_CLEAR_MIN") or 20_000)
+CHAT_CLEAR_KEEP, CHAT_CLEAR_MIN = 12_000, 6_000
+CLEAR_KEEP_USES = 3
+CHAT_TAIL = 16_000              # a chat's compaction keeps about this many recent tokens whole (from a question on)
+RECENT_FILES = 5                # files the model read last, named again after a compaction
+SUB_ANSWER = 8_000              # characters of a Task helper's answer (about 2k tokens); the rest goes to a file
 # 0.31 KeelBot's chats compact much earlier: a chat sends its whole history again with every message, so a long one
 # costs on every "hi". Older turns become a summary; the last CHAT_KEEP_TURNS questions and their answers stay whole.
 CHAT_AGENTS = frozenset({"helper"})
 CHAT_COMPACT_AT = int(os.environ.get("KEEL_CHAT_COMPACT_AT") or 40_000)
 CHAT_SERVER_COMPACT_AT = 50_000    # Anthropic's server-side compaction does not trigger lower
-CHAT_KEEP_TURNS = 6
+CHAT_KEEP_TURNS = 1             # at least the last question stays whole
 TODO_EVERY = 10                 # turns without TodoWrite before keel shows the open tasks again
 
 GUIDE = """\
@@ -73,7 +83,8 @@ Never try to get around a refusal.
 SUB_SYSTEM = """\
 You are a helper agent of keel. You read and search a software project to answer one question; you change nothing \
 (writes and commands that change files are refused). Answer with what you found: file paths with line numbers, the \
-facts that decide the question, and what you could not find. Be complete and short.
+facts that decide the question, and what you could not find. Be complete and short: at most about 40 lines (your \
+answer goes into another agent's context).
 """
 
 
@@ -162,40 +173,48 @@ class HarnessRunner:
 
     # ------------------------------------------------------------------ keel's own compaction
 
+    def _clear_old_results(self, session: transcript.Session, emit: Emit) -> None:
+        """Old tool results become a one-line stub (see CLEAR_KEEP): the model can run the tool again when it needs one."""
+        keep_tokens, minimum = (CHAT_CLEAR_KEEP, CHAT_CLEAR_MIN) if self._chat else (CLEAR_KEEP, CLEAR_MIN)
+        cleared = clear_old_results(session.messages, keep_tokens, minimum)
+        if cleared:
+            session.clear_results(cleared)
+            emit("text", f"keel cleared {len(cleared)} old tool result(s) to keep the context small (the model can run "
+                         "those tools again).")
+
     async def _compact(self, provider, session: transcript.Session, system: str, window: int, emit: Emit,
-                       used: Usage, model: dict, key: str | None, server_side: bool) -> None:
-        """When the conversation passes COMPACT_AT of the window: the model summarizes it, and the session starts again
-        from that summary and the last messages. Current Claude models compact on the server instead (providers/anthropic)."""
+                       used: Usage, model: dict, key: str | None, server_side: bool, tools: ToolSet | None = None) -> None:
+        """When the conversation passes COMPACT_AT of the window (a chat: CHAT_COMPACT_AT): the model summarizes it, and
+        the session starts again from that summary and the recent messages. One owner: when Anthropic compacts on the
+        server (current Claude models), keel does not."""
         chat = self._chat
-        # a chat (KeelBot) has its own minimum below (more than CHAT_KEEP_TURNS questions); a step needs more than it keeps
         if server_side or (not chat and len(session.messages) <= KEEP_RECENT + 2) or len(session.messages) < 3:
             return
         if _tokens(session.view(), system) < (min(CHAT_COMPACT_AT, window * COMPACT_AT) if chat else window * COMPACT_AT):
             return
-        cut = len(session.messages) - KEEP_RECENT
-        if chat:
-            # a chat keeps its last CHAT_KEEP_TURNS questions whole (each a user message with text), with their answers
-            asks = [i for i, m in enumerate(session.messages)
-                    if m["role"] == "user" and any(b.get("type") == "text" for b in m["content"])]
-            if len(asks) <= CHAT_KEEP_TURNS:
-                return
-            cut = asks[-CHAT_KEEP_TURNS]
+        cut = chat_cut(session.messages, CHAT_TAIL) if chat else len(session.messages) - KEEP_RECENT
+        if cut <= 0:
+            return
         # keep from a message the model can start from: a user message with text (not only tool results)
         while cut < len(session.messages) and not (session.messages[cut]["role"] == "user" and
                                                   any(b["type"] == "text" for b in session.messages[cut]["content"])):
             cut += 1
         if cut >= len(session.messages):
             cut = len(session.messages)
-        ask = {"role": "user", "content": [{"type": "text", "text": (
-            "Write a summary of this session so far for yourself, so you can go on from it alone: the task, what you "
-            "found, the decisions, every file you changed and how, what you checked and how it went, and what is left. "
-            "Keep paths, names and numbers exact. Do not call tools.")}]}
-        summary_turn = await self._turn(provider, Request(system=system, messages=session.view() + [ask], tools=[]),
+        ask = {"role": "user", "content": [{"type": "text", "text": SUMMARY_ASK}]}
+        # 0.32 the same system and tools as the conversation, the ask appended: the summary call reads the cached start
+        specs = tools.specs() if tools is not None else []
+        summary_turn = await self._turn(provider, Request(system=system, messages=session.view() + [ask], tools=specs),
                                         lambda *a, **k: None, used, model, key)
         used.add(summary_turn.usage)
         text = summary_turn.text()
-        if session.todos:
-            text += "\n\n" + steps.todo_text(session.todos)
+        if not text.strip():
+            # it called a tool instead of writing: ask again without tools (no cache, but a summary)
+            summary_turn = await self._turn(provider, Request(system=system, messages=session.view() + [ask], tools=[]),
+                                            lambda *a, **k: None, used, model, key)
+            used.add(summary_turn.usage)
+            text = summary_turn.text()
+        text += progress_note(session, tools)
         session.compact(text, session.messages[cut:])
         emit("text", f"The conversation got long: keel summarized its older part ({cut} messages) and goes on from there.")
 
@@ -205,6 +224,7 @@ class HarnessRunner:
         provider = await self._resolve(req)
         self._chat = req.agent in CHAT_AGENTS
         await asyncio.to_thread(transcript.sweep)
+        await asyncio.to_thread(sweep_outputs)
         session, fresh = self._session(req, provider, emit)
         used = Usage()
         system = (req.system.rstrip() + "\n\n" + GUIDE) if req.system else GUIDE
@@ -241,7 +261,8 @@ class HarnessRunner:
                                  usage=_usage_dict(model, req.key, used))
                 err.max_turns = True
                 raise err
-            await self._compact(provider, session, system, window, emit, used, model, req.key, server_side)
+            self._clear_old_results(session, emit)
+            await self._compact(provider, session, system, window, emit, used, model, req.key, server_side, tools)
             specs = tools.specs()
             request = Request(system=system, messages=session.view(), tools=specs, effort=effort,
                               web_search=web, extra=extra)
@@ -472,10 +493,126 @@ class HarnessRunner:
                 break
             results = await run_calls(tools.tools, calls, lambda c, out, ms: steps.tool_step(quiet, sub_box, c, out, ms, 0))
             messages.append({"role": "user", "content": results})
-        return answer or "The helper found nothing it could report."
+        # 0.32 a helper answers in about 2k tokens; a longer answer is cut, and saved whole for the model to read
+        return cap(answer, SUB_ANSWER) if answer else "The helper found nothing it could report."
 
 
 def _server_compacts(model: str) -> bool:
     from .providers.anthropic import compacts
 
     return compacts(model)
+
+
+# ---------------------------------------------------------------- 0.32 context management (pure: tested directly)
+
+SUMMARY_ASK = """Write a summary of this session so far for yourself, so you can go on from it alone. Do not call tools.
+Use exactly these sections (leave one out when it has nothing):
+## Goal
+What the person or the step asked for, in their words where they matter.
+## Instructions
+Rules and preferences the person gave, and constraints of the step.
+## Discoveries
+What you found: facts, causes, where things are (paths with line numbers).
+## Files
+Every file you changed and how; the files that matter and why.
+## Decisions
+What was decided and why; what was tried and did not work.
+## Done
+What is finished and checked (commands run and their result).
+## Next
+What is left, in order.
+Keep paths, names, numbers and error messages exact."""
+
+
+def _result_tokens(block: dict) -> int:
+    c = block.get("content")
+    return (len(c) if isinstance(c, str) else len(json.dumps(c, default=str))) // 4
+
+
+def _call_of(messages: list[dict], upto: int, cid: str) -> dict | None:
+    for m in reversed(messages[:upto]):
+        if m["role"] == "assistant":
+            for b in m.get("content") or []:
+                if b.get("type") == "tool_call" and b.get("id") == cid:
+                    return b
+            return None
+    return None
+
+
+def _stub(call: dict | None, block: dict) -> str:
+    name = (call or {}).get("name") or "a tool"
+    args = (call or {}).get("input") or {}
+    what = next((str(args[k]) for k in ("file_path", "path", "pattern", "command", "url", "query") if args.get(k)), "")
+    c = block.get("content")
+    lines = (c.count("\n") + 1) if isinstance(c, str) else 0
+    return (f"[keel cleared this old result to keep the context small: {name}"
+            f"{' ' + what[:160] if what else ''}{f' ({lines} lines)' if lines else ''}. Run it again if you need it.]")
+
+
+CLEARED = "[keel cleared this old result"
+
+
+def clear_old_results(messages: list[dict], keep_tokens: int, minimum: int, keep_uses: int = CLEAR_KEEP_USES) -> dict[str, str]:
+    """{tool result id: stub} for the old tool results to clear: the newest keep_tokens of results (and the last
+    keep_uses results) stay; nothing is cleared unless at least `minimum` tokens go (so the request's start changes
+    seldom). Errors and results with images are small or needed: they stay."""
+    found = []                                    # (message index, block) of every tool result, oldest first
+    for i, m in enumerate(messages):
+        if m["role"] != "user":
+            continue
+        for b in m.get("content") or []:
+            if b.get("type") == "tool_result" and not str(b.get("content") or "").startswith(CLEARED):
+                found.append((i, b))
+    kept, total, out = 0, 0, {}
+    candidates = []
+    for n, (i, b) in enumerate(reversed(found)):
+        t = _result_tokens(b)
+        if n < keep_uses or kept + t <= keep_tokens or b.get("is_error") or b.get("images"):
+            kept += t
+            continue
+        candidates.append((i, b, t))
+        total += t
+    if total < minimum:
+        return {}
+    for i, b, _t in candidates:
+        out[b["id"]] = _stub(_call_of(messages, i, b["id"]), b)
+    return out
+
+
+def chat_cut(messages: list[dict], tail_tokens: int) -> int:
+    """Where a chat's compaction cuts: the messages from there on (about tail_tokens, from a question on) stay whole."""
+    asks = [i for i, m in enumerate(messages) if m["role"] == "user" and any(b.get("type") == "text" for b in m["content"])]
+    if len(asks) <= CHAT_KEEP_TURNS:
+        return 0
+    size = 0
+    cut = asks[-CHAT_KEEP_TURNS]
+    for i in range(len(messages) - 1, -1, -1):
+        size += len(json.dumps(messages[i].get("content"), default=str)) // 4
+        if size > tail_tokens:
+            break
+        if i in asks:
+            cut = min(cut, i)
+    return cut if cut > asks[0] else (asks[1] if len(asks) > 1 else 0)
+
+
+def progress_note(session: transcript.Session, tools: ToolSet | None) -> str:
+    """What keel itself knows of the work (it survives a compaction exactly): the task list, the files changed, the files
+    read last, and the project's notes."""
+    parts = []
+    if session.todos:
+        parts.append(steps.todo_text(session.todos))
+    box = getattr(tools, "box", None)
+    changed = list(dict.fromkeys(w.get("path") for w in (getattr(box, "writes", None) or []) if w.get("path")))
+    if changed:
+        parts.append("Files changed so far: " + ", ".join(changed[:40]))
+    read = sorted((getattr(tools, "read_at", None) or {}).keys(), key=lambda r: -(tools.read_at.get(r) or 0))[:RECENT_FILES]
+    if read:
+        parts.append("Files read last (read them again before you rely on them): " + ", ".join(read))
+    if box is not None:
+        try:
+            notes = context.project_notes(box)
+        except Exception:  # noqa: BLE001 - the notes are a help, never a reason to fail a compaction
+            notes = ""
+        if notes:
+            parts.append(notes)
+    return ("\n\n## Progress kept by keel\n\n" + "\n\n".join(parts)) if parts else ""
