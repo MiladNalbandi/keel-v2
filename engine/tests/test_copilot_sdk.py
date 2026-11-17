@@ -362,6 +362,42 @@ def test_a_tool_loaded_mid_session_is_added_to_the_live_session():
     assert copilot_sdk.CopilotProvider.dynamic_tools
 
 
+def test_keels_clearing_of_old_results_keeps_the_live_session_and_a_compaction_opens_a_new_one():
+    # 0.32 keel clears old tool results in its own copy of the chat (runner.clear_old_results): the message count and
+    # the first message stay, so the next message goes on in the same Copilot session and only the new text is sent.
+    # A compaction makes a new first message (the summary): a new session gets the summary and the recent part once.
+    FakeClient.scripts = [[("say", "Let me read. "), ("calls", [("Read", {"file_path": "a.txt"})]), ("say", "It says hi.")]]
+
+    async def go():
+        msgs = [user("What is in a.txt?")]
+        p = provider()
+        t1 = await p.turn(Request(system="s", messages=msgs, tools=[READ]), lambda *a, **k: None)
+        call = t1.tool_calls()[0]
+        msgs += [{"role": "assistant", "content": t1.blocks},
+                 {"role": "user", "content": [{"type": "tool_result", "id": call["id"], "content": "hi " * 500, "is_error": False}]}]
+        t2 = await p.turn(Request(system="s", messages=msgs, tools=[READ]), lambda *a, **k: None)
+        await p.close()
+        # keel clears the old Read result (same count, same first message), then the person asks again
+        msgs[2]["content"][0]["content"] = "[keel cleared this old result: Read a.txt]"
+        msgs += [{"role": "assistant", "content": t2.blocks}, user("and now?")]
+        FakeClient.sessions[0].script = [("say", "still hi")]
+        p2 = provider()
+        t3 = await p2.turn(Request(system="s", messages=msgs, tools=[READ]), lambda *a, **k: None)
+        await p2.close()
+        # a compaction: the summary is the new first message
+        FakeClient.scripts = [[("say", "after compaction")]]
+        p3 = provider()
+        t4 = await p3.turn(Request(system="s", messages=[user("SUMMARY: a.txt says hi"), user("one more?")], tools=[READ]),
+                           lambda *a, **k: None)
+        await p3.close()
+        return t3, t4
+
+    t3, t4 = run(go())
+    assert t3.text() == "still hi" and FakeClient.sessions[0].sent[-1] == "and now?"
+    assert len(FakeClient.sessions) == 2 and t4.text() == "after compaction"
+    assert "SUMMARY: a.txt says hi" in FakeClient.sessions[1].sent[0] and "one more?" in FakeClient.sessions[1].sent[0]
+
+
 def test_an_effort_the_model_refuses_runs_without_it_and_says_so():
     FakeClient.no_effort = {"typed-by-hand"}
     FakeClient.scripts = [[("say", "ok")]]

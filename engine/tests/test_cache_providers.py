@@ -163,3 +163,18 @@ def test_copilot_models_show_the_plans_price_multiplier():
     rows = {m["id"]: m for m in catalog.build_catalog()["copilot"]["modes"]["api"]}
     assert rows["claude-sonnet-5.5"]["badge"] == "×9" and rows["gpt-5-mini"]["badge"] == "×0 (included)"
     copilot_sdk._models_file().unlink(missing_ok=True)
+
+
+def test_keels_summary_request_keeps_the_same_deferred_tools_so_it_reuses_the_cache():
+    # 0.32 keel's own compaction asks for the summary with the conversation's system and tools (runner._compact): with
+    # native tool search the request has the same tool list, defer_loading and the search tool, so nothing fails and the
+    # cached start is the same; the fallback without tools has no deferral at all
+    c = AClient([a_message([{"type": "text", "text": "ok"}], stop="end_turn")] * 2)
+    p = AnthropicProvider("claude-sonnet-5-5", client=c)
+    turn_req = Request(system="s", messages=[user("hi")], tools=[READ, TASK, PLUGIN])
+    summary_req = Request(system="s", messages=[user("hi"), user("Write a summary")], tools=[READ, TASK, PLUGIN])
+    a, b = p.params(turn_req), p.params(summary_req)
+    assert a["tools"] == b["tools"] and a["system"] == b["system"]
+    assert any(t.get("defer_loading") for t in b["tools"]) and any(t.get("name", "").startswith("tool_search") for t in b["tools"])
+    plain = p.params(Request(system="s", messages=[user("hi"), user("Write a summary")], tools=[]))
+    assert "tools" not in plain or not any(t.get("defer_loading") for t in plain.get("tools") or [])
