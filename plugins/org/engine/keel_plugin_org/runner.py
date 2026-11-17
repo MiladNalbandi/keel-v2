@@ -333,6 +333,11 @@ class Runner:
             d = ev.get("data") or {}
             await asyncio.to_thread(store.note, m["id"], "waiting", f"Waits: {d.get('title') or ev.get('step') or 'a gate'}",
                                     {"thread_id": tid, "step": ev.get("step")})
+            # 0.34 the lead's report waits for the person (the review flow of the mission a person gave): the task it
+            # works on goes to In review until the person accepts it or sends it back
+            if stage == "review" and not m.get("parent_id") and m["status"] == "running" and m.get("thread_id") == tid:
+                await self._tell({**m, "status": "reported",
+                                  "report": {"summary": f"{d.get('title') or 'The report'} waits for you on the Org page."}})
             return
         if tid in self.handled or m.get("thread_id") != tid or m["status"] != "running":
             return
@@ -415,8 +420,8 @@ class Runner:
         await self._boss_hears(m)
 
     async def _done(self, m: dict, why: str) -> None:
-        """The mission is done, and so is every report under it (a failed or stopped one stays as it is)."""
-        await self._set(m["id"], status="done")
+        """The mission is done, and so is every report under it (a failed or stopped one stays as it is). The reports
+        under it first: whoever sees the mission done sees its team done too."""
         todo = list(await asyncio.to_thread(store.children, m["id"]))
         while todo:
             x = todo.pop()
@@ -424,6 +429,7 @@ class Runner:
             if x["status"] == "reported":
                 await self._set(x["id"], status="done")
         await asyncio.to_thread(store.note, m["id"], "done", why)
+        await self._set(m["id"], status="done")
 
     async def _boss_hears(self, m: dict) -> None:
         """A mission ended: when all of its boss's missions of this round ended, the boss reviews (or reports)."""
