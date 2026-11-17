@@ -121,10 +121,17 @@ def _grep(base: Path, pattern: str, glob: str | None, type_: str | None, mode: s
             [str(p.relative_to(base)) for p in base.rglob("*") if p.is_file() and ".git" not in p.parts]
         import fnmatch
 
-        globs = (glob or "").split()
+        globs = [g for g in (glob or "").split() if not g.startswith("!")]
+        nots = [g[1:] for g in (glob or "").split() if g.startswith("!") and len(g) > 1]
+
+        def hit(name: str, g: str) -> bool:
+            return fnmatch.fnmatch(name, g) or fnmatch.fnmatch(name.rsplit("/", 1)[-1], g)
+
         raw = []
         for name in names:
-            if globs and not any(fnmatch.fnmatch(name, g) or fnmatch.fnmatch(name.rsplit("/", 1)[-1], g) for g in globs):
+            if globs and not any(hit(name, g) for g in globs):
+                continue
+            if any(hit(name, g) for g in nots):     # "!name": left out, as ripgrep does
                 continue
             try:
                 text = (base / name).read_text(errors="replace")
@@ -478,9 +485,18 @@ class ToolBox:
             v = rules.check_knowledge(r, self.agent, self.knowledge.get("sections"), bool(self.knowledge.get("strict")))
             return None if v.ok else v.reason
 
-        why = hook.search("Grep", ti, ctx, self.cfg, self.others, knowledge)
+        # 0.34 a secret file in the folder is left out of the search (a "!name" glob), not a reason to refuse it
+        skips: list[str] = []
+        why = hook.search("Grep", ti, ctx, self.cfg, self.others, knowledge, skips)
         if why:
             return self._refuse("Grep", rel or ".", why)
+        if skips:
+            glob = " ".join([*(glob or "").split(), *(f"!{n}" for n in skips)])
+            ti["glob"] = glob
+            why = hook.search("Grep", ti, ctx, self.cfg, self.others, knowledge)   # judged again with the exclusions
+            if why:
+                return self._refuse("Grep", rel or ".", why)
+        skipped = f"\n(left out because they hold secrets: {', '.join(skips)})" if skips else ""
         mode = mode if mode in ("content", "files_with_matches", "count") else "files_with_matches"
         clip = lambda n: max(0, min(int(n or 0), 20))  # noqa: E731
         lines, hidden = _grep(full, pattern, glob, type, mode, ignore_case, clip(context), multiline,
@@ -490,12 +506,12 @@ class ToolBox:
             return f"ERROR: {hidden}"
         if not lines:
             note = f" ({hidden} file(s) you may not read were left out)" if hidden else ""
-            return f"No matches for {pattern!r} in {rel or '.'}.{note}"
+            return f"No matches for {pattern!r} in {rel or '.'}.{note}{skipped}"
         lines = lines[max(0, int(offset or 0)):]
         out = lines[:limit]
         tail = f"\n(+{len(lines) - limit} more lines: give offset {int(offset or 0) + limit} to see them)" if len(lines) > limit else ""
         note = f"\n({hidden} file(s) you may not read were left out)" if hidden else ""
-        return "\n".join(out) + tail + note
+        return "\n".join(out) + tail + note + skipped
 
     def langchain_tools(self) -> list:
         from langchain_core.tools import StructuredTool

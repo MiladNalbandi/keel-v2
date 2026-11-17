@@ -248,14 +248,18 @@ def _globs(ti: dict) -> list[str]:
     return out
 
 
-def search(tool: str, ti: dict, ctx: dict, cfg: dict, others: list[dict] | None, knowledge) -> str | None:
+def search(tool: str, ti: dict, ctx: dict, cfg: dict, others: list[dict] | None, knowledge,
+           skips: list[str] | None = None) -> str | None:
     """0.18.64 Grep, Glob and LS. Glob and LS list names only (like ls): judged only for where they look. A Grep reads:
 
         a file that is a secret (.env, a key ...)                         refused, whatever its output mode
         a folder holding a secret file the Grep would read                refused, unless its glob leaves it out
           (claude's and opencode's ripgrep read hidden files but skip what git ignores, so an ignored .env is safe)
 
-    files_with_matches and count are refused too: matching a guessed value one try at a time is reading it."""
+    files_with_matches and count are refused too: matching a guessed value one try at a time is reading it.
+
+    0.34 keel's own Grep passes `skips`: the secret files in its way are not refused but left out of the search (their
+    names go into skips and the caller adds "!name" globs), so the file is still never read and the agent loses no turn."""
     root, phase = ctx["root"], ctx.get("phase") or "none"
     path = _path_arg(ti)
     base = path or ctx.get("_cwd") or root
@@ -286,6 +290,9 @@ def search(tool: str, ti: dict, ctx: dict, cfg: dict, others: list[dict] | None,
     inc = [g for g in globs if not g.startswith("!")] + (["\0type"] if ti.get("type") else [])
     exc = [g[1:] for g in globs if g.startswith("!")]
     found = rules.glob_hits(found, inc, exc)
+    if found and skips is not None:
+        skips.extend(dict.fromkeys(f.rsplit("/", 1)[-1] for f in found))
+        found = []
     if found:
         name = found[0].rsplit("/", 1)[-1]
         return (f"{label}{os.path.join(path or '.', found[0]) if path else found[0]} holds secrets, and this Grep over "

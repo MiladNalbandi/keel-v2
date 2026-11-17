@@ -317,8 +317,17 @@ def test_task_hands_a_search_to_a_helper_that_only_reads(project):
 def test_grep_and_glob_keep_secret_files_out(project):
     (project / ".env").write_text("TOKEN=ghp_secretvalue\n")
     box = ToolBox(str(project), "none")
-    refused = box.grep("TOKEN")
-    assert refused.startswith("REFUSED") and ".env" in refused
+    # 0.34 a secret file in the folder is left out of the search, not a reason to refuse it; it is still never read
+    skipped = box.grep("TOKEN")
+    assert skipped.startswith("No matches") and "ghp_" not in skipped
+    assert "left out because they hold secrets: .env" in skipped
+    for mode in ("count", "files_with_matches", "content"):
+        out = box.grep("ghp_secret", mode=mode)
+        assert out.startswith("No matches") and ".env:" not in out and "secretvalue" not in out
+    (project / "notes.txt").write_text("TOKEN = None\n")
+    found = box.grep("TOKEN", mode="content")
+    assert found.startswith("notes.txt:1:TOKEN = None") and "ghp_" not in found
+    assert box.grep("TOKEN", path=".env").startswith("REFUSED")     # the secret file itself: refused as before
     assert box.grep("TOKEN", glob="*.py").startswith("No matches")
     assert box.grep("def total", glob="*.py", mode="content") == "src/app.py:1:def total(xs):"
     assert box.glob("**/*.py") == "src/app.py"
@@ -347,3 +356,13 @@ def test_mcp_tools_are_judged_by_keels_mcp_rules(project, monkeypatch):
                            mcp_check=lambda name, a: "no database servers" if "db" in name else None)
     out = asyncio.run(ts.tools["mcp__db__run_query"].run({"sql": "select 1"}))
     assert out == "REFUSED: no database servers"
+
+
+def test_grep_without_ripgrep_leaves_secret_files_out_too(project, monkeypatch):
+    from keel_engine.tools import agent_tools
+
+    monkeypatch.setattr(agent_tools, "_rg", lambda: None)
+    (project / ".env").write_text("TOKEN=ghp_secretvalue\n")
+    (project / "notes.txt").write_text("TOKEN = None\n")
+    out = ToolBox(str(project), "none").grep("TOKEN", mode="content")
+    assert "notes.txt:1:TOKEN = None" in out and "secretvalue" not in out and "hold secrets: .env" in out
