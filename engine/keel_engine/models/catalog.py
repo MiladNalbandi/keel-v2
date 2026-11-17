@@ -230,7 +230,15 @@ def _copilot_models() -> list[dict]:
 
     # a model the plan's list did not name: offered with a badge (it runs as auto, with a note, if the plan lacks it)
     return [{"id": m["id"], "label": m["label"], "efforts": list(m.get("efforts") or []),
-             **({"badge": UNCONFIRMED} if m.get("unconfirmed") else {})} for m in cached_models()]
+             **({"badge": UNCONFIRMED} if m.get("unconfirmed") else
+                ({"badge": _times(m["multiplier"])} if m.get("multiplier") is not None else {}))} for m in cached_models()]
+
+
+def _times(mult: float) -> str:
+    """0.32 the plan's price multiplier of a Copilot model, as the model list shows it: "×9", "×0.33", "×0 (included)"."""
+    if not mult:
+        return "×0 (included)"
+    return f"×{mult:g}"
 
 
 def _copilot_efforts() -> list[str]:

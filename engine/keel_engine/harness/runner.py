@@ -88,12 +88,17 @@ def _cost(model: dict, key: str | None, u: Usage) -> float:
     else:
         p = catalog.price(provider, name)
     pin, pout = float(p.get("in", 0) or 0), float(p.get("out", 0) or 0)
-    return round((u.input * pin + u.cache_write * pin * 1.25 + u.cache_read * pin * 0.1 + u.output * pout) / 1e6, 6)
+    if u.ai_credits and not (pin or pout):
+        return round(u.ai_credits / 100, 6)            # GitHub Copilot's own count: 1 AI credit = $0.01
+    # 0.32 a compaction on the provider is billed too (counted here at the input price)
+    return round((u.input * pin + u.cache_write * pin * 1.25 + u.cache_read * pin * 0.1 + u.output * pout
+                  + u.compaction * pin) / 1e6, 6)
 
 
 def _usage_dict(model: dict, key: str | None, u: Usage) -> dict:
     return {"tokens_in": u.input + u.cache_write, "tokens_cached": u.cache_read, "tokens_out": u.output,
-            "cost_usd": _cost(model, key, u)}
+            "cost_usd": _cost(model, key, u), "tokens_cache_write": u.cache_write, "tokens_compaction": u.compaction,
+            **({"ai_credits": round(u.ai_credits, 4)} if u.ai_credits else {})}
 
 
 def _tokens(messages: list[dict], system: str) -> int:
@@ -116,12 +121,23 @@ def context_parts(request: Request, tool_count: int) -> dict:
             "chat": len(dump(msgs[:last + 1])) // 4 if last >= 0 else 0, "new": len(dump(msgs[last + 1:])) // 4}
 
 
-def context_line(parts: dict, u: Usage) -> str:
+def context_line(parts: dict, u: Usage, prev_cached: int = 0, min_cache: int = 0) -> str:
     sent = parts["system"] + parts["tools"] + parts["chat"] + parts["new"]
     line = (f"context: system {_k(parts['system'])} · tools {parts['tool_count']} ({_k(parts['tools'])}) · chat "
             f"{_k(parts['chat'])} · new {_k(parts['new'])} = about {_k(sent)}")
     if u.input or u.cache_read or u.cache_write:
-        line += f" · the provider counted {_k(u.input + u.cache_write)} new + {_k(u.cache_read)} cached, {_k(u.output)} out"
+        line += (f" · the provider counted {_k(u.input)} new + {_k(u.cache_write)} written to its cache + "
+                 f"{_k(u.cache_read)} read from it, {_k(u.output)} out")
+    # 0.32 cache health: what the cache did on this call, said where it went wrong
+    if prev_cached >= 1000 and u.cache_read < prev_cached // 10:
+        line += (f" · cache break: the last call read {_k(prev_cached)} from the cache, this one {_k(u.cache_read)} (the "
+                 "start of the request changed, or the cache expired)")
+    if min_cache and parts["system"] + parts["tools"] < min_cache and not u.cache_read:
+        line += f" · the fixed start is below this model's cache minimum ({_k(min_cache)}): only a longer chat is cached"
+    if u.compaction:
+        line += f" · the provider compacted the conversation ({_k(u.compaction)} tokens)"
+    if u.ai_credits:
+        line += f" · about {u.ai_credits:.2f} AI credits"
     return line
 
 
@@ -213,7 +229,8 @@ class HarnessRunner:
         effort = catalog.effort_for(req.model)
         window = self._window(req)
         server_side = provider.name == "anthropic" and _server_compacts(provider.model)
-        extra = {"compact_at": min(CHAT_SERVER_COMPACT_AT if self._chat else 150_000, int(window * 0.6)), "root": req.root}
+        extra = {"compact_at": min(CHAT_SERVER_COMPACT_AT if self._chat else 150_000, int(window * 0.6)), "root": req.root,
+                 "chat": self._chat, "cache_key": session.id}      # 0.32 a chat's 1-hour cache; one cache key a session
 
         if fresh and req.history:
             for role, text in req.history:
@@ -234,6 +251,7 @@ class HarnessRunner:
 
         deadline = time.monotonic() + max(60, int(req.timeout or 1800))
         answer, continues, repeats, last, turns_since_todo = "", 0, 0, None, 0
+        prev_cached = 0
         limit = self._turns(req)
         for _ in range(limit):
             if time.monotonic() > deadline:
@@ -250,7 +268,9 @@ class HarnessRunner:
             used.add(turn.usage)
             # the run's tokens and cost so far, live; and what this call carried, part by part
             emit("usage", **_usage_dict(model, req.key, used), context={**parts, "cached": turn.usage.cache_read})
-            emit("context", context_line(parts, turn.usage), **parts, cached=turn.usage.cache_read)
+            emit("context", context_line(parts, turn.usage, prev_cached, int(getattr(provider, "min_cache_tokens", 0) or 0)),
+                 **parts, cached=turn.usage.cache_read, cache_write=turn.usage.cache_write, compaction=turn.usage.compaction)
+            prev_cached = turn.usage.cache_read
             session.add("assistant", turn.blocks, api=provider.name, model=provider.model, raw=turn.raw)
             turns_since_todo += 1
             for b in turn.blocks:
@@ -318,7 +338,8 @@ class HarnessRunner:
         emit("answer", steps.cap(answer))
         u = _usage_dict(model, req.key, used)
         return AgentResult(text=answer, tokens_in=u["tokens_in"], tokens_cached=u["tokens_cached"], tokens_out=u["tokens_out"],
-                           cost_usd=u["cost_usd"], data={"session": session.id})
+                           cost_usd=u["cost_usd"], data={"session": session.id,
+                                                         **({"ai_credits": u["ai_credits"]} if u.get("ai_credits") else {})})
 
     # ------------------------------------------------------------------ pieces
 
@@ -402,7 +423,10 @@ class HarnessRunner:
         found_skills = await asyncio.to_thread(skills_mod.find_skills, box.root)
         agents = await asyncio.to_thread(skills_mod.agent_types)
         # 0.31 deferred tools for every provider (GitHub Copilot adds a loaded tool to its live session: dynamic_tools)
-        lazy = bool(getattr(provider, "dynamic_tools", getattr(provider, "name", "") != "copilot"))
+        # 0.32 a provider with its own tool search (Anthropic, Copilot) gets every tool from the start, the deferrable ones
+        # marked: the list never changes. The others (OpenAI-compatible) get keel's LoadTools.
+        lazy = not getattr(provider, "native_deferral", False) and bool(
+            getattr(provider, "dynamic_tools", getattr(provider, "name", "") != "copilot"))
         return ToolSet(box, web=self._web(req), todos=todos, task=task, mcp=mcp_tools, mcp_check=mcp_check,
                        skills=found_skills, agents=agents, lazy=lazy, loaded=session.tools, on_load=session.set_tools)
 

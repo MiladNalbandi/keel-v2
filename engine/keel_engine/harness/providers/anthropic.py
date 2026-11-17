@@ -49,6 +49,35 @@ def adaptive(model: str) -> bool:
     return (major, minor) >= (4, 6)
 
 
+def searches_tools(model: str) -> bool:
+    """Anthropic's tool search (stable): Sonnet / Haiku / Opus 4.5 and later, and the 5.x models (Fable, Mythos)."""
+    v = _version(model)
+    if not v:
+        return False
+    fam, major, minor = v
+    return fam in ("fable", "mythos") or (major, minor) >= (4, 5)
+
+
+def min_cache(model: str) -> int:
+    """The shortest prefix Anthropic caches for this model (prompt caching docs, 2026-11): below it nothing is cached."""
+    v = _version(model)
+    if not v:
+        return 1024
+    fam, major, minor = v
+    if fam in ("fable", "mythos") and major >= 5:
+        return 512
+    if (fam, major, minor) in (("opus", 5, 5), ("opus", 5, 0), ("sonnet", 5, 5), ("haiku", 5, 5)):
+        return 512
+    if (fam, major, minor) == ("opus", 4, 7):
+        return 2048
+    if (fam, major, minor) in (("opus", 4, 6), ("opus", 4, 5), ("haiku", 4, 5)):
+        return 4096
+    return 1024
+
+
+TOOL_SEARCH = {"type": "tool_search_tool_bm25_20251119", "name": "tool_search_tool_bm25"}
+
+
 def compacts(model: str) -> bool:
     """Server-side compaction (beta): the same models as adaptive thinking."""
     return adaptive(model)
@@ -107,8 +136,16 @@ def _neutral(block: Any) -> dict | None:
 def _usage(u: Any) -> Usage:
     if u is None:
         return Usage()
+    # 0.32 a compaction on the server is billed but not in the top-level counts: its own entry in usage.iterations
+    compaction = 0
+    for it in getattr(u, "iterations", None) or []:
+        kind = it.get("type") if isinstance(it, dict) else getattr(it, "type", None)
+        if kind == "compaction":
+            get = (lambda k: it.get(k)) if isinstance(it, dict) else (lambda k: getattr(it, k, 0))
+            compaction += int(get("input_tokens") or 0) + int(get("output_tokens") or 0)
     return Usage(input=int(getattr(u, "input_tokens", 0) or 0), cache_write=int(getattr(u, "cache_creation_input_tokens", 0) or 0),
-                 cache_read=int(getattr(u, "cache_read_input_tokens", 0) or 0), output=int(getattr(u, "output_tokens", 0) or 0))
+                 cache_read=int(getattr(u, "cache_read_input_tokens", 0) or 0), output=int(getattr(u, "output_tokens", 0) or 0),
+                 compaction=compaction)
 
 
 def _error(exc: Exception) -> ProviderError:
@@ -144,6 +181,10 @@ class AnthropicProvider:
     def __init__(self, model: str, api_key: str | None = None, *, client: Any = None, vertex: bool = False):
         self.model = model
         self.vertex = vertex
+        # 0.32 every tool goes in the first request; Task, Skill, WebFetch and plugin tools with defer_loading, found by
+        # Anthropic's tool search: the tool list never changes, so the cache stays valid (keel's LoadTools is not used)
+        self.native_deferral = searches_tools(model)
+        self.min_cache_tokens = min_cache(model)
         if client is None:
             from anthropic import AsyncAnthropic
 
@@ -154,18 +195,24 @@ class AnthropicProvider:
         self.client = client
 
     def params(self, req: Request) -> dict:
+        defer = self.native_deferral and any(t.deferrable for t in req.tools) and any(not t.deferrable for t in req.tools)
         tools: list[dict] = [{"name": t.name, "description": t.description, "input_schema": t.schema,
-                              "eager_input_streaming": True} for t in req.tools]
+                              "eager_input_streaming": True, **({"defer_loading": True} if defer and t.deferrable else {})}
+                             for t in req.tools]
+        if defer:
+            tools.append(dict(TOOL_SEARCH))
         if req.web_search:
             # Vertex AI has only the basic web search; the Claude API the one with dynamic filtering
             tools.append({"type": "web_search_20250305" if self.vertex else "web_search_20260209", "name": "web_search"})
+        # 0.32 a chat (KeelBot) waits for the person between messages, often longer than 5 minutes: its cache lives an
+        # hour (writes cost 2x instead of 1.25x; every read after the 5 minutes would else be a full-price write)
+        cache = {"type": "ephemeral", **({"ttl": "1h"} if req.extra.get("chat") else {})}
         p: dict[str, Any] = {
             "model": self.model,
             "max_tokens": req.max_tokens,
-            "system": [{"type": "text", "text": req.system or "You are a careful software engineer.",
-                        "cache_control": {"type": "ephemeral"}}],
+            "system": [{"type": "text", "text": req.system or "You are a careful software engineer.", "cache_control": cache}],
             "messages": to_messages(req.messages, self.model),
-            "cache_control": {"type": "ephemeral"},      # the conversation's tail, automatically
+            "cache_control": dict(cache),      # the conversation's tail, automatically
         }
         if tools:
             p["tools"] = tools
@@ -186,9 +233,20 @@ class AnthropicProvider:
         return p
 
     async def turn(self, req: Request, emit: Emit) -> Turn:
+        params = self.params(req)
+        try:
+            return await self._stream(params, emit)
+        except ProviderError as exc:
+            # an endpoint or model that does not take tool search / defer_loading: every tool plainly, from now on
+            text = str(exc).lower()
+            if exc.status == 400 and self.native_deferral and ("defer_loading" in text or "tool_search" in text or "tool search" in text):
+                self.native_deferral = False
+                return await self._stream(self.params(req), emit)
+            raise
+
+    async def _stream(self, params: dict, emit: Emit) -> Turn:
         import anthropic
 
-        params = self.params(req)
         try:
             async with self.client.beta.messages.stream(**params) as stream:
                 async for event in stream:
