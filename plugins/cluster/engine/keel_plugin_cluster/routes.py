@@ -1,6 +1,7 @@
 """The Cluster plugin's engine routes: the person's own calls from the Cluster page, through the api (plugins/cluster/api). The api
 sends the context's access with each command or change ("read", "ask", "free", or none when the context is off), and the Google
-service-account key GKE contexts sign in with (gke.py), if any; a ClusterError becomes {error, hint} with its status."""
+service-account key GKE contexts sign in with (gke.py), if any; a ClusterError becomes {error, hint} with its status. The gcloud-*
+calls are the GKE sign-in with the person's own Google account and adding a GKE cluster (gcloud.py)."""
 
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ import os
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from . import core, gke, kube
+from . import core, gcloud, gke, kube
 from .kube import ClusterError
 
 router = APIRouter()
@@ -32,6 +33,10 @@ class ClusterBody(BaseModel):
     access: str | None = None
     who: str = "person"
     google: str | None = None
+    id: str = ""
+    code: str = ""
+    project: str = ""
+    location: str = ""
 
 
 @router.post("/plugins/cluster/{op}")
@@ -62,4 +67,20 @@ async def _post(op: str, b: ClusterBody):
         return await asyncio.to_thread(core.runs, root, ctxs)
     if op == "history":
         return core.history()
+    if op == "gcloud-status":
+        return await asyncio.to_thread(gcloud.status)
+    if op == "gcloud-login":
+        return await asyncio.to_thread(gcloud.login_start)
+    if op == "gcloud-code":
+        return await asyncio.to_thread(gcloud.login_finish, b.id, b.code)
+    if op == "gcloud-cancel":
+        return await asyncio.to_thread(gcloud.login_cancel, b.id)
+    if op == "gcloud-logout":
+        return await asyncio.to_thread(gcloud.logout)
+    if op == "gcloud-projects":
+        return await asyncio.to_thread(gcloud.projects)
+    if op == "gcloud-clusters":
+        return await asyncio.to_thread(gcloud.clusters, b.project)
+    if op == "gcloud-add":
+        return await asyncio.to_thread(gcloud.add_cluster, b.project, b.location, b.name)
     raise ClusterError(404, f"Unknown cluster call {op}.")

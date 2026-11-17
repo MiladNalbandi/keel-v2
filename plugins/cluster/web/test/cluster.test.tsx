@@ -188,6 +188,62 @@ describe("the Cluster page", () => {
     expect(await within(gke).findByText(/as gke@demo\.iam\.gserviceaccount\.com/)).toBeTruthy();
   });
 
+  it("Connect signs in to Google with gcloud (link, then the code) and adds a GKE cluster to keel", async () => {
+    contexts = {
+      ...contexts,
+      contexts: [...contexts.contexts, { name: "gke-prod", cluster: "gke_demo_europe-west1_prod", server: "https://203.0.113.10", namespace: "", current: false, local: false, on: true, access: "read", auth: "gke" }],
+      google: { source: "gcloud", email: null, own_key_set: false, own_email: null, vertex_email: null },
+    };
+    const out = { installed: true, version: "594.0.0", plugin: true, owned: true, account: null, accounts: [], seeded: false, host_mounted: true, error: null };
+    const sent: { path: string; body?: unknown }[] = [];
+    server.use(
+      http.get("/api/plugins/cluster/gcloud", () => HttpResponse.json(out)),
+      http.post("/api/plugins/cluster/gcloud/login", () => HttpResponse.json({ id: "l1", url: "https://accounts.google.com/o/oauth2/auth?x=1" })),
+      http.post("/api/plugins/cluster/gcloud/login/code", async ({ request }) => {
+        sent.push({ path: "code", body: await request.json() });
+        return HttpResponse.json({ ...out, account: "person@example.com", accounts: ["person@example.com"] });
+      }),
+      http.get("/api/plugins/cluster/gcloud/projects", () => HttpResponse.json({ items: [{ id: "shop-prod-123", name: "Shop (prod)" }] })),
+      http.get("/api/plugins/cluster/gcloud/clusters", () => HttpResponse.json({
+        project: "shop-prod-123", items: [{ name: "shop", location: "europe-west1", status: "RUNNING", version: "1.31.2-gke.1000", nodes: 3, context: "gke_shop-prod-123_europe-west1_shop", added: false }],
+      })),
+      http.post("/api/plugins/cluster/gcloud/add", async ({ request }) => {
+        sent.push({ path: "add", body: await request.json() });
+        contexts = { ...contexts, contexts: [...contexts.contexts, { name: "gke_shop-prod-123_europe-west1_shop", cluster: "gke_shop-prod-123_europe-west1_shop", server: "https://198.51.100.7", namespace: "", current: false, local: false, on: true, access: "read", auth: "gke", added: true }] };
+        return HttpResponse.json({ context: "gke_shop-prod-123_europe-west1_shop" });
+      }),
+    );
+    open("#/cluster/connect");
+    const panel = await main().findByRole("radiogroup", { name: "How GKE clusters sign in" });
+    expect((within(panel).getByRole("radio", { name: /Your Google account/ }) as HTMLInputElement).checked).toBe(true);
+    await userEvent.click(await within(panel).findByRole("button", { name: "Sign in with Google" }));
+    const link = await within(panel).findByRole("link", { name: /Sign in with Google/ });
+    expect(link.getAttribute("href")).toBe("https://accounts.google.com/o/oauth2/auth?x=1");
+    expect(link.getAttribute("target")).toBe("_blank");
+    await userEvent.type(within(panel).getByLabelText(/Paste the code Google shows/), "4/0Ab-code");
+    await userEvent.click(within(panel).getByRole("button", { name: "Finish sign-in" }));
+    expect(await within(panel).findByText("person@example.com", { selector: "span.mono:not(.sub)" })).toBeTruthy();
+    expect(sent[0]).toEqual({ path: "code", body: { id: "l1", code: "4/0Ab-code" } });
+    expect(within(panel).getByRole("button", { name: "Sign out" })).toBeTruthy();
+    expect(within(await main().findByRole("group", { name: "gke-prod" })).getByText("GKE").getAttribute("title")).toBe("signs in as person@example.com");
+
+    await userEvent.click(within(panel).getByRole("button", { name: "Show my Google Cloud projects" }));
+    await userEvent.selectOptions(await within(panel).findByRole("combobox", { name: "Google Cloud project" }), "shop-prod-123");
+    const shop = await within(panel).findByRole("group", { name: "shop" });
+    await userEvent.click(within(shop).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(sent[1]).toEqual({ path: "add", body: { project: "shop-prod-123", location: "europe-west1", name: "shop" } }));
+    expect(await within(shop).findByText("in keel")).toBeTruthy();
+    const added = await main().findByRole("group", { name: "gke_shop-prod-123_europe-west1_shop" });
+    expect(within(added).getByText("added in keel")).toBeTruthy();
+  });
+
+  it("Connect says when gcloud is not installed where keel runs", async () => {
+    contexts = { ...contexts, google: { source: "gcloud", email: null, own_key_set: false, own_email: null, vertex_email: null } };
+    server.use(http.get("/api/plugins/cluster/gcloud", () => HttpResponse.json({ installed: false, version: null, plugin: false, owned: false, account: null, accounts: [], seeded: false, host_mounted: false, error: null })));
+    open("#/cluster/connect");
+    expect(await main().findByText(/gcloud is not installed where keel runs/)).toBeTruthy();
+  });
+
   it("imports only react, @keel/web-sdk and its own files", () => {
     const here = join(__dirname, "..");
     const outside = readdirSync(here).filter((f) => /\.tsx?$/.test(f))

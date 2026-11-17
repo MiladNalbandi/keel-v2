@@ -23,7 +23,8 @@ class ClusterApiTest : ApiTest() {
     @Autowired lateinit var events: ApplicationEventPublisher
     @Autowired lateinit var secrets: SecretService
 
-    private val ops = listOf("test", "snapshot", "logs", "describe", "exec", "change", "runs", "history")
+    private val ops = listOf("test", "snapshot", "logs", "describe", "exec", "change", "runs", "history", "gcloud-status",
+        "gcloud-login", "gcloud-code", "gcloud-cancel", "gcloud-logout", "gcloud-projects", "gcloud-clusters", "gcloud-add")
 
     @BeforeEach
     fun stub() {
@@ -239,6 +240,34 @@ class ClusterApiTest : ApiTest() {
     }
 
     @Test
+    fun `gcloud sign-in sends no key and its calls go to the engine as they are`() {
+        secrets.put(ModelServerService.VERTEX_SECRET, saKey("vertex@demo-project.iam.gserviceaccount.com"))
+        val view = put("/api/plugins/cluster/google", mapOf("source" to "gcloud")).andExpect(status().isOk).json()
+        assertThat(view["source"].asText()).isEqualTo("gcloud")
+        assertThat(view.path("email").let { it.isNull || it.isMissingNode }).isTrue()
+        get("/api/plugins/cluster/snapshot?context=kind-dev").andExpect(status().isOk)
+        assertThat(engine.lastBody("/plugins/cluster/snapshot")!!.path("google").let { it.isNull || it.isMissingNode }).isTrue()
+
+        assertThat(get("/api/plugins/cluster/gcloud").andExpect(status().isOk).json()["op"].asText()).isEqualTo("gcloud-status")
+        assertThat(post("/api/plugins/cluster/gcloud/login", emptyMap<String, Any>()).andExpect(status().isOk).json()["op"].asText())
+            .isEqualTo("gcloud-login")
+        post("/api/plugins/cluster/gcloud/login/code", mapOf("id" to "abc")).andExpect(status().isBadRequest)
+        post("/api/plugins/cluster/gcloud/login/code", mapOf("code" to "4/0Ab-code")).andExpect(status().isBadRequest)
+        post("/api/plugins/cluster/gcloud/login/code", mapOf("id" to "abc", "code" to " 4/0Ab-code ")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/plugins/cluster/gcloud-code")!!["code"].asText()).isEqualTo("4/0Ab-code")
+        post("/api/plugins/cluster/gcloud/login/cancel", mapOf("id" to "abc")).andExpect(status().isOk)
+        post("/api/plugins/cluster/gcloud/logout", emptyMap<String, Any>()).andExpect(status().isOk)
+        get("/api/plugins/cluster/gcloud/projects").andExpect(status().isOk)
+        get("/api/plugins/cluster/gcloud/clusters").andExpect(status().isBadRequest)
+        get("/api/plugins/cluster/gcloud/clusters?project=shop-prod-123").andExpect(status().isOk)
+        assertThat(engine.lastBody("/plugins/cluster/gcloud-clusters")!!["project"].asText()).isEqualTo("shop-prod-123")
+        post("/api/plugins/cluster/gcloud/add", mapOf("project" to "shop-prod-123", "location" to "europe-west1")).andExpect(status().isBadRequest)
+        post("/api/plugins/cluster/gcloud/add", mapOf("project" to "shop-prod-123", "location" to "europe-west1", "name" to "shop"))
+            .andExpect(status().isOk)
+        assertThat(engine.lastBody("/plugins/cluster/gcloud-add")!!["name"].asText()).isEqualTo("shop")
+    }
+
+    @Test
     fun `agents get the Google key with the rules, and none when GKE sign-in is off`() {
         val (pid, _) = newProject("cluster-google")
         engine.extraRoutes["/plugins"] = { _ -> 200 to listOf(mapOf("name" to "cluster", "title" to "Cluster", "installable" to true,
@@ -249,6 +278,8 @@ class ClusterApiTest : ApiTest() {
         secrets.put(ModelServerService.VERTEX_SECRET, saKey("vertex@demo-project.iam.gserviceaccount.com"))
         assertThat(keys.keys(pid).getValue("cluster:google")).contains("vertex@demo-project.iam.gserviceaccount.com")
         put("/api/plugins/cluster/google", mapOf("source" to "off")).andExpect(status().isOk)
+        assertThat(keys.keys(pid)).doesNotContainKey("cluster:google")
+        put("/api/plugins/cluster/google", mapOf("source" to "gcloud")).andExpect(status().isOk)
         assertThat(keys.keys(pid)).doesNotContainKey("cluster:google")
     }
 }
