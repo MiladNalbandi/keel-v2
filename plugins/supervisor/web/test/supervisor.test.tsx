@@ -45,7 +45,7 @@ function api(decisions: Decision[], posted: unknown[] = []) {
       own = body.on;
       return HttpResponse.json(project());
     }),
-    // the plugin is on for the project (per project, Control › Plugins): Jobs shows its tab
+    // the plugin is on for the project (per project, Settings › Plugins): Jobs shows its tab
     http.get("/api/projects/:pid/plugins", () =>
       HttpResponse.json([{ name: "supervisor", title: "Supervisor", description: "", needs: [], tools: {}, actions: [],
         shows_in: ["jobs"], commands: [], enabled: true, scope: "project" }])),

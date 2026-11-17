@@ -47,7 +47,7 @@ def test_search_one_plugin_and_refresh(client, market):
     assert [(s["name"], s["needed_by"]) for s in one["plan"]["install"]] == [("code", "hello"), ("hello", None)]
     r = client.get("/marketplace/plugins/nope")
     assert r.status_code == 404 and r.json() == {"error": "There is no plugin nope in the catalogs keel reads.",
-                                                 "hint": "Refresh the catalogs (Control › Plugins › Sources and rules), "
+                                                 "hint": "Refresh the catalogs (Settings › Plugins › Sources and rules), "
                                                          "or check the name."}
 
 
@@ -215,7 +215,7 @@ def test_needs_plugins_is_validated_and_kept():
 def test_a_workflow_that_needs_a_plugin_keel_did_not_load_is_refused(client, repo, image):
     r = client.post("/threads", json=thread_body(repo, needing(["db", "git"])))
     assert r.status_code == 409
-    assert r.json() == {"error": "This workflow needs db and git.", "hint": "Install it in Control › Plugins, then "
+    assert r.json() == {"error": "This workflow needs db and git.", "hint": "Install it in Settings › Plugins, then "
                         "restart keel.", "missing": ["db", "git"], "workflow": "needs-db"}
     plugin(image, "db", "1.0.0", parts=WEB, files=FILES, sums=True)
     plugin(image, "git", "1.0.0", parts=WEB, files=FILES, sums=True)
@@ -253,7 +253,7 @@ def test_the_command_line_finds_installs_updates_rolls_back_and_removes(market, 
     assert "removed hello 1.0.0; its data was deleted" in capsys.readouterr().out
     assert not (state.plugins_dir() / "data" / "hello").exists()
     assert main(["get", "nope"]) == 1
-    assert "no plugin nope in the catalogs keel reads. Refresh the catalogs (Control" in capsys.readouterr().err
+    assert "no plugin nope in the catalogs keel reads. Refresh the catalogs (Settings" in capsys.readouterr().err
 
 
 # ------------------------------------------------------------------ the MCP tools

@@ -53,7 +53,7 @@ class CiService(
     /** The ci-fix flow on the failed run's branch: in the project folder, which must be free and on that branch. */
     fun fix(pid: String, runId: Long?): JsonNode {
         plugins.require(pid, "ci")
-        if (!plugins.on(pid, "git")) throw Conflict("The fix flow pushes its fix with the Git plugin", "Turn on Git in Control › Plugins.")
+        if (!plugins.on(pid, "git")) throw Conflict("The fix flow pushes its fix with the Git plugin", "Turn on Git in Settings › Plugins.")
         val root = projects.root(pid)
         val current = projects.branch(root)
         val r = runId?.let { run(pid, it) }

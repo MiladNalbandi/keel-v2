@@ -6,7 +6,7 @@
 //                        the paired phones, sign out this browser or every browser (0.18.64)
 //   AI tools (MCP) and the terminal   the tools that called keel (api McpClients): level, last call, calls today
 //   Updates              the daily release check (api updates/ReleaseCheck): the newest version, check every day, the
-//                        channel (stable :<v> / product beta :<v>-product-beta), the command that updates this keel
+//                        (0.31 one channel: keel Product is inside every image), the command that updates this keel
 
 import { useEffect, useState } from "react";
 import { api, errorParts } from "../../api";
@@ -213,13 +213,6 @@ function Updates() {
             <label className="acc-check">
               <input type="checkbox" checked={u.check_daily} onChange={(e) => void save({ check_daily: e.target.checked, channel: u.channel })} /> Check every day
             </label>
-            <label className="acc-check">
-              Channel{" "}
-              <select className="ss-input" value={u.channel} onChange={(e) => void save({ check_daily: u.check_daily, channel: e.target.value })}>
-                <option value="stable">stable</option>
-                <option value="product">product beta</option>
-              </select>
-            </label>
             <button type="button" className="ss-btn sm" onClick={() => void check()} disabled={busy}>{busy ? "Checking…" : "Check now"}</button>
           </div>
           <p className="ss-meta" role="status">
@@ -239,7 +232,7 @@ function Updates() {
             <CopyBlock text={u.command} label="update command" />
             <span className="ss-meta">{u.command_why}</span>
             <span className="ss-meta">
-              {u.channel === "product" ? <>Product beta images are tagged <code>&lt;version&gt;-product-beta</code></> : <>Stable images are tagged <code>&lt;version&gt;</code> and <code>latest</code></>}
+              Images are tagged <code>&lt;version&gt;</code> and <code>latest</code> (keel Product is inside: turn it on in Add features)
               {u.image ? <>; keel runs <span className="ss-mono">{u.image}</span></> : null}. <code>keel2 update</code> keeps the image keel runs; a pinned
               tag needs the new one named: <code>KEEL_IMAGE=&lt;image&gt; keel2 update</code>.
             </span>

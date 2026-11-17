@@ -1,9 +1,13 @@
 # The runtimes inside keel desktop, pinned: <name> <os-arch> <url> <sha256>. scripts/build-desktop-runtime.sh downloads
 # the line for the computer it runs on and refuses a file whose sha256 differs. Java is not here: the build's own JDK 21
-# (JAVA_HOME, setup-java in CI) makes the small Java with jlink.
+# (JAVA_HOME, setup-java in CI) makes the small Java with jlink. codegraph: the code graph agents search before they read
+# files (the Graph plugin); its platform package carries its own Node, pinned like the image (Dockerfile CODEGRAPH_VERSION).
 python linux-x64 https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz ce4f6d0a6cfdb3bed6e44c2f9affd85943c76a42e25ad3a259002f31d6fb8a20
 python mac-arm64 https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-aarch64-apple-darwin-install_only_stripped.tar.gz 353d5f1b4fd2715e7053f12f068435d5bbad16b91e057006b5d01e0925709a7e
 python mac-x64 https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-x86_64-apple-darwin-install_only_stripped.tar.gz 37c38fda76fec1fbf310adcbafb7f0d96af13b5511bf8ea954c3aa8eec185734
+codegraph linux-x64 https://registry.npmjs.org/@colbymchenry/codegraph-linux-x64/-/codegraph-linux-x64-1.6.2.tgz 42da3e0834ca2423dbba1e6625d9d7d5a6bdeb533d78dd9eb6196053f035068e
+codegraph mac-arm64 https://registry.npmjs.org/@colbymchenry/codegraph-darwin-arm64/-/codegraph-darwin-arm64-1.6.2.tgz fef116ce85c28add9e72c9869803b20eb040d7ee2edccf301f659b1567661f2d
+codegraph mac-x64 https://registry.npmjs.org/@colbymchenry/codegraph-darwin-x64/-/codegraph-darwin-x64-1.6.2.tgz f3b509b2c15d9055306f33fc4b5a619902df5f6b055194bc2235049d63bc1920
 rg linux-x64 https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz 33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c
 rg mac-arm64 https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-aarch64-apple-darwin.tar.gz 3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4
 rg mac-x64 https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-apple-darwin.tar.gz af7825fcc69a2afc7a7aea55fc9af90e26421d8f20fe59df32e233c0b8a231c1

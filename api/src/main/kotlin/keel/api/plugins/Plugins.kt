@@ -15,7 +15,7 @@ import keel.api.projects.ProjectService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 
-/** v0.10.0: Control › Plugins. enabled for this project, and whether that comes from its own choice or every project's. */
+/** v0.10.0: Settings › Plugins. enabled for this project, and whether that comes from its own choice or every project's. */
 data class PluginSwitch(val enabled: Boolean = true, val scope: String = "project")
 data class PluginAskBody(val title: String = "", val command: String = "")
 
@@ -75,7 +75,7 @@ class PluginService(
     fun require(pid: String, name: String) {
         if (!on(pid, name)) {
             val title = mapOf("db" to "Database", "git" to "Git", "ci" to "CI/CD", "review" to "Code Review")[name] ?: name
-            throw Conflict("The $title plugin is off for this project", "Turn it on in Control › Plugins.")
+            throw Conflict("The $title plugin is off for this project", "Turn it on in Settings › Plugins.")
         }
     }
 

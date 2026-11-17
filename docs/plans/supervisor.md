@@ -584,7 +584,7 @@ All on the fake model. It has never run on a real model; that is P5, docs/plans/
  keel-wide   plugins.supervisor.on in Settings › General          default OFF
    │ off ─► the engine part listens to nothing, calls no model, makes no Inbox card; running looks are cancelled
    ▼
- plugin      Control › Plugins, per project                         default off (a per-project plugin)
+ plugin      Settings › Plugins, per project                         default off (a per-project plugin)
    ▼
  project     plugins.supervisor.on in the project's settings        default: follows keel-wide
    ▼
@@ -597,7 +597,7 @@ the project's, else keel-wide) is on. Turning any of them off while it looks can
 
 | where | keel-wide | project | flow |
 |---|---|---|---|
-| dashboard | Jobs › Supervisor: "On for the whole keel" | Jobs › Supervisor: "This project" (follows / on / off); Control › Plugins for the plugin | Jobs › Supervisor: "This flow" (follows / on / off) and Mode |
+| dashboard | Jobs › Supervisor: "On for the whole keel" | Jobs › Supervisor: "This project" (follows / on / off); Settings › Plugins for the plugin | Jobs › Supervisor: "This flow" (follows / on / off) and Mode |
 | keel TUI | `/supervisor keel-on`, `keel-off` | `/supervisor on`, `off`, `follow` | `/supervisor flow-on`, `flow-off`, `flow-follow`, `shadow`, `act` |
 | MCP | `keel_supervisor_set(scope="keel", on=…)` | `keel_supervisor_set(on=…)` or `follow=true` | `keel_supervisor_set(scope="flow", on=…, mode=…)` |
 | api | `POST /api/supervisor/switch {on}` | `POST /api/projects/{pid}/supervisor/switch {on: true/false/null}` | `POST /api/projects/{pid}/flows/{tid}/supervisor {on, mode}` |

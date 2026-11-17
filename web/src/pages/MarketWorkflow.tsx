@@ -1,4 +1,4 @@
-// 0.16.1 plugin track: the marketplace for workflows in Control › Plugins (docs/plugins/21-workflow-marketplace.md §4),
+// 0.16.1 plugin track: the marketplace for workflows in Settings › Plugins (docs/plugins/21-workflow-marketplace.md §4),
 // in the look of the plugin Marketplace (docs/plugins/mockup.html):
 //
 //   Marketplace › Workflows   search, the category chips, cards (icon, title, publisher ✓ / community, version,

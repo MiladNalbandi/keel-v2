@@ -746,7 +746,7 @@ def save(root: str, text: str, replace: bool = False, source: str = "project", m
 
 def _market_setup_allowed(text: str, market: dict) -> None:
     """0.21.3 a stack with a setup block (commands and packages that run on this machine) from an unverified publisher
-    is refused unless the rule "Allow unverified publishers" is on (Control › Plugins › Marketplace), as for a plugin
+    is refused unless the rule "Allow unverified publishers" is on (Settings › Plugins › Marketplace), as for a plugin
     with code. The api passes the publisher's `verified` from the catalog."""
     from ..marketplace import sources
     from . import stack_setup
@@ -762,7 +762,7 @@ def _market_setup_allowed(text: str, market: dict) -> None:
         return
     raise StackError(409, "This stack is from an unverified publisher, and its setup block runs commands and installs "
                           "packages on this machine.",
-                     "keel installs it only when the rule 'Allow unverified publishers' is on (Control › Plugins › "
+                     "keel installs it only when the rule 'Allow unverified publishers' is on (Settings › Plugins › "
                      "Marketplace). Its setup still waits for your OK in the Inbox after the install.")
 
 

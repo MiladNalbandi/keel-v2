@@ -13,14 +13,14 @@ checks it, below).
  a catalog (GitHub Pages)                keel (one image, never rebuilt)
  ────────────────────────                ───────────────────────────────
  v1/index.json  + .minisig   ──read──▶   check the catalog's signature (the source's key)
-   hello 1.0.0 · 1.1.0 · 1.2.0           search: Control › Plugins › Marketplace, or an agent's tool
+   hello 1.0.0 · 1.1.0 · 1.2.0           search: Settings › Plugins › Marketplace, or an agent's tool
  hello-1.2.0.kplug + .minisig ─install─▶ download → sha256 → the publisher's signature → /data/plugins/store
                                            │
                                            ▼  "Restart keel" (the same container, about 10 s)
                                          loaded: engine routes, web page, workflows, agents
 ```
 
-- **Find.** Control › Plugins › Marketplace searches the catalogs. Each card shows the trust level (content, web or
+- **Find.** Settings › Plugins › Marketplace searches the catalogs. Each card shows the trust level (content, web or
   code), the publisher, the newest version that fits this keel, and its permissions.
 - **Install.** keel downloads the file, checks its sha256, checks its signature with the publisher's key, and checks
   that the manifest asks for the same permissions as the catalog. Nothing runs at install time. The plugin loads after
@@ -142,7 +142,7 @@ start of the CLI, with the same code in both images, not step 4.
 
 The allow list (`e2e/parity/allow.yml`) has one entry for each step 4 addition, each with a reason that starts with
 "step 4,": the four new GETs under `/api/plugins/…` and `/api/marketplace`, the four MCP tools at the end (exactly
-those four), the menu entry Control › Plugins (exactly that line) and the page `#/plugins`. `GET /api/plugins` is the
+those four), the menu entry Settings › Plugins (exactly that line) and the page `#/plugins`. `GET /api/plugins` is the
 same as in 0.15.4.
 
 ## Found and fixed on the way

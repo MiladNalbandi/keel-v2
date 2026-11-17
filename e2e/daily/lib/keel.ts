@@ -102,6 +102,8 @@ export async function signIn(page: Page): Promise<void> {
   const r = await raw("POST", "/api/web/code", { key: null, body: {}, headers: { "X-Keel-Token": process.env.KEEL_TOKEN || "" } });
   if (r.status !== 200 || !r.json?.path)
     throw new Error(`sign-in link: ${r.status} ${r.text.slice(0, 200)}`);
+  // the first-run welcome covers the whole page on a new keel: the journeys are past it (as "Skip, I know keel")
+  await raw("PUT", "/api/help/welcome", { body: { seen: true, how: "skipped" } });
   await page.goto(URL_ + r.json.path);
   await page.waitForLoadState("domcontentloaded");
 }

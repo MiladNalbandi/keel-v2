@@ -87,7 +87,7 @@ jobs:
           else
             gh release create "$TAG" "${files[@]}" --repo "$REPO" --verify-tag --prerelease="$pre" \
               --title "${title:-$REPO} $version" \
-              --notes "A keel plugin, built against keel-v2 $KEEL_COMMIT. Install it in keel: Control › Plugins › Marketplace."
+              --notes "A keel plugin, built against keel-v2 $KEEL_COMMIT. Install it in keel: Settings › Plugins › Marketplace."
             echo "$REPO $TAG: released"
           fi
           {

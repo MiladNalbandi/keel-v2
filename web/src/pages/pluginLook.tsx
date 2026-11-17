@@ -1,4 +1,4 @@
-// v0.16.1 how Control › Plugins draws a plugin (docs/plugins/mockup.html): its small code-style icon, its publisher with
+// v0.16.1 how Settings › Plugins draws a plugin (docs/plugins/mockup.html): its small code-style icon, its publisher with
 // the verified tick, the marketplace's category chips, and which plugin lives inside another one's page (Git, Code
 // Review, CI/CD and Database in Code; Jira in Tasks).
 //

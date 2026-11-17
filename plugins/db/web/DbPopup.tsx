@@ -1,4 +1,4 @@
-// The Database plugin's popup over the Code page: the same list and editor as Control › Databases (DbManager, as a
+// The Database plugin's popup over the Code page: the same list and editor as Settings › Databases (DbManager, as a
 // project's Databases shows them), so a connection is added or edited without leaving the Code page. It opens on a new
 // draft (the side bar's "+", "Add one") or on one connection (its ⚙). A save or a remove tells the side bar to read its
 // connections again; Save (not Apply), the editor's Cancel, Esc and Close close it.

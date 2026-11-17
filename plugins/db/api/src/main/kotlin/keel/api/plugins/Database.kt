@@ -47,7 +47,7 @@ data class DbConnection(
 )
 
 /**
- * A connection as the editor sends it (Control › Databases, a project's Databases). Every field is optional on an
+ * A connection as the editor sends it (Settings › Databases, a project's Databases). Every field is optional on an
  * update. `url` is a whole address (an import from "Find in project", the old routes): it fills the fields. `password`
  * is only ever sent, never returned.
  */
@@ -131,7 +131,7 @@ data class DbTestResult(val ok: Boolean, val server: String? = null, val tables:
                         val error: String? = null, val hint: String? = null)
 
 /**
- * The Database plugin's connections and the person's own queries (Control › Databases, a project's Databases, Map ›
+ * The Database plugin's connections and the person's own queries (Settings › Databases, a project's Databases, Map ›
  * Query, KeelBot's buttons). A connection is global (every project, or the ones it names) or a project's own; a project
  * sees its own and the globals for it, and its own wins on the same name ([DatabaseStore]). The address with its
  * password is a secret (`db.<id>`); the engine (the plugin's keel_plugin_db) connects, tests, reads the schema and runs
@@ -183,10 +183,10 @@ class DatabaseService(
     private fun active(pid: String, name: String): DbRow = store.active(pid).firstOrNull { it.name == name }
         ?: throw NotFound("No database connection called $name", "Add it in Databases.")
 
-    /** A project's own connection by name; a global one is changed in Control › Databases. */
+    /** A project's own connection by name; a global one is changed in Settings › Databases. */
     private fun own(pid: String, name: String): DbRow = store.own(pid).firstOrNull { it.name == name }
         ?: if (store.active(pid).any { it.name == name }) {
-            throw Conflict("$name is shared with every project", "Change it in Control › Databases.")
+            throw Conflict("$name is shared with every project", "Change it in Settings › Databases.")
         } else {
             throw NotFound("No database connection called $name", "Add it in Databases.")
         }
@@ -227,7 +227,7 @@ class DatabaseService(
 
     // ---------------------------------------------------------------- the routes of keel 0.15 (by name, per project)
     // keel 0.18.55: each needs the plugin on for the project (plugins.require), like schema and query; the editor's
-    // routes by id (Control › Databases, a project's Databases) stay open so connections can be set up before.
+    // routes by id (Settings › Databases, a project's Databases) stay open so connections can be set up before.
 
     /** keel 0.15's list. An agent (keel2 mcp) does not see a connection whose Access is none: not its host, user or database. */
     fun list(pid: String, agent: Boolean = false): List<DbConnection> {
@@ -342,7 +342,7 @@ class DatabaseService(
 
     // ---------------------------------------------------------------- global and per project (by id)
 
-    /** Control › Databases: every global connection (an agent: those it may use). */
+    /** Settings › Databases: every global connection (an agent: those it may use). */
     fun globals(agent: Boolean = false): List<DbEntry> =
         store.globals().filter { !agent || forMcp(it) != "none" }.map { entry(it) }.map { if (agent) mcpView(it) else it }
 
@@ -372,11 +372,11 @@ class DatabaseService(
 
     fun createIn(pid: String, body: DbConfigBody): DbEntry {
         projects.require(pid)
-        if (body.scope == "global") throw Forbidden("A connection for every project is added in Control › Databases", "There it needs the admin level.")
+        if (body.scope == "global") throw Forbidden("A connection for every project is added in Settings › Databases", "There it needs the admin level.")
         return entry(save(null, body, pid, pid))
     }
 
-    /** Any connection by id (Control › Databases); a move between "all projects" and one project too. */
+    /** Any connection by id (Settings › Databases); a move between "all projects" and one project too. */
     fun updateById(id: String, body: DbConfigBody, pid: String? = null): DbEntry {
         val r = byId(id)
         val target = when (body.scope) {
@@ -389,11 +389,11 @@ class DatabaseService(
         return entry(save(r, body, target, pid ?: target.takeUnless { it == DatabaseStore.GLOBAL }))
     }
 
-    /** A project's own connection by id (its Databases view); a global one is changed in Control › Databases. */
+    /** A project's own connection by id (its Databases view); a global one is changed in Settings › Databases. */
     fun updateIn(pid: String, id: String, body: DbConfigBody): DbEntry {
         val r = byId(id)
-        if (r.projectId != pid) throw Conflict("${r.name} is shared with every project", "Change it in Control › Databases.")
-        if (body.scope == "global") throw Forbidden("Sharing a connection with every project is done in Control › Databases", "There it needs the admin level.")
+        if (r.projectId != pid) throw Conflict("${r.name} is shared with every project", "Change it in Settings › Databases.")
+        if (body.scope == "global") throw Forbidden("Sharing a connection with every project is done in Settings › Databases", "There it needs the admin level.")
         return entry(save(r, body.copy(scope = null), pid, pid))
     }
 
@@ -401,7 +401,7 @@ class DatabaseService(
 
     fun deleteIn(pid: String, id: String) {
         val r = byId(id)
-        if (r.projectId != pid) throw Conflict("${r.name} is shared with every project", "Remove it in Control › Databases, or hide it here.")
+        if (r.projectId != pid) throw Conflict("${r.name} is shared with every project", "Remove it in Settings › Databases, or hide it here.")
         remove(r)
     }
 

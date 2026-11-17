@@ -1,5 +1,5 @@
 // 0.16.1 plugin track: the marketplace for workflows in the web (docs/plugins/21-workflow-marketplace.md §4):
-// Control › Plugins › Marketplace's kind switch (Plugins · Workflows, ?kind=workflows), the Workflows view's cards and
+// Settings › Plugins › Marketplace's kind switch (Plugins · Workflows, ?kind=workflows), the Workflows view's cards and
 // its note when no catalog answers, a workflow's page (#/settings/plugins/workflow/<name>), the install dialog (this project or
 // all, 409 missing plugins / agents), and on Build › Workflows the badge, Update (keep my copy / replace), Remove and
 // Publish to marketplace. keel's own workflows look as before.
@@ -24,7 +24,7 @@ function open(hash: string) {
 const card = (title: string) =>
   screen.findByRole("article", { name: `${title} workflow` });
 
-describe("Control › Plugins › Marketplace: the kind switch", () => {
+describe("Settings › Plugins › Marketplace: the kind switch", () => {
   it("shows plugins first; Workflows keeps ?tab=market and adds ?kind=workflows", async () => {
     const user = userEvent.setup();
     open("#/settings/plugins?tab=market");

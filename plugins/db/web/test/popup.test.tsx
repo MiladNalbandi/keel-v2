@@ -1,6 +1,6 @@
 // Code › Database: the side bar's "+", "Add one" and each connection's ⚙ open the connections popup over the Code page
-// (the same list and editor as Control › Databases) instead of leaving the page. A save closes it and the tree reads
-// its connections again; Esc and Close close it without a save. Control › Databases stays a page of its own.
+// (the same list and editor as Settings › Databases) instead of leaving the page. A save closes it and the tree reads
+// its connections again; Esc and Close close it without a save. Settings › Databases stays a page of its own.
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -268,7 +268,7 @@ describe("Code › Database: the connections popup", () => {
     expect(location.hash).toBe("#/repo");
   });
 
-  it("Control › Databases is still a page: no popup, the list and the editor in the page", async () => {
+  it("Settings › Databases is still a page: no popup, the list and the editor in the page", async () => {
     const user = userEvent.setup();
     location.hash = "#/databases";
     render(<App />);

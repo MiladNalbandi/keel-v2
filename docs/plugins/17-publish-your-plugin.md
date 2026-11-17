@@ -4,7 +4,7 @@ This guide is for you if you want to make a keel plugin and put it in the keel m
 for keel. The steps are the same for everyone.
 
 A **plugin** is one file, `<name>-<version>.kplug`. It can add workflows, agents, KeelBot commands, pages, or code to
-keel. People find it in **Control › Plugins › Marketplace** and install it with one click. The design is in
+keel. People find it in **Settings › Plugins › Marketplace** and install it with one click. The design is in
 [02-plugin-package.md](02-plugin-package.md) (the package), [03-security.md](03-security.md) (trust) and
 [04-marketplace.md](04-marketplace.md) (the catalog).
 
@@ -29,7 +29,7 @@ keel. People find it in **Control › Plugins › Marketplace** and install it w
                                                                            check-pr: lint, signature, trust
  7                                                                         a maintainer merges
                                                                            sync (every hour): index.json, signed
- people: Control › Plugins › Marketplace ◀──────────────────────────────── index.json
+ people: Settings › Plugins › Marketplace ◀──────────────────────────────── index.json
 ```
 
 ## Before you start
@@ -94,7 +94,7 @@ It puts your plugin into **your own** running keel:
  1 build    (only with --keel-src, for a web or api part that needs a build)
  2 pack     my-notes-0.1.0.kplug, UNSIGNED, and lint it
  3 copy     docker cp into the keel container: /data/plugins/dev/
- 4 install  POST /api/plugins/install-file  (as "Install from file" in Control › Plugins)
+ 4 install  POST /api/plugins/install-file  (as "Install from file" in Settings › Plugins)
  5 restart  POST /api/plugins/restart, then it waits until keel is back
  6 report   what loaded: the version and the parts, or why keel left it out
 ```
@@ -119,7 +119,7 @@ loaded   My Notes 0.1.0 · parts: content · from file
 - **A web or api part** must be built first. Or give `--keel-src <a keel checkout>`: keel-plugin builds it with keel's
   own build (`scripts/build-plugin.sh`). It copies your plugin into `plugins/<name>/` of that checkout while it
   builds, and removes the copy after.
-- **Remove it** in Control › Plugins › Installed › Remove, then restart keel.
+- **Remove it** in Settings › Plugins › Installed › Remove, then restart keel.
 
 ## 3 · Check it: `keel-plugin lint`
 
@@ -238,7 +238,7 @@ A maintainer reads your pull request and merges it. Within an hour the marketpla
 | web     | installs           | listed as **unverified**; keel installs it only when "Allow unverified publishers" is on |
 | code    | installs           | listed as **unverified**; keel installs it only when "Allow unverified publishers" is on |
 
-"Allow unverified publishers" is a rule in Control › Plugins › Sources and rules. It is **off** by default. Every
+"Allow unverified publishers" is a rule in Settings › Plugins › Sources and rules. It is **off** by default. Every
 install shows the trust level and the permissions first. A person always says yes; an agent can only ask.
 
 ## What a plugin may never do

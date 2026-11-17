@@ -1,4 +1,4 @@
-// Skills in the marketplace (keel 0.18.6), the fourth kind of Control › Plugins › Marketplace. Search the catalogs'
+// Skills in the marketplace (keel 0.18.6), the fourth kind of Settings › Plugins › Marketplace. Search the catalogs'
 // skills (what this project has, and updates) and keel's own (in every project already), one skill (its verified
 // SKILL.md and keel's review), install into a project for the agents the person picks (source "marketplace"), update
 // (replace), remove. A skill is one of the project's skills: no restart, an agent reads it at its next run.
@@ -123,7 +123,7 @@ export function skillShort(r: SkillReview | null | undefined): string {
   return `${t} tokens · ${n} ${n === 1 ? "section" : "sections"}`;
 }
 
-/** A skill's page in Control › Plugins. */
+/** A skill's page in Settings › Plugins. */
 export const skillHref = (name: string) => `#/settings/plugins/skills/${encodeURIComponent(name)}`;
 /** The Marketplace tab with the Skills view. */
 export const MARKET_SKILLS = "#/settings/plugins?tab=market&kind=skills";

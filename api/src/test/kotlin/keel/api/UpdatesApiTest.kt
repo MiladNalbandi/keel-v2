@@ -112,8 +112,9 @@ class UpdatesApiTest : ApiTest() {
     fun `the settings - check every day and the channel - are saved, a wrong channel is refused`() {
         val v = put("/api/updates/settings", mapOf("check_daily" to false, "channel" to "product")).andExpect(status().isOk).json()
         assertThat(v["check_daily"].asBoolean()).isFalse()
-        assertThat(v["channel"].asText()).isEqualTo("product")
-        assertThat(get("/api/updates").json()["channel"].asText()).isEqualTo("product")
+        // 0.31 keel Product is inside every full image: an old "product" channel is saved as stable
+        assertThat(v["channel"].asText()).isEqualTo("stable")
+        assertThat(get("/api/updates").json()["channel"].asText()).isEqualTo("stable")
         put("/api/updates/settings", mapOf("check_daily" to true, "channel" to "nightly")).andExpect(status().isBadRequest)
     }
 
@@ -129,7 +130,7 @@ class UpdatesApiTest : ApiTest() {
     fun `the update command keeps a moving tag, names the new tag for a pinned one and switches channels`() {
         val repo = Command.REPO
         assertThat(Command.of("0.18.66", "stable", "full", "$repo:latest", false).first).isEqualTo("keel2 update")
-        assertThat(Command.of("0.18.66", "product", "product", "$repo:product-beta", false).first).isEqualTo("keel2 update")
+        assertThat(Command.of("0.18.66", "stable", "full", "$repo:product-beta", false).first).isEqualTo("keel2 update")
         assertThat(Command.of("0.18.66", "stable", "full", null, false).first).isEqualTo("keel2 update")
         // 0.27.0 the desktop app: no command, the release page has the new app
         val desktop = Command.of("0.18.66", "stable", "full", null, true, desktop = true)
@@ -138,10 +139,9 @@ class UpdatesApiTest : ApiTest() {
         val pinned = Command.of("0.18.66", "stable", "full", "$repo:0.18.64", false)
         assertThat(pinned.first).isEqualTo("KEEL_IMAGE=$repo:0.18.66 keel2 update")
         assertThat(pinned.second).contains("pinned")
-        assertThat(Command.of("0.18.66", "product", "product", "$repo:0.18.64-product-beta", false).first)
-            .isEqualTo("KEEL_IMAGE=$repo:0.18.66-product-beta keel2 update")
-        assertThat(Command.of("0.18.66", "product", "full", "$repo:latest", false).first)
-            .isEqualTo("KEEL_IMAGE=$repo:product-beta keel2 update")
+        // 0.31 an old pinned product image moves to the stable version (keel Product is inside the full image)
+        assertThat(Command.of("0.18.66", "stable", "full", "$repo:0.18.64-product-beta", false).first)
+            .isEqualTo("KEEL_IMAGE=$repo:0.18.66 keel2 update")
         assertThat(Command.of("0.18.66", "stable", "full", "keel-v2:dev", false).first)
             .isEqualTo("KEEL_IMAGE=$repo:latest keel2 update")
         assertThat(Command.of("0.18.66", "stable", "full", null, true).first).isEqualTo("keel2 update")

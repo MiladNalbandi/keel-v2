@@ -241,7 +241,7 @@ class ClusterService(
 }
 
 /** The rules, and the Google key of GKE sign-in, reach the engine only with an agent call of a project that has the plugin on
- *  (Control › Plugins). */
+ *  (Settings › Plugins). */
 @Component
 class ClusterKeys(private val cluster: ClusterService, private val plugins: PluginService) : FlowContributor {
     override fun keys(pid: String): Map<String, String> =

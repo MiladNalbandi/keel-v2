@@ -6,7 +6,7 @@ plugins/db, plugins/git and plugins/graph (packages keel_plugin_map, keel_plugin
 and keel_plugin_graph), loaded as add-ons; CI/CD, Database and Git each with its own MCP server module
 (keel_plugin_<name>.server).
 
-A project turns db, git and ci on (Control › Plugins); the api then sends `plugins: [...]` with every flow and KeelBot
+A project turns db, git and ci on (Settings › Plugins); the api then sends `plugins: [...]` with every flow and KeelBot
 turn, and the plugin's secrets in the call's keys (memory only): `db:<connection>` → {"name","kind","url","env"} as
 JSON (the Database plugin reads them), `github` → the token. What they share:
 

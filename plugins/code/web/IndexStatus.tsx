@@ -29,7 +29,7 @@ function IndexRow({ pid }: { pid: string }) {
   if (!i) return null;
   return (
     <span className="sb-index" role="group" aria-label="Code graph index">
-      <span className={`sb-i sb-wide sb-itext${i.status === "failed" ? " bad" : ""}`} title={i.error ?? "The code graph agents use before grep"}>
+      <span className={`sb-i sb-wide sb-itext${i.status === "failed" && !noGraph(i) ? " bad" : ""}`} title={i.error ?? "The code graph agents use before grep"}>
         {indexText(i)}
       </span>
       <button type="button" className="sb-i" onClick={rebuild} disabled={busy || i.status === "indexing"}
@@ -49,8 +49,12 @@ function ago(iso: string): string {
   return `${Math.round(min / 1440)} days ago`;
 }
 
+/** A keel without CodeGraph (the keel app, a native keel without npm): no failure, agents use grep. */
+const noGraph = (i: IndexStatus) => i.status === "failed" && !!i.error?.startsWith("CodeGraph is not installed");
+
 function indexText(i: IndexStatus): string {
   if (i.status === "indexing") return "Index: indexing…";
+  if (noGraph(i)) return "Index: no code graph on this keel · agents use grep";
   if (i.status === "failed") return `Index: failed: ${i.error ?? "unknown reason"}`;
   if (i.status === "idle") return "Index: not built yet";
   const when = i.indexed_at ? ` · ${ago(i.indexed_at)}` : "";

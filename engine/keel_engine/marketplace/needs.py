@@ -36,4 +36,4 @@ def check(workflow_id: str, names: list[str] | None) -> None:
     gone = missing(names)
     if gone:
         raise MarketError(409, f"This workflow needs {_and([title(n) for n in gone])}.",
-                          "Install it in Control › Plugins, then restart keel.", missing=gone, workflow=workflow_id)
+                          "Install it in Settings › Plugins, then restart keel.", missing=gone, workflow=workflow_id)

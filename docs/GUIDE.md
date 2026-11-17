@@ -880,7 +880,7 @@ the budget and connections. Each other part is a plugin with its own version:
 | **KeelBot** | the chat (⌘I) and its commands | |
 | **Map**, **Graph**, **Wiki** | their pages | |
 | **Tasks**, **Jira**, **GitHub Issues** | the task board, Jira tickets and GitHub issues | Jira and GitHub Issues need Tasks |
-| **keel Product** (beta) | initiatives and teams | Tasks and Jira |
+| **keel Product** (beta) | initiatives and teams; in every keel since 0.31, off until you turn it on in Add features | Tasks and Jira |
 | **Answers** | drafts answers to a customer's questions from your code and docs, with sources; you approve each one | |
 | **Record** | one page and one file per flow: who asked, what ran, gate answers, commits, cost | |
 | **Notify** | a chat or mail message when a flow waits for you, through a channel you add | |
@@ -1352,9 +1352,10 @@ once.
 Once a day keel asks GitHub for its newest release (Settings › Access › Updates: **Check every day**, on by default;
 off = no network call). A newer version shows a small notice at the top right, once per version: what is new, **All
 changes**, and **Copy the update command**. **Later** hides it until the next version. `keel_health` says it too.
-The command is `keel2 update` (it keeps the image keel runs: `:latest`, or `:product-beta` on the product beta
-channel). Since 0.19.2 `keel2 update` also moves a pinned version (`:0.18.64`, `:0.18.64-product-beta`) to its
-edition's newest release; the notice names the new tag (`KEEL_IMAGE=ghcr.io/miladnalbandi/keel-v2:<new version> keel2
+The command is `keel2 update` (it keeps the image keel runs: `:latest`). Since 0.31 there is no product edition: keel
+Product is inside every full image, off until you turn it on, and `keel2 update` moves an old `:product-beta` keel to
+`:latest` and keeps Product on. Since 0.19.2 `keel2 update` also moves a pinned version (`:0.18.64`) to its edition's
+newest release; the notice names the new tag (`KEEL_IMAGE=ghcr.io/miladnalbandi/keel-v2:<new version> keel2
 update`), which an older `keel2` script needs. `KEEL_IMAGE=<image> keel2 update` pins any version on purpose. A failed check is silent; the Updates part says
 "could not check: <why>". `KEEL_RELEASE_REPO` (owner/name) or `KEEL_RELEASE_CHECK_URL` change where keel looks.
 

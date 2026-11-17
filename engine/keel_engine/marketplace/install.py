@@ -109,7 +109,7 @@ def _refuse_unverified(index: Index, entry: Entry) -> None:
         return
     what = "adds pages to keel" if entry.trust == "web" else "runs code inside keel"
     raise MarketError(409, f"{entry.title} is from {pub.title}, an unverified publisher, and it {what}.",
-                      "keel installs it only when the rule 'Allow unverified publishers' is on (Control › Plugins › "
+                      "keel installs it only when the rule 'Allow unverified publishers' is on (Settings › Plugins › "
                       "Sources and rules).")
 
 
@@ -140,11 +140,11 @@ def _steps(name: str, version: str | None, have: dict) -> tuple[list[Step], list
     found = catalog.lookup(name)
     if found is None:
         raise MarketError(404, f"There is no plugin {name} in the catalogs keel reads.",
-                          "Refresh the catalogs (Control › Plugins › Sources and rules), or check the name.")
+                          "Refresh the catalogs (Settings › Plugins › Sources and rules), or check the name.")
     index, entry = found
     if index.expired():
         raise MarketError(409, f"The catalog {index.source} is old: it expired at {index.expires}.",
-                          "Refresh it (Control › Plugins › Sources and rules › Refresh). keel installs nothing from an "
+                          "Refresh it (Settings › Plugins › Sources and rules › Refresh). keel installs nothing from an "
                           "old catalog.")
     steps: list[Step] = []
     turn_on: list[str] = []
@@ -200,7 +200,7 @@ def _refuse_had(main: Step, have: dict) -> None:
         where = "comes with keel's image" if mine.source == local.IMAGE else "is installed already"
         raise MarketError(409, f"{main.entry.title} {mine.version} {where}.")
     raise MarketError(409, f"{main.entry.title} {mine.version} is installed already.",
-                      "Update it instead (Control › Plugins › Installed).", installed=mine.version)
+                      "Update it instead (Settings › Plugins › Installed).", installed=mine.version)
 
 
 # ------------------------------------------------------------------ download and check
@@ -489,7 +489,7 @@ def remove(name: str, data: str = KEEP, *, by: str = "person") -> dict:
             raise MarketError(404, f"{name} is not installed.")
         if mine.source == local.IMAGE:
             raise MarketError(409, f"{mine.title} came with keel's image: it cannot be removed, only turned off.",
-                              "Turn it off in Control › Plugins › Installed.")
+                              "Turn it off in Settings › Plugins › Installed.")
         back = mine.image_version
         needed_by = [n for n, h in sorted(have.items()) if n != name and h.on and name in h.needs
                      and not (back and satisfies(back, h.needs[name]))]
@@ -588,7 +588,7 @@ def pending_restart(res: resolver.Resolution | None = None) -> dict:
 
 
 def installed_view() -> dict:
-    """The installed and image plugins for Control › Plugins › Installed, plus what waits for a restart."""
+    """The installed and image plugins for Settings › Plugins › Installed, plus what waits for a restart."""
     have = local.have()
     res = _resolve()
     loaded = local.loaded() or {}

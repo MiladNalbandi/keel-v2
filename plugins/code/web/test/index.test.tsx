@@ -42,11 +42,20 @@ describe("Repo index badge", () => {
   });
 
   it("shows why the index failed", async () => {
-    db.index = { project: "ludus-engine", status: "failed", files: 0, symbols: 0, error: "CodeGraph is not installed" };
+    db.index = { project: "ludus-engine", status: "failed", files: 0, symbols: 0, error: "codegraph index exited 1" };
     location.hash = "#/repo";
     render(<App />);
-    const badge = await screen.findByText("Index: failed: CodeGraph is not installed");
-    expect(badge).toHaveAttribute("title", "CodeGraph is not installed");
+    const badge = await screen.findByText("Index: failed: codegraph index exited 1");
+    expect(badge).toHaveAttribute("title", "codegraph index exited 1");
+    expect(badge).toHaveClass("bad");
+  });
+
+  it("a keel without CodeGraph says so calmly: it is no failure", async () => {
+    db.index = { project: "ludus-engine", status: "failed", files: 0, symbols: 0, error: "CodeGraph is not installed on this keel (agents use grep instead)." };
+    location.hash = "#/repo";
+    render(<App />);
+    const badge = await screen.findByText("Index: no code graph on this keel · agents use grep");
+    expect(badge).not.toHaveClass("bad");
   });
 });
 

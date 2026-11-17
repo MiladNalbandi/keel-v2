@@ -1,4 +1,4 @@
-// The web half of the marketplace e2e's rule pack round (e2e/marketplace/e2e.py, rule_packs): Control › Plugins ›
+// The web half of the marketplace e2e's rule pack round (e2e/marketplace/e2e.py, rule_packs): Settings › Plugins ›
 // Marketplace › Rules and a pack's page in headless Chromium.
 //
 //   npx -y -p playwright@1 node e2e/marketplace/rules-web.mjs <url> <outdir> <pack> <pack title>

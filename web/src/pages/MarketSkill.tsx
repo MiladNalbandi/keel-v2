@@ -1,4 +1,4 @@
-// Skills in the marketplace (keel 0.18.6), the fourth kind of Control › Plugins › Marketplace, in the look of the rule
+// Skills in the marketplace (keel 0.18.6), the fourth kind of Settings › Plugins › Marketplace, in the look of the rule
 // pack pages (MarketRulePack.tsx):
 //
 //   Marketplace › Skills      search, the category chips, keel's own skills ("From keel": in every project, the card

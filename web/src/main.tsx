@@ -23,11 +23,11 @@ import "./styles/rules.css";
 import "./styles/models.css";
 // v0.15.4 the key cheat sheet and the menu by keyboard.
 import "./styles/keys.css";
-// v0.16.0 Control › Plugins, the Inbox's install requests and the core-only menu's sets.
+// v0.16.0 Settings › Plugins, the Inbox's install requests and the core-only menu's sets.
 import "./styles/marketplace.css";
 // v0.16.0 the core-only welcome and menu box, and the Inbox's agent install request (docs/plugins/mockup.html).
 import "./styles/corehome.css";
-// v0.16.1 Control › Plugins in the look of docs/plugins/mockup.html.
+// v0.16.1 Settings › Plugins in the look of docs/plugins/mockup.html.
 import "./styles/plugins-page.css";
 // keel 0.18.57 the Settings page (General · Models & keys · Connections · Budget · Plugins · Databases · Devices).
 import "./styles/settings.css";

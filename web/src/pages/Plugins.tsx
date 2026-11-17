@@ -1,4 +1,4 @@
-// Control › Plugins (v0.16.0, docs/plugins/13-step4-contract.md §9; v0.16.1 the look of docs/plugins/mockup.html):
+// Settings › Plugins (v0.16.0, docs/plugins/13-step4-contract.md §9; v0.16.1 the look of docs/plugins/mockup.html):
 // what this keel has installed, the marketplace, and where plugins come from. Three tabs, and a page per plugin:
 //
 //   Installed           keel core first (always on: no switch), then each plugin with its icon; the plugins that live

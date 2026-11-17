@@ -236,7 +236,7 @@ jobs:
               pre=false
               if [[ "$version" == *-* ]]; then pre=true; fi
               gh release create "$tag" "$k" "$k.minisig" --repo "$repo" --prerelease="$pre" --title "${title:-$name} $version" \
-                --notes "keel plugin ${title:-$name} $version, built from keel-v2 plugin-base ($SHA). Install it in keel: Control › Plugins › Marketplace."
+                --notes "keel plugin ${title:-$name} $version, built from keel-v2 plugin-base ($SHA). Install it in keel: Settings › Plugins › Marketplace."
               echo "$repo $tag: released"
             fi
             echo "| $name | [$tag](https://github.com/$repo/releases/tag/$tag) | \`$(sha256sum "$k" | cut -d' ' -f1)\` |" >> "$GITHUB_STEP_SUMMARY"

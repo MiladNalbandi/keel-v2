@@ -214,7 +214,7 @@ def _detail(name: str) -> dict:
     found = catalog.lookup(name)
     if found is None:
         raise MarketError(404, f"There is no plugin {name} in the catalogs keel reads.",
-                          "Refresh the catalogs (Control › Plugins › Sources and rules), or check the name.")
+                          "Refresh the catalogs (Settings › Plugins › Sources and rules), or check the name.")
     index, entry = found
     have = local.have()
     out = catalog.hit(index, entry, have)

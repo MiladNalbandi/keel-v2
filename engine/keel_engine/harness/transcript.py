@@ -70,6 +70,7 @@ class Session:
     messages: list[dict] = field(default_factory=list)    # since the last summary
     summary: str = ""
     todos: list[dict] = field(default_factory=list)
+    tools: list[str] = field(default_factory=list)       # 0.31 the deferred tools the model loaded (harness/tools.py)
     turns: int = 0                                        # assistant turns in the whole session
 
     # ------------------------------------------------------------------ disk
@@ -96,6 +97,8 @@ class Session:
                 s.summary, s.messages = str(e.get("text") or ""), []
             elif t == "todos":
                 s.todos = list(e.get("items") or [])
+            elif t == "tools":
+                s.tools = [str(x) for x in e.get("names") or []]
         s.close_open_calls()
         return s
 
@@ -134,6 +137,12 @@ class Session:
         self.messages = []
         for m in keep:
             self.add(m["role"], m["content"], **{k: v for k, v in m.items() if k not in ("role", "content")})
+
+    def set_tools(self, names: list[str]) -> None:
+        """The deferred tools loaded so far: a continued session (KeelBot's next message, a send-back) has them at once."""
+        if list(names) != self.tools:
+            self.tools = list(names)
+            self._write({"t": "tools", "names": self.tools})
 
     def set_todos(self, items: list[dict]) -> None:
         self.todos = list(items)

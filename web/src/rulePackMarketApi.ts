@@ -1,4 +1,4 @@
-// Rule packs in the marketplace (docs/plugins/23-rules-in-marketplace.md §3, §5): the third kind of Control › Plugins ›
+// Rule packs in the marketplace (docs/plugins/23-rules-in-marketplace.md §3, §5): the third kind of Settings › Plugins ›
 // Marketplace. Search the catalogs' packs (what this project has, and updates), one pack (its verified file, keel's own
 // reading of each rule and who enforces it), install into a project through the rules api (source "marketplace"),
 // update (replace), remove (the rules api's uninstall). A pack is a file in the project's .keel/rules/: no restart.
@@ -162,7 +162,7 @@ export function whoEnforces(r: ReadRule, engines?: EngineInfo[]): { before: stri
   };
 }
 
-/** A pack's page in Control › Plugins. */
+/** A pack's page in Settings › Plugins. */
 export const packHref = (name: string) => `#/settings/plugins/rules/${encodeURIComponent(name)}`;
 /** The Marketplace tab with the Rules view. */
 export const MARKET_RULES = "#/settings/plugins?tab=market&kind=rules";

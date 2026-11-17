@@ -62,7 +62,7 @@ const ICONS: Record<string, ReactElement> = {
       )}
     </>
   ),
-  // v0.16.0 Control › Plugins: a puzzle piece
+  // v0.16.0 Settings › Plugins: a puzzle piece
   plugins: (
     <>
       {P(

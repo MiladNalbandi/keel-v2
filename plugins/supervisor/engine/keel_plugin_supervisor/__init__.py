@@ -93,7 +93,7 @@ ADDON = {
 PART = {
     "name": "supervisor",
     "title": "Supervisor",
-    "per_project": True,         # a project turns it on (Control › Plugins); a flow then turns it on for itself
+    "per_project": True,         # a project turns it on (Settings › Plugins); a flow then turns it on for itself
     "router": _router,
     "lifespan": _lifespan,
     "keel_mcp": _keel_mcp,

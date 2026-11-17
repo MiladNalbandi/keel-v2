@@ -89,6 +89,7 @@ test("keel's environment: the app's Python and Java, never on PATH; the AppImage
   assert.equal(env.KEEL_PYTHON, "/r/runtime/python/bin/python3");
   assert.equal(env.COPILOT_CLI_PATH, "/r/runtime/copilot/copilot-runtime");
   assert.equal(env.COPILOT_SKIP_CLI_DOWNLOAD, "1");
+  assert.equal(env.KEEL_CODEGRAPH_BIN, "/r/runtime/codegraph/bin/codegraph");
   assert.equal(env.KEEL_FRONT, "1");
   assert.equal(env.KEEL_DESKTOP, "1");
   assert.equal(env.KEEL_PLUGINS, "on");

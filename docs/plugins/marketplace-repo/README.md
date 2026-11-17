@@ -9,7 +9,7 @@ https://keel-studio.github.io/keel-marketplace/v1/index.json          the catalo
 https://keel-studio.github.io/keel-marketplace/v1/index.json.minisig  its signature (the catalog key)
 ```
 
-keel reads this index, shows the plugins in **Control › Plugins**, and installs one only when a person says yes.
+keel reads this index, shows the plugins in **Settings › Plugins**, and installs one only when a person says yes.
 
 ## How it works
 

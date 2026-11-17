@@ -16,6 +16,15 @@ test.describe("J2 Feature flow", () => {
     await dlg.getByLabel(/what to build/i).fill("Save a score");
     await dlg.getByLabel(/describe it for the agents/i).fill("A player's score is saved and shown on the shop page.");
     await dlg.getByRole("button", { name: "Start flow" }).click();
+    // shop has no .keel/config.yml: keel asks once (Run init first / Start anyway). The question must be in view:
+    // it used to open under the fold of the long form, so Start flow seemed to do nothing.
+    const anyway = dlg.getByRole("button", { name: "Start anyway" });
+    if (await anyway.waitFor({ timeout: 5_000 }).then(() => true, () => false)) {
+      await expect(anyway, "the init question is in view").toBeInViewport({ ratio: 1 });
+      await page.waitForTimeout(1_500); // the estimate arrives late and grows the form above the question
+      await expect(anyway, "the init question stays in view").toBeInViewport({ ratio: 1 });
+      await anyway.click();
+    }
 
     const th = await until("the flow", async () => {
       const t = (await api("GET", `/projects/${shop.id}/flow`)).thread;

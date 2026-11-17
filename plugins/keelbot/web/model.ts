@@ -37,6 +37,18 @@ export function usageText(tokens: number, cost: number): string {
   return cost > 0 ? `${t} tokens · $${cost.toFixed(2)}` : `${t} tokens`;
 }
 
+const k = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+
+/** 0.31 the parts of a usage, for the line under an answer and its tooltip: "0.1k new · 1.7k cached · 5 out". */
+export function usageParts(u: { tokens_in?: number; tokens_out?: number; tokens_cached?: number }): { line: string; title: string } {
+  const i = u.tokens_in ?? 0, o = u.tokens_out ?? 0, c = u.tokens_cached ?? 0;
+  return {
+    line: c > 0 ? `${k(i)} new · ${k(c)} cached · ${k(o)} out` : `${k(i)} in · ${k(o)} out`,
+    title: `Sent to the model: ${i.toLocaleString()} new tokens${c > 0 ? ` and ${c.toLocaleString()} it had in its cache (they cost about a tenth)` : ""}. ` +
+      `Its answer: ${o.toLocaleString()} tokens. The total keel counts is new + answer + a tenth of the cached.`,
+  };
+}
+
 export const sessionTokens = (s: Pick<HelperSession, "tokens_in" | "tokens_out" | "tokens_cached">) =>
   s.tokens_in + s.tokens_out + Math.floor(s.tokens_cached / 10);
 

@@ -50,7 +50,7 @@ function DbEditorTab({ pid, tab, retarget }: CodeTabProps) {
 
 export function setup(sdk: KeelSdk) {
   // keel 0.18.57 Settings › Databases: connections for all projects (or some), and the chosen project's own, with the
-  // live database's Query under them. It was Control › Databases (#/databases opens the tab now) and a section of
+  // live database's Query under them. It was Settings › Databases (#/databases opens the tab now) and a section of
   // Connections before.
   sdk.registerSlot<SettingsTabItem>(SLOTS.settingsTab, {
     id: "databases",

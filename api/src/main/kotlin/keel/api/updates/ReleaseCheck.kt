@@ -95,7 +95,8 @@ class ReleaseCheck(
     fun settings(): UpdateSettings = kv.get<UpdateSettings>(SETTINGS_KEY) ?: UpdateSettings()
 
     fun saveSettings(s: UpdateSettings): UpdateSettings {
-        val channel = s.channel?.trim()?.lowercase()?.ifEmpty { null }
+        // 0.31 keel Product is inside every full image: an old "product" channel is the stable one now
+        val channel = s.channel?.trim()?.lowercase()?.ifEmpty { null }?.let { if (it == "product") "stable" else it }
         if (channel != null && channel !in CHANNELS) throw BadRequest("No update channel \"${s.channel}\"", "One of: ${CHANNELS.joinToString(", ")}.")
         val saved = UpdateSettings(s.checkDaily, channel)
         kv.put(SETTINGS_KEY, saved)
@@ -139,7 +140,8 @@ class ReleaseCheck(
         val native = System.getenv("KEEL_NATIVE") == "1"
         val desktop = System.getenv("KEEL_DESKTOP") == "1"
         val image = System.getenv("KEEL_IMAGE")?.trim()?.ifEmpty { null }
-        val channel = s.channel ?: if (edition == "product") "product" else "stable"
+        // 0.31 one channel: keel Product is inside every full image (an old saved "product" counts as stable)
+        val channel = s.channel?.takeIf { it in CHANNELS } ?: "stable"
         val latest = r?.version
         val (command, why) = Command.of(latest, channel, edition, image, native, desktop)
         return UpdatesView(
@@ -153,7 +155,7 @@ class ReleaseCheck(
     companion object {
         const val SETTINGS_KEY = "updates.settings"
         const val CACHE_KEY = "updates.release"
-        val CHANNELS = listOf("stable", "product")
+        val CHANNELS = listOf("stable")
         /** the release notes keel keeps (Markdown); the rest is on GitHub */
         const val NOTES_MAX = 20_000
         private const val BODY_MAX = 1_000_000
@@ -248,8 +250,8 @@ object Command {
         }
         val pinned = image != null && PINNED.containsMatchIn(image)
         val running = when {
-            image == null -> if (edition == "product") "product" else "stable"
-            image.endsWith("product-beta") -> "product"
+            // 0.31 :product-beta is the full image now (keel Product inside); an old pinned -product-beta tag moves to
+            // the stable version tag below
             else -> "stable"
         }
         return when {
@@ -261,14 +263,10 @@ object Command {
         }
     }
 
-    private fun label(channel: String) = if (channel == "product") "product beta" else "stable"
+    private fun label(@Suppress("UNUSED_PARAMETER") channel: String) = "stable"
 
-    /** the image tag of a channel: a version's own (0.18.65, 0.18.65-product-beta) or the moving one (latest, product-beta) */
-    fun tag(version: String?, channel: String): String = when {
-        version == null -> if (channel == "product") "product-beta" else "latest"
-        channel == "product" -> "$version-product-beta"
-        else -> version
-    }
+    /** the image tag: a version's own (0.18.65) or the moving one (latest). 0.31: no product-beta tags of their own. */
+    fun tag(version: String?, @Suppress("UNUSED_PARAMETER") channel: String): String = version ?: "latest"
 
     /** ghcr.io/x/keel-v2:0.18.64 → ghcr.io/x/keel-v2; null for a local image (no registry, no slash). */
     fun repoOf(image: String): String? {

@@ -1,4 +1,4 @@
-# The Cluster plugin (plugins/cluster, engine keel_plugin_cluster). Turned on per project in Control › Plugins. KeelBot and the
+# The Cluster plugin (plugins/cluster, engine keel_plugin_cluster). Turned on per project in Settings › Plugins. KeelBot and the
 # agents that may use it read the cluster through its tools; a command or a change follows the context's access in Cluster › Connect.
 name: cluster
 title: Cluster

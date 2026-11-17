@@ -10,6 +10,7 @@ from pathlib import Path
 from ..addons import NAME
 from ..pluginhost import PluginError, manifest, state
 from ..pluginhost.manifest import Manifest
+from ..pluginhost import resolver
 from ..pluginhost.resolver import version_key
 from . import MarketError
 
@@ -86,6 +87,8 @@ def have() -> dict[str, Had]:
             continue
         e = entries.get(name, {})
         on = e.get("on", True) is not False
+        if name not in entries and name in image and resolver._starts_off(image[name]):
+            on = False            # 0.31 in the image, off until a person turns it on (keel Product: starts_off)
         v = e.get("version")
         img = image[name].name if name in image else None
         if isinstance(v, str) and manifest.VERSION.match(v):

@@ -191,7 +191,7 @@ keel-plugin.yml   the manifest
 
 ## Install
 
-When it is released: in keel, **Control › Plugins › Marketplace › {title} › Install**. keel checks the file's
+When it is released: in keel, **Settings › Plugins › Marketplace › {title} › Install**. keel checks the file's
 signature, shows what the plugin may do, and asks you before it installs.
 
 ## License

@@ -22,7 +22,9 @@ They run with a scripted model, no key and no network. Flow tests that need a mo
 | Stops a loop of the same call | done | a note after 3 repeats, a stop after 6 |
 | Refusal and max-tokens stops | done | reported to the flow in plain words |
 | Usage and cost while it runs | done | `agent.usage` after every turn; the token cap warns while the step runs |
-| Prompt caching | done | Anthropic: cached system + automatic tail; OpenAI-compatible: stable prefix |
+| Prompt caching | done | Anthropic: cached system + automatic tail; OpenAI-compatible: stable prefix; GitHub Copilot: one live session per chat, so the next message goes on where Copilot is (0.31) |
+| Tools loaded on demand | done (0.31) | the model gets a small base set (Read, Write, Edit, Glob, Grep, Bash, RunTests, TodoWrite) and `LoadTools`; Task, Skill, WebFetch, NotebookEdit, background shells and every MCP/plugin tool load when needed, stay loaded for the session and join the end of the list (GitHub Copilot: added to its live session) |
+| What each turn sends | done (0.31) | a `context:` step per model call: system, tools, chat, new text and the provider's new / cached tokens |
 | Effort / thinking | done | Anthropic adaptive thinking + `output_config.effort`; OpenAI `reasoning_effort` |
 | Fallback model on a refusal | done | Anthropic server-side fallback on the newest models |
 | A step that fails does not end the flow | done (part 3) | the flow doctor (`flowdoctor/`): a busy, limited or unreachable provider is waited out, a conversation too long runs again in a new session, a stale git lock is removed; else the flow waits with what happened and what to do |
@@ -61,7 +63,7 @@ They run with a scripted model, no key and no network. Flow tests that need a mo
 | Git state at the start | done | branch, changed files, last 5 commits |
 | Environment (folder, date, platform) | done | |
 | Note when a file changed since the agent read it | done | changes by the agent's own Write/Edit do not count |
-| Compaction of a long conversation | done | Claude: on the server; other models: keel summarizes at 75% of the window |
+| Compaction of a long conversation | done | Claude: on the server; other models: keel summarizes at 75% of the window. KeelBot chats (0.31): from 40k tokens, keeping the last 6 questions whole |
 | Memory the person adds (`#` in Claude Code) | keel's way | keel's knowledge and agent memory |
 | Output styles | not here | keel's agents have their own role text |
 

@@ -234,7 +234,7 @@ remove: POST /api/projects/{pid}/rule-packs/uninstall {name} (the rules api)
 
 ### web
 
-- Control › Plugins › Marketplace: the kind switch **Plugins · Workflows · Rules** (`#/plugins?tab=market&kind=rules`).
+- Settings › Plugins › Marketplace: the kind switch **Plugins · Workflows · Rules** (`#/plugins?tab=market&kind=rules`).
 - `RulesMarket` (`pages/MarketRulePack.tsx`): search, category chips, cards (icon, title, publisher ✓ / community,
   version, summary, "3 rules · bash 1 · edit 2 · every phase", lanes; Install / Installed here / Update to x; an
   "edited" note; a refused pill), From keel / From the community, and a note when no catalog answers.

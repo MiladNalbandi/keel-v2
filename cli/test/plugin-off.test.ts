@@ -30,7 +30,7 @@ describe("a plugin's command in a project where the plugin is off", () => {
     const r = await run(ctx, "/supervisor status");
     const text = JSON.stringify(r);
     expect(text).toContain("The Supervisor plugin is off for this project");
-    expect(text).toContain("Control › Plugins");
+    expect(text).toContain("Settings › Plugins");
     expect(text).not.toContain("No command /supervisor");
   });
 

@@ -10,7 +10,7 @@ import { App } from "../../../../web/src/App";
 import { eventLine } from "../../../../web/src/components/events";
 import { restorePlugins, withoutPages } from "../../../../web/src/test/coreOnly";
 import { db, FakeEventSource, server } from "../../../../web/src/test/setup";
-import { fileLink, replaceTyping, starters, typingAt, usageText } from "../model";
+import { fileLink, replaceTyping, starters, typingAt, usageParts, usageText } from "../model";
 
 const panel = () => screen.findByRole("complementary", { name: "KeelBot" });
 const turns = () => db.calls.filter((c) => c.method === "POST" && /\/helper\/sessions\/[^/]+\/turn$/.test(c.path));
@@ -54,6 +54,9 @@ describe("Helper: the panel's helpers", () => {
       .toEqual({ text: "why @ScoreService  now", caret: 18 });
     expect(usageText(1500, 0)).toBe("1.5k tokens");
     expect(usageText(2_400_000, 1.234)).toBe("2.4M tokens · $1.23");
+    // 0.31 the parts: what was new, what came from the cache, the answer
+    expect(usageParts({ tokens_in: 89, tokens_out: 5, tokens_cached: 1664 }).line).toBe("89 new · 1.7k cached · 5 out");
+    expect(usageParts({ tokens_in: 1200, tokens_out: 30 }).line).toBe("1.2k in · 30 out");
     expect(starters({ flowWaits: true, openFile: "a.kt" })[0]).toBe("/gate");
     const ev = (type: string, data: Record<string, unknown>) => eventLine({ type, data, thread_id: "t", project_id: "p", at: "" } as never).text;
     expect(ev("helper.commit", { message: "feat(AC-2): limit is 100 94baef0" })).toBe("KeelBot's change committed: feat(AC-2): limit is 100 94baef0");
@@ -93,7 +96,7 @@ describe("Helper in the Code page", () => {
 
     answer("It is saved in `api/ScoreController.kt:9`, after the check.", [{ kind: "read", text: "fun save()", path: "api/ScoreController.kt" }]);
     const link = await within(p).findByRole("link", { name: "api/ScoreController.kt:9" });
-    expect(p.querySelector(".hp-meta")).toHaveTextContent("Claude sonnet · 1.5k tokens · 4.2 s");
+    expect(p.querySelector(".hp-meta")).toHaveTextContent("Claude sonnet · 1.5k tokens (1.2k in · 300 out) · 4.2 s");
     await user.click(link);
     await waitFor(() => expect(document.querySelector('.cv-row[data-line="9"]')).toHaveClass("tgt"));
   });

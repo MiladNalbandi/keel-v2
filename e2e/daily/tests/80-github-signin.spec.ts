@@ -18,9 +18,25 @@ test.describe("J8 GitHub sign-in", () => {
     const errors = watchConsole(page);
     await signIn(page);
     await page.goto("/#/connections");
-    await page.getByRole("button", { name: "Sign in with GitHub" }).click();
+    // the fake gh starts signed in (keel shows "connected as e2e-user"): sign out first, then the sign-in is offered
+    const signOut = page.getByRole("button", { name: "Sign out" }).first();
+    const signInBtn = page.getByRole("button", { name: "Sign in with GitHub" });
+    await expect(signOut.or(signInBtn).first()).toBeVisible({ timeout: 20_000 });
+    if (await signOut.isVisible().catch(() => false)) {
+      await signOut.click();
+      const sure = page.getByRole("dialog").getByRole("button", { name: /sign out/i }).first();
+      if (await sure.isVisible().catch(() => false)) await sure.click();
+    }
+    await signInBtn.click();
     const drawer = page.getByRole("dialog", { name: /GitHub login/i });
     await drawer.getByRole("button", { name: "Start login" }).click();
+    // step 2 "Open this page and sign in": the code (step 3) shows once the person opened github.com. The journey
+    // never loads github.com: the new tab is closed at once.
+    await page.context().route(/github\.com/, (r) => r.abort());
+    page.context().on("page", (p) => void p.close().catch(() => undefined));
+    const open = drawer.getByRole("link", { name: /Open github\.com/ }).or(drawer.getByRole("button", { name: /Open github\.com/ })).first();
+    await expect(open).toBeVisible({ timeout: 20_000 });
+    await open.click();
     const shown = page.getByText("AB12-CD34");
     if (!(await shown.waitFor({ timeout: 40_000 }).then(() => true, () => false))) {
       bug(info, { title: "GitHub sign-in does not show the one-time code", steps: ["Connections", "GitHub: Sign in"], expected: "code AB12-CD34 and a link to github.com/login/device", actual: "no code on the page after 40 s" });

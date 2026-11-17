@@ -14,7 +14,7 @@ import { useRef, useState } from "react";
 import { api, errorParts, type RunRow } from "../api";
 import { inboxApi, type InboxItem } from "../inboxApi";
 import { openStartFlow, runTone } from "../components/ShellNav";
-import { hashFor } from "../routes";
+import { hashFor, settingsHash } from "../routes";
 import type { PageProps } from "../sdk/registry";
 import { go, useApp, useLoad } from "../state";
 
@@ -37,7 +37,7 @@ export function HomePage({ pid }: PageProps) {
   const [text, setText] = useState("");
   const [err, setErr] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [fail, setFail] = useState("");
+  const [fail, setFail] = useState<{ message: string; hint?: string } | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const inbox = useLoad("home-inbox", () => inboxApi.list({}), { live: true });
   const runs = useLoad(pid ? `home-runs:${pid}` : null, () => api.runs(pid, undefined, 8), { live: true });
@@ -62,11 +62,14 @@ export function HomePage({ pid }: PageProps) {
       }
       if (!pid || busy) return;
       setBusy(true);
-      setFail("");
+      setFail(null);
       void (async () => {
+        let made = "";
         try {
           const s = await api.helperCreate(pid, { mode: "ask", title: t.slice(0, 80) });
+          made = s.id;
           await api.helperTurn(pid, s.id, { text: t });
+          made = "";
           try {
             localStorage.setItem(`keel2.helper.${pid}.session`, s.id);
           } catch {
@@ -75,7 +78,10 @@ export function HomePage({ pid }: PageProps) {
           setText("");
           go("helper");
         } catch (e) {
-          setFail(errorParts(e).message);
+          const er = errorParts(e);
+          setFail({ message: er.message, hint: er.hint });
+          // the question was refused (no model yet): no empty chat stays behind
+          if (made) void api.helperDelete(pid, made).catch(() => undefined);
         } finally {
           setBusy(false);
         }
@@ -130,7 +136,12 @@ export function HomePage({ pid }: PageProps) {
             }}
           />
           {err && <p className="h2-err">Say what to build first.</p>}
-          {fail && <p className="h2-err" role="alert">{fail}</p>}
+          {fail && (
+            <p className="h2-err" role="alert">
+              <b>{fail.message}.</b> {fail.hint}{" "}
+              {/models & keys/i.test(fail.hint ?? "") && <a href={settingsHash("models")}>Open Models &amp; keys</a>}
+            </p>
+          )}
           <div className="h2-acts">
             <span className="h2-tip">
               {mode === "build" ? "Workflow, size, cap and run mode come next." : "Opens in KeelBot. It reads the project; it changes nothing."}

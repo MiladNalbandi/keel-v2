@@ -401,7 +401,7 @@ export function rules(p: Project, v: RulesLike, now?: RulesNowLike | null, c: Pa
 type InstalledLike = { name: string; version?: string; title?: string; from?: string; on?: boolean; status?: string; update?: string; problems?: string[] };
 
 export function plugins(installed: InstalledLike[], here?: { name: string; enabled: boolean }[], c: Paint = PLAIN): string {
-  if (!installed.length) return "keel has no plugins (a core-only keel). Control › Plugins adds them.";
+  if (!installed.length) return "keel has no plugins (a core-only keel). Settings › Plugins adds them.";
   const on = new Map((here ?? []).map((p) => [p.name, p.enabled]));
   const onOff = (b: boolean | undefined) => (b ? c.ok("on") : c.faint("off"));
   return ["keel has:", ...installed.map((p) => `  ${c.accent(p.name.padEnd(10))} ${c.dim(p.version ?? "")}  ${c.bold(p.title ?? "")} · ${onOff(p.on)}`

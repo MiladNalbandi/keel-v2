@@ -511,6 +511,25 @@ def test_the_installed_list_says_where_each_plugin_is(market, image):
     assert rows["hello"]["status"] == "left out" and "web" in rows["hello"]["problems"][0]
 
 
+def test_a_starts_off_image_plugin_shows_off_until_turned_on_then_waits_for_the_restart(market, image):
+    """0.31 keel Product: in every image, off until a person turns it on (Add features); then it loads at the restart."""
+    image_plugin(image, "code")
+    image_plugin(image, "product", "0.1.0-beta.1", extra={"starts_off": True})
+    started()
+    rows = {p["name"]: p for p in install.installed_view()["plugins"]}
+    assert (rows["product"]["on"], rows["product"]["status"]) == (False, "off")
+    assert rows["code"]["status"] == "loaded"
+    install.set_on("product", True)
+    view = install.installed_view()
+    rows = {p["name"]: p for p in view["plugins"]}
+    assert (rows["product"]["on"], rows["product"]["status"]) == (True, "restart")
+    assert {"name": "product", "now": None, "next": "0.1.0-beta.1"} in view["pending_restart"]["changes"]
+    started()
+    assert {p["name"]: p for p in install.installed_view()["plugins"]}["product"]["status"] == "loaded"
+    install.set_on("product", False)
+    assert {p["name"]: p for p in install.installed_view()["plugins"]}["product"]["on"] is False
+
+
 def test_the_lock_lets_one_change_run_at_a_time(market):
     with install._locked():
         with install._locked():                                    # the same thread may take it again

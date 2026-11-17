@@ -32,7 +32,7 @@ export const SCREEN = {
   budget: "budget",
   settings: "settings",
   connections: "connections",
-  /** v0.16.0 Control › Plugins: installed plugins, the marketplace, sources and rules */
+  /** v0.16.0 Settings › Plugins: installed plugins, the marketplace, sources and rules */
   plugins: "plugins",
   /** keel 0.18.66 Help › Start here (#/help) and the short guides (#/help/<guide>) */
   help: "help",

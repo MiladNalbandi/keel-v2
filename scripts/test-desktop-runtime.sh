@@ -52,6 +52,8 @@ bad() { printf '  FAIL %s\n' "$1"; fails=$((fails + 1)); }
 # GitHub Copilot (your plan): the app carries the Copilot SDK and its runtime (no download at run time)
 [ -x "$app/runtime/copilot/copilot-runtime" ] && ok "the Copilot runtime is in the app" || bad "no runtime/copilot/copilot-runtime in the app"
 "$app/runtime/python/bin/python3" -c 'import copilot' 2> /dev/null && ok "the Copilot SDK imports" || bad "the app's Python has no Copilot SDK"
+# the code graph: CodeGraph runs on its own Node, without any Node of this computer
+"$app/runtime/codegraph/bin/codegraph" --version > /dev/null 2>&1 && ok "CodeGraph runs" || bad "no working runtime/codegraph/bin/codegraph in the app"
 
 echo "starting keel from $app (port $port)…"
 t0=$SECONDS
@@ -63,6 +65,7 @@ env -i HOME="$scratch/home" USER="${USER:-keel}" LANG=en_US.UTF-8 PATH="$path" T
   KEEL_PYTHON="$app/runtime/python/bin/python3" KEEL_MCP_PYTHON="$app/runtime/python/bin/python3" \
   KEEL_API_JAR="$app/keel/api.jar" KEEL_JAVA="$app/runtime/jre/bin/java" PYTHONDONTWRITEBYTECODE=1 \
   COPILOT_CLI_PATH="$app/runtime/copilot/copilot-runtime" COPILOT_SKIP_CLI_DOWNLOAD=1 \
+  KEEL_CODEGRAPH_BIN="$app/runtime/codegraph/bin/codegraph" \
   KEEL_FAKEONREALPROJECTS=true \
   /bin/bash "$app/keel/keel-native-start" > "$scratch/logs/keel.log" 2>&1 < /dev/null &
 pid=$!

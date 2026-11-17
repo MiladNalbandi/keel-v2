@@ -34,7 +34,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/keel-v2.gif" alt="keel v2: the budget bar, a flow waiting at a gate, the inbox, Control › Plugins (keel core and a plugin on for this project or all projects), the database diagram, the code graph, the Wiki with a spec and its build status, the repo, and a person approving the spec" width="900">
+  <img src="docs/keel-v2.gif" alt="keel v2: the budget bar, a flow waiting at a gate, the inbox, Settings › Plugins (keel core and a plugin on for this project or all projects), the database diagram, the code graph, the Wiki with a spec and its build status, the repo, and a person approving the spec" width="900">
   <br><sub>The dashboard — recorded from a real keel v2 run (Claude Haiku on a small shop project), not drawn.</sub>
 </p>
 
@@ -99,7 +99,7 @@ How it works and its limits: [desktop/README.md](desktop/README.md).
 | **Code › Review** | pull requests to review: threads, line comments, and keel's check of each comment ([below](#code-review)) |
 | **KeelBot** (in Code, ⌘I) | ask about the code; which workflow fits a piece of work (and start it); ask about a running flow; write a workflow of your own; fix things while a flow waits at a gate, or try an idea on its own branch |
 | **Workflows** | the workflows as blocks, in folders, with how often each ran |
-| **Control › Plugins** | every plugin, on or off; **Database**, **Git**, **CI/CD** and **Code Review** also per project |
+| **Settings › Plugins** | every plugin, on or off; **Database**, **Git**, **CI/CD** and **Code Review** also per project |
 | **Quality** | how well each flow works with each model, run on small test projects; a drop shows in red |
 | **Budget** | tokens and cost (a small bar shows it on top of every page) |
 | **Help › Start here** | five set-up steps with what keel really sees (a project, a model, your AI tool over MCP, init, a first flow), and short guides with search; the first open shows a welcome with the tour |
@@ -116,7 +116,9 @@ keel is a small **core**. Everything else is a **plugin** that you turn on or of
    + Supervisor   + keel Product (beta)
 ```
 
-**Control › Plugins** shows them. All plugins come with keel and are on. Turn one off, or add one from the
+**Settings › Plugins** and **Add features** show them. All plugins come with keel and are on, except **keel Product**
+(beta): it is in every keel (the Docker image, the native install and the keel app) but off until you turn it on in
+**Add features** (its card has On · Off; keel restarts once to load it). Turn one off, or add one from the
 **Marketplace**, and keel restarts in about 30 seconds. `keel2 start --core` starts keel with no plugin inside.
 
 ## Code Review
@@ -143,7 +145,7 @@ A plugin (off by default) that watches a project's flows like a careful colleagu
 ```
 
 It runs on a strong model, never raises a budget cap, and you can turn it on keel-wide, per project or per flow
-(Control › Plugins, or `/supervisor` in `keel2`).
+(Settings › Plugins, or `/supervisor` in `keel2`).
 
 ## Flows
 

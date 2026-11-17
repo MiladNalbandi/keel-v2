@@ -99,7 +99,7 @@ class Settings(BaseModel):
     # the project's git name, else KeelBot), and the Co-Authored-By: KeelBot line (default on)
     commit_author: str | None = None
     commit_coauthor: bool | None = None
-    # v0.10.0 plugins (Control › Plugins): the ones on for the project; git:push / git:pr follow push_pr; git:branch the pattern
+    # v0.10.0 plugins (Settings › Plugins): the ones on for the project; git:push / git:pr follow push_pr; git:branch the pattern
     plugins: list[str] | None = None
     push_pr: Literal["ask", "auto", "never"] | None = None
     branch_pattern: str | None = None

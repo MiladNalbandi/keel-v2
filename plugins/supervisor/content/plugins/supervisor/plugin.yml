@@ -1,4 +1,4 @@
-# The Supervisor plugin (plugins/supervisor, engine keel_plugin_supervisor). Turned on per project in Control › Plugins
+# The Supervisor plugin (plugins/supervisor, engine keel_plugin_supervisor). Turned on per project in Settings › Plugins
 # (Off | This project | All projects); keel's own switches (keel-wide, project, flow) then decide whether it watches.
 # Without this file keel's per-project list did not know the plugin, so no project could turn it on.
 name: supervisor

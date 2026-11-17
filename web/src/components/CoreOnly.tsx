@@ -1,12 +1,12 @@
 // v0.16.0 a keel with only its core (docs/plugins/13-step4-contract.md §9, the mockup's "Core-only keel" screen in
 // docs/plugins/mockup.html): Code, KeelBot, Map, Graph and Wiki are plugins, so the menu's Project group has no pages.
 //
-//   menu       the Project group is one small box: "No pages yet" and + Add pages (Control › Plugins, Marketplace)
+//   menu       the Project group is one small box: "No pages yet" and + Add pages (Settings › Plugins, Marketplace)
 //   Flow       a project with no flow opens on "Welcome to keel core": the marketplace, how plugins work, the four
 //              sets (GET /api/plugins/sets: Developer, Review, Knowledge, Tickets) and what core does by itself
 //   the brand  the tag next to the logo says "core"
 //
-// A set's "Install N" opens Control › Plugins with that set (#/settings/plugins?set=<id>): the same offer and confirm as there,
+// A set's "Install N" opens Settings › Plugins with that set (#/settings/plugins?set=<id>): the same offer and confirm as there,
 // so nothing installs without the person's click there. N counts what the set adds: the plugins keel does not have
 // (downloaded) and the image's plugins that are off (turned on, not downloaded).
 
@@ -47,9 +47,9 @@ export function useCoreOnly(): { coreOnly: boolean; bare: boolean } {
   return { coreOnly, bare: coreOnly && pages.every((p) => OWN.has(p.id)) };
 }
 
-/** The link that opens Control › Plugins on its Marketplace tab. */
+/** The link that opens Settings › Plugins on its Marketplace tab. */
 export const MARKETPLACE_HASH = "#/settings/plugins?tab=market";
-/** The link that offers a set in Control › Plugins (its confirm installs it). */
+/** The link that offers a set in Settings › Plugins (its confirm installs it). */
 export const setHash = (id: string) => `#/settings/plugins?set=${encodeURIComponent(id)}`;
 
 // ---------- the menu ----------

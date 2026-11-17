@@ -1,4 +1,4 @@
-// Database connections global or per project (Control › Databases, a project's Databases): their JSON, the api calls
+// Database connections global or per project (Settings › Databases, a project's Databases): their JSON, the api calls
 // (keel.api.plugins DatabasesController in the plugin's api part), and what the list and the editor work out from them.
 // The password goes to the api only; it never comes back.
 

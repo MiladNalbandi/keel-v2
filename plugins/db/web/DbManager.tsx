@@ -1,6 +1,6 @@
 // Database connections, global or per project: the list on the left (grouped "All projects" and "<project> only", each
 // with its database's logo and its environment), Problems at the bottom, and the editor of the chosen one on the right
-// (DbEditor). Control › Databases shows every global connection and the chosen project's own; a project's Databases
+// (DbEditor). Settings › Databases shows every global connection and the chosen project's own; a project's Databases
 // (Connections) shows what that project uses: its own and the globals for it. At a narrow width the list and the editor
 // take turns. The Database plugin's part (plugins/db): it imports only react and @keel/web-sdk.
 
@@ -76,7 +76,7 @@ export function DbManager({ pid, projectName, place, startNew, select, onChanged
   const reload = async () => {
     await Promise.all([place === "control" ? globals.reload() : Promise.resolve(), pid ? mine.reload() : Promise.resolve()]);
   };
-  // keel 0.18.55: with a project chosen (also in Control › Databases), a new connection is that project's own unless the
+  // keel 0.18.55: with a project chosen (also in Settings › Databases), a new connection is that project's own unless the
   // person picks All projects
   const add = () => setPick({ kind: "new", draft: newDraft(pid ? "project" : "global") });
   const find = async () => {

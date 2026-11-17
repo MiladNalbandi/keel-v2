@@ -28,7 +28,7 @@ function chatWith(text: string) {
   return screen.findByRole("complementary", { name: "KeelBot" });
 }
 
-// v0.17.1 plugins are switched only in Control › Plugins (docs/plugins/22-one-plugins-page.md): the Tools page has no
+// v0.17.1 plugins are switched only in Settings › Plugins (docs/plugins/22-one-plugins-page.md): the Tools page has no
 // Plugins section any more; a plugin that is on still brings its server to "Who may use what".
 describe("Tools: no Plugins section", () => {
   it("shows servers, recent calls and who may use what, and no plugin cards or switches", async () => {
@@ -54,7 +54,7 @@ describe("Tools: no Plugins section", () => {
   });
 });
 
-describe("Control › Plugins: a plugin each project turns on", () => {
+describe("Settings › Plugins: a plugin each project turns on", () => {
   function installDbGit() {
     db.market.installed = [
       { name: "db", title: "Database", version: "1.4.0", from: "image", on: true, parts: ["engine", "api", "web"], status: "loaded", can_remove: false },

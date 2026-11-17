@@ -24,7 +24,7 @@ the project through the rules api, keel's PreToolUse hook refuses `npm install` 
 replace, then replace), the web (rules-web.mjs), uninstall, a bad signature refused); needs_plugins (a workflow that needs hello refuses to start and asks); search;
 install 1.0.0, restart keel (in the same container), hello loaded (its engine route, web part, workflow and agent);
 update to 1.1.0; update to 1.2.0 refused (more permissions) and asked in the Inbox: denied, asked again, the web
-(Control › Plugins and the Inbox card), approved; roll back; remove; the refusals (a bad index signature, a bad package
+(Settings › Plugins and the Inbox card), approved; roll back; remove; the refusals (a bad index signature, a bad package
 signature, a wrong sha256, an old index, a revoked version); an agent asks through keel's MCP server, a person approves
 in the Inbox, keel restarts and hello is loaded; with the rule agents_may_ask off the agent is told to ask the person.
 Without --keep the container, the volume and the temp folder are removed at the end.
@@ -68,7 +68,7 @@ SOURCE_ID, SOURCE_TITLE = "e2e", "e2e catalog"
 PERMS = {"1.0.0": "  workspace: read\n", "1.1.0": "  workspace: read\n",
          "1.2.0": "  workspace: read\n  network:\n    - api.example.com\n"}
 MORE = "+ network: api.example.com"
-ASK_IN_PLUGINS = "Ask the person to install it in Control › Plugins"
+ASK_IN_PLUGINS = "Ask the person to install it in Settings › Plugins"
 MARKET_TOOLS = ["keel_marketplace_search", "keel_plugin_info", "keel_plugins_installed", "keel_plugin_request"]
 CHECKS: list[str] = []
 TOKEN = secrets.token_hex(16)   # keel's internal token in this throw-away keel: the test calls the engine route with it
@@ -723,7 +723,7 @@ def update(pid: str, web: bool, out: Path) -> None:
 
 
 def web_checks(out: Path) -> None:
-    print("   the web: Control › Plugins and the Inbox (headless Chromium)")
+    print("   the web: Settings › Plugins and the Inbox (headless Chromium)")
     cmd = ["npx", "-y", "-p", "playwright@1", "node", str(HERE / "web.mjs"), f"http://127.0.0.1:{PORT}", str(out),
            PLUGIN, SOURCE_TITLE]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)

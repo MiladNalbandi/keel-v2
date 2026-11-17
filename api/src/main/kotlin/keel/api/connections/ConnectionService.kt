@@ -28,18 +28,27 @@ class ConnectionService(
     private val engine: EngineClient,
     private val settings: SettingsService,
     private val servers: ModelServerService,
+    private val kv: keel.api.common.KvStore,
 ) {
     /** Programs on this machine, checked in parallel and cached for a minute (MachineTools). */
     internal var tools = MachineTools()
 
     private fun keyView(provider: String): Pair<Boolean, String?> {
         if (provider in ModelServerService.PROVIDERS) return servers.summary(provider).let { (ready, line) -> ready to line.takeIf { ready } }
-        if (provider == "copilot") return secrets.copilotKeyHint().let { (it != null) to it }
+        if (provider == "copilot") return (secrets.copilotKeyHint() ?: machineLoginHint()).let { (it != null) to it }
         val name = SecretService.KEY_NAMES[provider] ?: return false to null
         if (secrets.has(name)) return true to secrets.hintOf(name)
         val env = System.getenv(name)
         return if (!env.isNullOrBlank()) true to "from the environment" else false to null
     }
+
+    /**
+     * 0.31 GitHub Copilot without a token of keel's: the Copilot SDK finds this computer's own GitHub login (the
+     * Copilot CLI's or gh's). keel learns that it works from a Test that passed without a token, and forgets it when
+     * such a Test fails. The value is the login's name, never a token.
+     */
+    private fun machineLoginHint(): String? =
+        kv.get<String>(COPILOT_MACHINE_LOGIN)?.takeIf { it.isNotBlank() }?.let { "$MACHINE_LOGIN_HINT ($it)" }
 
     /** #101 keel's harness runs every model on its provider's API: each provider has that one mode, always selected. */
     fun connections(): Connections {
@@ -52,7 +61,9 @@ class ConnectionService(
                 "claude" -> listOf(ModeView("api", "Anthropic API key", keySet, if (keySet) "Key saved." else "Add ANTHROPIC_API_KEY."))
                 "codex" -> listOf(ModeView("api", "OpenAI API key", keySet, if (keySet) "Key saved." else "Add OPENAI_API_KEY."))
                 "copilot" -> listOf(ModeView("api", "GitHub Copilot (your plan)", keySet,
-                    if (!keySet) "Add GITHUB_TOKEN, or sign in with GitHub." else if (hint?.startsWith("from ") == true) "Token $hint." else "Token saved."))
+                    if (!keySet) "Add GITHUB_TOKEN, or sign in with GitHub."
+                    else if (hint?.startsWith(MACHINE_LOGIN_HINT) == true) "Uses ${hint.removePrefix("from ")}."
+                    else if (hint?.startsWith("from ") == true) "Token $hint." else "Token saved."))
                 "vertex" -> servers.summary(id).let { (ready, line) -> listOf(ModeView("api", "Vertex AI (Google Cloud)", ready, line)) }
                 "local" -> servers.summary(id).let { (ready, line) -> listOf(ModeView("api", "Local model server", ready, line)) }
                 else -> emptyList()
@@ -83,6 +94,11 @@ class ConnectionService(
         val secret = secrets.apiKey(provider)
         secret?.let { body["key"] = it }
         val res = engine.providerTest(body)
+        if (provider == "copilot" && secret == null) {
+            // no token of keel's: the answer came (or did not) with this computer's own GitHub login
+            if (res.path("ok").asBoolean(false)) kv.put(COPILOT_MACHINE_LOGIN, res.path("login").asText("").ifBlank { "signed in" })
+            else kv.delete(COPILOT_MACHINE_LOGIN)
+        }
         // When the test fails, say what is wrong with the saved value's shape (never the value itself).
         val problem = if (res.path("ok").asBoolean(false) || secret == null || provider in ModelServerService.PROVIDERS) null else shapeProblem(provider, secret)
         return if (problem == null) res else (res as com.fasterxml.jackson.databind.node.ObjectNode).put("error", problem)
@@ -114,6 +130,8 @@ class ConnectionService(
     companion object {
         /** #101 the one mode every provider has: its API (a key, a token or a model server). */
         const val MODE = "api"
+        const val COPILOT_MACHINE_LOGIN = "copilot.machine_login"
+        const val MACHINE_LOGIN_HINT = "from this computer's GitHub login"
         val PROVIDERS = listOf("fake" to "Fake (demo)", "claude" to "Claude", "codex" to "GPT / Codex", "copilot" to "Copilot",
             "vertex" to "Vertex AI", "local" to "Local models")
         val DEFAULT_MODELS = mapOf("fake" to "fake", "claude" to "sonnet", "codex" to "gpt-5", "copilot" to "auto", "vertex" to "claude-sonnet-5-5")

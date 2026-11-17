@@ -44,7 +44,7 @@ describe("KeelBot: effort", () => {
     await waitFor(() => expect(turns()).toHaveLength(1));
     answer("Because.", "high");
     await within(p).findByText("Because.");
-    expect(p.querySelector(".hp-meta")).toHaveTextContent("Claude sonnet · high · 1.5k tokens · 4.2 s");
+    expect(p.querySelector(".hp-meta")).toHaveTextContent("Claude sonnet · high · 1.5k tokens (1.2k in · 300 out) · 4.2 s");
   });
 
   it("the model picker saves the effort on the chat", async () => {

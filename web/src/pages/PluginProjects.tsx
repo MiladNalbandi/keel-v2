@@ -1,4 +1,4 @@
-// v0.17.1 a plugin that each project turns on (per_project: db, git, ci, review) is switched only in Control › Plugins
+// v0.17.1 a plugin that each project turns on (per_project: db, git, ci, review) is switched only in Settings › Plugins
 // (docs/plugins/22-one-plugins-page.md); Tools › Plugins is gone. The pieces:
 //
 //   PlaceControl    one segmented control [ Off | This project | All projects ]: where the plugin is on

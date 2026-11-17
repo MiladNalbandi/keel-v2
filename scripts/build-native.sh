@@ -5,7 +5,8 @@
 #   engine/            the engine's source, pyproject.toml and uv.lock (keel2 runs `uv sync --frozen` on install)
 #   api-py/            0.27.0 the Python api's source, pyproject.toml and uv.lock: the front door, as in the image
 #   content/           agents, skills, stacks, templates
-#   plugins/           every plugin of plugins/, packed as the full image has them (<name>/<version>/: scripts/build-plugin.sh)
+#   plugins/           every plugin of plugins/ and keel Product (beta, off until a person turns it on), packed as the
+#                      full image has them (<name>/<version>/: scripts/build-plugin.sh)
 #   cli/keel-tui.mjs   keel TUI, keel in the terminal (keel2 tui runs it with this computer's Node)
 #   keel-native-start  starts the engine and the api (docker/keel-native-start) with keel-start's loop (docker/keel-start)
 #   VERSION
@@ -23,7 +24,8 @@ mkdir -p "$stage" "$out"
 
 echo "web…"
 # keel's bundle first, then each plugin's web part on its own (plugins/<name>/web/dist), as the image's web stage does
-(cd "$src/web" && { [ -d node_modules ] || npm ci --no-audit --no-fund; } && npm run build >/dev/null && npm run build:plugins >/dev/null)
+(cd "$src/web" && { [ -d node_modules ] || npm ci --no-audit --no-fund; } && npm run build >/dev/null && npm run build:plugins >/dev/null \
+  && npm run build:product >/dev/null)
 echo "keel TUI…"
 (cd "$src/cli" && { [ -d node_modules ] || npm ci --no-audit --no-fund; } && npm run build >/dev/null)
 mkdir -p "$stage/cli" && cp "$src/cli/dist/keel-tui.mjs" "$stage/cli/keel-tui.mjs" && chmod +x "$stage/cli/keel-tui.mjs"
@@ -37,11 +39,14 @@ mkdir -p "$repo/product" "$repo/scripts"
 (cd "$src" && tar --exclude '*/build' --exclude '*/.gradle' --exclude '*/node_modules' --exclude '*/__pycache__' \
   --exclude '*/.pytest_cache' -cf - plugins) | (cd "$repo" && tar -xf -)
 cp -R "$src/product/api" "$repo/product/api"
-cp "$src/product/keel-plugin.yml" "$repo/product/"
+# keel Product (0.31: in every full keel, off until a person turns it on): what its packer needs beside the jar
+cp "$src/product/keel-plugin.yml" "$src/product/README.md" "$src/product/build-plugin.sh" "$repo/product/"
+(cd "$src/product" && tar --exclude '__pycache__' --exclude '.pytest_cache' -cf - engine content) | (cd "$repo/product" && tar -xf -)
+mkdir -p "$repo/product/web" && cp -R "$src/product/web/dist" "$repo/product/web/dist"
 cp "$src/scripts/build-plugin.sh" "$repo/scripts/"
 rm -rf "$repo/api/src/main/resources/static"
 cp -R "$src/web/dist" "$repo/api/src/main/resources/static"
-(cd "$repo/api" && ./gradlew --no-daemon -q bootJar pluginJars)
+(cd "$repo/api" && ./gradlew --no-daemon -q bootJar pluginJars productPluginJar)
 # shellcheck disable=SC2010 # the jar names are our own gradle output: plain names
 cp "$(ls "$repo"/api/build/libs/*.jar | grep -v -- '-plain' | grep -v '/keel-plugin-' | head -1)" "$stage/api.jar"
 
@@ -51,6 +56,7 @@ for d in "$repo"/plugins/*/; do
   [ -f "$d/keel-plugin.yml" ] || continue
   bash "$repo/scripts/build-plugin.sh" "$d" "$stage/plugins" --no-build >/dev/null
 done
+bash "$repo/product/build-plugin.sh" "$stage/plugins" --no-build >/dev/null
 rm -f "$stage/plugins"/*.kplug
 
 echo "engine, Python api, content…"

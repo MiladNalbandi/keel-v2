@@ -9,7 +9,7 @@ built-in parts are named in one place, builtins.py (each module's PART dict); ad
                   own order: built-ins, then add-ons). A part that moved out of core into a plugin keeps the place it
                   had as a built-in this way: Database 10, Git 20, so KeelBot, validation and keel2 mcp name them
                   before CI/CD, as keel 0.15.1 did
-    per_project   True: a project turns it on (Control › Plugins, the flow's settings["plugins"]); while it is off its
+    per_project   True: a project turns it on (Settings › Plugins, the flow's settings["plugins"]); while it is off its
                   actions and its MCP server are refused. Without it the part is on for every project.
     actions       {"<name>:x": fn}: workflow code steps, fn(ActionInput) -> ActionResult, plain or async
     params        {"<name>:x": {"sql": "required", "connection": "optional"}}: what each takes in `with:`
@@ -259,7 +259,7 @@ async def run_action(action: str, a):
         return ActionResult(False, f"Unknown action {action}.")
     if p.per_project and not on(a.settings, p.name):
         return ActionResult(False, f"The {p.title} plugin is off for this project, so {action} cannot run.",
-                            "Turn it on in Control › Plugins, then retry the step.")
+                            "Turn it on in Settings › Plugins, then retry the step.")
     fn = p.actions.get(action)
     if not fn:
         return ActionResult(False, f"Unknown action {action}.")
@@ -354,7 +354,7 @@ def call(key: str, tool: str, args: dict) -> str:
         raise PartError(401, "This tool call has no valid key: the agent call it belonged to has ended.")
     p = next((p for p in parts() if (tool in p.read_tools or tool in p.act_tools) and callable(p.mcp.get("call"))), None)
     if p is None or p.name not in c["plugins"]:
-        raise PartError(403, f"The {p.name if p else '?'} plugin is off for this project.", "Turn it on in Control › Plugins.")
+        raise PartError(403, f"The {p.name if p else '?'} plugin is off for this project.", "Turn it on in Settings › Plugins.")
     return p.mcp["call"](c, tool, args or {})
 
 

@@ -67,7 +67,7 @@ class JiraController(private val jira: JiraService, private val mcp: McpService,
             id = "jira", name = "Jira (mcp-atlassian)",
             about = "Lets agents read the ticket and its comments themselves. Filled from this project's Jira connection, read-only.",
             url = "https://github.com/sooperset/mcp-atlassian", license = "MIT", command = "uvx mcp-atlassian",
-            ready = connected, why = if (connected) null else "Connect Jira for this project first (Control › Connections › Jira).",
+            ready = connected, why = if (connected) null else "Connect Jira for this project first (Settings › Connections › Jira).",
             server = name.takeIf { added }, added = added,
         ))
     }

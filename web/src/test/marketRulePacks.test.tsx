@@ -26,7 +26,7 @@ const installed = (edited: boolean): RulePack => ({
   source: "marketplace", edited, rules: [],
 });
 
-describe("Control › Plugins › Marketplace: Plugins · Workflows · Rules", () => {
+describe("Settings › Plugins › Marketplace: Plugins · Workflows · Rules", () => {
   it("Rules keeps ?tab=market and adds ?kind=rules; the search names the project", async () => {
     const user = userEvent.setup();
     open("#/settings/plugins?tab=market");

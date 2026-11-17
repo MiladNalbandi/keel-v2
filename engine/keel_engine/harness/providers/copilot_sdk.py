@@ -35,7 +35,7 @@ WHO = "GitHub Copilot"
 DEFAULT_MODEL = "auto"
 TURN_WAIT = float(os.environ.get("KEEL_COPILOT_TURN_WAIT", "900"))   # seconds one turn may take
 BATCH_WAIT = 0.3                  # parallel tool calls arrive close together: gather them into one turn
-MODELS_TTL = 600.0
+MODELS_TTL = 120.0                # the plan's list is asked again after this (and after every Copilot run)
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 HINT_INSTALL = ("keel's engine needs the Copilot SDK: pip install github-copilot-sdk, then python -m copilot "
@@ -47,6 +47,31 @@ HINT_TOKEN = ("Sign in with GitHub in Settings › Connections, or paste a GitHu
 HINT_CLASSIC = ("Classic tokens (ghp_) do not work with Copilot. Make a fine-grained token with the Copilot Requests "
                 "permission, or sign in with GitHub in Settings › Connections.")
 HINT_MODEL = "Pick another model on the GitHub Copilot row, or auto (Copilot picks one your plan has)."
+
+# 0.31 every model the Copilot runtime keel ships with knows (github-copilot-sdk 1.0.34, runtime 1.0.112). The plan's
+# own list (list_models) comes first and is the truth; these follow it, so a paid plan whose list is empty or short still
+# offers them. A model the plan does not have runs as auto, with a note (CopilotProvider._start).
+KNOWN_MODELS = [
+    ("claude-fable-5.1", "Claude Fable 5.1"), ("claude-fable-5", "Claude Fable 5"),
+    ("claude-opus-5.5", "Claude Opus 5.5"), ("claude-opus-5", "Claude Opus 5"), ("claude-opus-4.8", "Claude Opus 4.8"),
+    ("claude-sonnet-5.5", "Claude Sonnet 5.5"), ("claude-sonnet-5", "Claude Sonnet 5"), ("claude-sonnet-4.6", "Claude Sonnet 4.6"),
+    ("claude-haiku-5.5", "Claude Haiku 5.5"), ("claude-haiku-4.5", "Claude Haiku 4.5"),
+    ("gpt-6.1-sol", "GPT-6.1 Sol"), ("gpt-6.1-terra", "GPT-6.1 Terra"),
+    ("gpt-6-sol", "GPT-6 Sol"), ("gpt-6-luna", "GPT-6 Luna"), ("gpt-6-astra", "GPT-6 Astra"),
+    ("gpt-5.6-sol", "GPT-5.6 Sol"), ("gpt-5.6-terra", "GPT-5.6 Terra"), ("gpt-5.6-luna", "GPT-5.6 Luna"),
+    ("gpt-5.3-codex", "GPT-5.3 Codex"),
+    ("gemini-4-argon", "Gemini 4 Argon"), ("gemini-3.8-flash", "Gemini 3.8 Flash"),
+    ("grok-4.7", "Grok 4.7"), ("grok-4.6", "Grok 4.6"),
+    ("mai-code-1.1-flash", "MAI Code 1.1 Flash"),
+]
+UNCONFIRMED = "not in your plan's list"
+
+# 0.31 the live SDK sessions, kept between agent calls: the next KeelBot message of the same chat (or a send-back of the
+# same step) goes on in the session Copilot already has, instead of a new one that gets the whole text again. Closed
+# after LIVE_IDLE seconds without use, and the oldest when more than LIVE_MAX are open.
+LIVE_IDLE = float(os.environ.get("KEEL_COPILOT_LIVE_IDLE", "900"))
+LIVE_MAX = 8
+_live: dict[str, "_Conv"] = {}
 
 _clients: dict[str, Any] = {}
 _client_lock = asyncio.Lock()
@@ -133,13 +158,40 @@ async def list_models(token: str | None, factory=None, fresh: bool = False) -> l
         for m in await c.list_models() or []:
             mid = str(_field(m, "id", default="") or "")
             if mid and mid != DEFAULT_MODEL:
-                out.append({"id": mid, "label": str(_field(m, "name", default=mid) or mid)})
+                # 0.31 the efforts Copilot says this model takes (low … max): the model picker offers exactly those
+                efforts = [e for e in (_field(m, "supported_reasoning_efforts", "supportedReasoningEfforts", default=None) or [])
+                           if e in EFFORTS]
+                out.append({"id": mid, "label": str(_field(m, "name", default=mid) or mid), "efforts": efforts})
     except ProviderError:
         raise
     except Exception:  # noqa: BLE001 - an empty or failing list leaves auto, which always works
         pass
     _models[key] = (time.monotonic(), out)
+    if len(out) > 1:
+        _remember(out)
     return out
+
+
+def _models_file():
+    from ... import config
+
+    return config.data_dir() / "copilot-models.json"
+
+
+def _remember(models: list[dict]) -> None:
+    """The plan's models on disk (ids, names, efforts: nothing secret), so the list is there after a restart too."""
+    try:
+        _models_file().write_text(json.dumps({"models": models}), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _remembered() -> list[dict]:
+    try:
+        found = json.loads(_models_file().read_text(encoding="utf-8")).get("models") or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [m for m in found if isinstance(m, dict) and m.get("id")]
 
 
 def cached_models() -> list[dict]:
@@ -148,7 +200,41 @@ def cached_models() -> list[dict]:
     for _, models in _models.values():
         if len(models) > len(best):
             best = models
-    return best or [{"id": DEFAULT_MODEL, "label": "Auto (Copilot picks a model your plan has)"}]
+    plan = best or _remembered() or [{"id": DEFAULT_MODEL, "label": "Auto (Copilot picks a model your plan has)"}]
+    have = {m["id"] for m in plan}
+    return plan + [{"id": mid, "label": label, "efforts": [], "unconfirmed": True}
+                   for mid, label in KNOWN_MODELS if mid not in have]
+
+
+def refresh_soon(token: str | None) -> None:
+    """Ask the plan's list again in the background (after a Copilot run): the picker shows the latest without a Test."""
+    key = _token_key(token) if token else None
+    hit = _models.get(key) if key else None
+    if hit and time.monotonic() - hit[0] < MODELS_TTL:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(_refresh(token))
+
+
+async def _refresh(token: str | None) -> None:
+    try:
+        await list_models(token, fresh=True)
+    except Exception:  # noqa: BLE001 - a refresh that fails keeps the list keel has
+        pass
+
+
+def efforts_of(model_id: str) -> list[str] | None:
+    """The efforts Copilot said this model takes; [] for auto (Copilot decides); None when keel has not seen the model
+    in a list yet (a name typed by hand, or no Test since the install): the effort is passed on and Copilot checks it."""
+    if "/" in (model_id or "") or (model_id or DEFAULT_MODEL) == DEFAULT_MODEL:
+        return []                             # auto, and a GitHub Models name saved before 0.30 (it runs as auto)
+    for m in cached_models():
+        if m.get("id") == model_id and not m.get("unconfirmed"):
+            return list(m.get("efforts") or [])
+    return None                               # not in the plan's list: the effort is passed on, Copilot checks it
 
 
 def _plain(content) -> str:
@@ -205,18 +291,24 @@ class _Conv:
         self.wake = asyncio.Event()
         self.error: str | None = None
         self.note = ""
+        self.emit: Emit | None = None       # the current agent call's stream (a kept session serves the next call too)
+        self.tools: tuple[str, ...] = ()    # the tool names the session was opened with
+        self.used = time.monotonic()
+        self.busy = False
+        self.owner = 0                      # the agent call (provider object) that uses it now
 
 
 class CopilotProvider:
     """keel's harness turn on the person's Copilot plan (see the module docstring)."""
 
     name = "copilot"
+    dynamic_tools = True     # 0.31 a tool keel loads mid-session (LoadTools) is added with the SDK's set_tools
 
     def __init__(self, model: str, token: str | None, factory=None):
         self.model = model or DEFAULT_MODEL
         self._token = check_token(token)
         self._factory = factory              # tests: a fake CopilotClient class
-        self._convs: dict[str, _Conv] = {}
+        self._convs = _live                   # shared: a kept session outlives this provider object
 
     # ------------------------------------------------------------------ the SDK session
 
@@ -229,24 +321,13 @@ class CopilotProvider:
         client = await client_for(self._token, self._factory)
         loop = asyncio.get_running_loop()
 
-        def handler_for(name: str):
-            async def handler(inv):
-                fut: asyncio.Future = loop.create_future()
-                call = {"type": "tool_call", "id": str(_field(inv, "tool_call_id", default="") or f"call_{uuid.uuid4().hex[:12]}"),
-                        "name": name, "input": _field(inv, "arguments", default=None) or {}}
-                conv.batch.append((call, fut))
-                conv.wake.set()
-                out = await fut
-                content, is_error = out
-                return ToolResult(text_result_for_llm=content, result_type="failure" if is_error else "success")
-            return handler
-
-        tools = [Tool(name=t.name, description=t.description, parameters=t.schema, handler=handler_for(t.name),
-                      overrides_built_in_tool=True, skip_permission=True) for t in req.tools]
+        tools = self._sdk_tools(conv, req.tools, Tool, ToolResult, loop)
         opts: dict[str, Any] = {
             "model": self.model, "streaming": True, "tools": tools,
             # none of Copilot's own tools: only keel's, so keel's rules check every call
-            "available_tools": [t.name for t in req.tools],
+            # (custom:* = every tool keel itself supplies, also one added later with set_tools; Copilot's built-in
+            # tools stay off)
+            "available_tools": ["custom:*"] if req.tools else [],
             "system_message": {"mode": "replace", "content": req.system or "You are a helpful assistant."},
         }
         if approve_all is not None:
@@ -256,7 +337,15 @@ class CopilotProvider:
         if req.effort in EFFORTS:
             opts["reasoning_effort"] = req.effort
         try:
-            conv.session = await client.create_session(**opts)
+            try:
+                conv.session = await client.create_session(**opts)
+            except Exception as exc:
+                # an effort this model does not take: run without it rather than fail the step
+                if "reasoning_effort" not in opts or "effort" not in str(exc).lower():
+                    raise
+                effort = opts.pop("reasoning_effort")
+                conv.note = f"Copilot's {self.model} does not take the effort {effort!r}: it ran with its own default."
+                conv.session = await client.create_session(**opts)
         except Exception as exc:
             err = _error(exc)
             if err.status != 404 or opts["model"] == DEFAULT_MODEL:
@@ -269,7 +358,25 @@ class CopilotProvider:
                 conv.session = await client.create_session(**opts)
             except Exception as exc2:
                 raise _error(exc2) from exc2
-        conv.session.on(lambda ev: self._event(conv, ev, emit))
+        conv.emit = emit
+        conv.tools = tuple(t.name for t in req.tools)
+        conv.session.on(lambda ev: self._event(conv, ev, conv.emit or (lambda *a, **k: None)))
+
+    async def close(self) -> None:
+        """The agent call ended. Its sessions stay for the next message (see _live); old ones end. The plan's model
+        list is read again for the picker."""
+        for conv in self._convs.values():
+            if conv.owner == id(self):
+                conv.busy = False
+        await self.sweep()
+        refresh_soon(self._token)
+
+    async def sweep(self, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        idle = sorted((c.used, k) for k, c in self._convs.items() if not c.busy)
+        for used, key in idle:
+            if now - used > LIVE_IDLE or len(self._convs) > LIVE_MAX:
+                await self._close(key)
 
     def _event(self, conv: _Conv, ev, emit: Emit) -> None:
         if _field(ev, "agent_id"):
@@ -291,9 +398,11 @@ class CopilotProvider:
             if content:
                 conv.final = content
         elif kind == "AssistantUsageData":
-            conv.usage.add(Usage(input=int(_field(data, "input_tokens") or 0), output=int(_field(data, "output_tokens") or 0),
-                                 cache_read=int(_field(data, "cache_read_tokens") or 0),
-                                 cache_write=int(_field(data, "cache_write_tokens") or 0)))
+            # Copilot's input_tokens already holds the cached part; keel's Usage counts input without it (as Anthropic's
+            # API does), else the cached tokens were counted twice
+            read, write = int(_field(data, "cache_read_tokens") or 0), int(_field(data, "cache_write_tokens") or 0)
+            conv.usage.add(Usage(input=max(int(_field(data, "input_tokens") or 0) - read - write, 0),
+                                 output=int(_field(data, "output_tokens") or 0), cache_read=read, cache_write=write))
             conv.model = str(_field(data, "model") or conv.model or "")
         elif kind == "SessionErrorData":
             conv.error = str(_field(data, "message") or "Copilot stopped with an error.")
@@ -302,6 +411,40 @@ class CopilotProvider:
         elif kind == "SessionIdleData":
             conv.idle.set()
             conv.wake.set()
+
+    @staticmethod
+    def _sdk_tools(conv: _Conv, specs, Tool, ToolResult, loop) -> list:
+        """keel's tools as SDK tools: a call waits for keel's harness to run it (keel's rules first)."""
+        def handler_for(name: str):
+            async def handler(inv):
+                fut: asyncio.Future = loop.create_future()
+                call = {"type": "tool_call", "id": str(_field(inv, "tool_call_id", default="") or f"call_{uuid.uuid4().hex[:12]}"),
+                        "name": name, "input": _field(inv, "arguments", default=None) or {}}
+                conv.batch.append((call, fut))
+                conv.wake.set()
+                out = await fut
+                content, is_error = out
+                return ToolResult(text_result_for_llm=content, result_type="failure" if is_error else "success")
+            return handler
+
+        return [Tool(name=t.name, description=t.description, parameters=t.schema, handler=handler_for(t.name),
+                     overrides_built_in_tool=True, skip_permission=True) for t in specs]
+
+    async def _grow_tools(self, conv: _Conv, specs) -> bool:
+        """The live session gets the tools keel loaded since it opened (only ever more: the list grows at its end)."""
+        names = tuple(t.name for t in specs)
+        if names[:len(conv.tools)] != conv.tools or conv.session is None or not hasattr(conv.session, "set_tools"):
+            return False
+        if self._factory is not None:
+            Tool, ToolResult = _FakeTool, _FakeResult
+        else:
+            _, _p, Tool, ToolResult = sdk()
+        try:
+            await conv.session.set_tools(self._sdk_tools(conv, specs, Tool, ToolResult, asyncio.get_running_loop()))
+        except Exception:  # noqa: BLE001 - the runtime did not take it: a new session with every tool instead
+            return False
+        conv.tools = names
+        return True
 
     async def _send(self, conv: _Conv, prompt: str) -> None:
         conv.idle.clear()
@@ -314,9 +457,14 @@ class CopilotProvider:
 
     async def turn(self, req: Request, emit: Emit) -> Turn:
         root = (req.extra or {}).get("root")
-        key = _conv_key(req)
+        key = _conv_key(req) + ":" + self.model + ":" + _token_key(self._token)
         conv = self._convs.get(key)
+        if conv is not None and conv.busy and conv.owner != id(self):
+            conv = None                       # another agent call uses it right now: this one opens its own
+            key += ":" + uuid.uuid4().hex[:6]
         new = req.messages[conv.seen:] if conv and len(req.messages) >= conv.seen else None
+        if conv is not None and conv.tools != tuple(t.name for t in req.tools) and not await self._grow_tools(conv, req.tools):
+            new = None                        # other tools (another mode): a session with them
         if conv is None or new is None or not new or (conv.pending and not _answers(new, conv.pending)):
             if conv is not None:
                 await self._close(key)
@@ -338,14 +486,16 @@ class CopilotProvider:
                 conv.pending.clear()
             elif texts:
                 await self._send(conv, "\n\n".join(texts))
+        conv.emit, conv.busy, conv.owner, conv.used = emit, True, id(self), time.monotonic()
         try:
             turn = await self._next(conv)
         except ProviderError:
             await self._close(key)
             raise
         conv.seen = len(req.messages) + 1          # the runner adds this turn as the next assistant message
+        conv.used = time.monotonic()
         if turn.stop == END:
-            await self._close(key)
+            conv.busy = False                      # kept: the next message of this conversation goes on here
         return turn
 
     async def _next(self, conv: _Conv) -> Turn:
@@ -400,9 +550,6 @@ class CopilotProvider:
             except Exception:  # noqa: BLE001
                 pass
 
-    async def close(self) -> None:
-        for key in list(self._convs):
-            await self._close(key)
 
 
 def _answers(new: list[dict], pending: dict) -> bool:

@@ -3,7 +3,7 @@
     keel        the keel-wide switch (Settings › General, plugins.supervisor.on). Off (the default): the Supervisor does
                 nothing at all: no event listener, no model call, no Inbox card.
     <project>   the project's switch (its own Settings, or General's when it sets none) and whether the plugin is on
-                for the project (Control › Plugins)
+                for the project (Settings › Plugins)
 
 The api is the source of truth (its settings and plugin switches); it sends every change (POST /supervisor/switch).
 A flow's own switch (settings.supervisor.on: true, false or unset) is in the flow's settings (routes.py).

@@ -234,6 +234,7 @@ class HelperService(
         val model = body.model?.checked() ?: mapper.treeToValue(s.path("model"), Model::class.java)
         val eff = settings.effective(pid)
         keel.api.settings.LocalOnly.check(eff, listOf(model), "KeelBot")
+        flows.refuseFakeAnswer(pid, model, "KeelBot")
         val helper = helperAgent(pid)
         val payload = linkedMapOf<String, Any?>(
             "text" to text,

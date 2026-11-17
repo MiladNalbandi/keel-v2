@@ -794,7 +794,7 @@ export function normalizeStack(raw: unknown): Stack {
 export type McpServer = McpServerSpec & { enabled: boolean; builtin: boolean; status: "ok" | "off" | "error"; tools: string[]; label?: string };
 export type McpAllow = Record<string, string[]>;
 
-/** v0.10.0 a keel plugin (Control › Plugins): what it adds, and whether it is on for this project (scope: its own choice
+/** v0.10.0 a keel plugin (Settings › Plugins): what it adds, and whether it is on for this project (scope: its own choice
  *  or every project's). */
 export type PluginAction = { name: string; with: Record<string, "required" | "optional">; summary: string };
 export type Plugin = {
@@ -1374,6 +1374,7 @@ export const api = {
   helperCreate: (pid: string, body: { mode?: HelperMode; model?: Model; title?: string } = {}) =>
     post<HelperSession>(`/projects/${e(pid)}/helper/sessions`, body),
   helperSession: (pid: string, sid: string) => get<HelperSession>(`/projects/${e(pid)}/helper/sessions/${e(sid)}`),
+  helperDelete: (pid: string, sid: string) => del(`/projects/${e(pid)}/helper/sessions/${e(sid)}`),
   helperTurn: (pid: string, sid: string, body: { text: string; model?: Model; mentions?: HelperMention[]; selection?: HelperSelection; open_file?: string }) =>
     post<HelperTurnStarted>(`/projects/${e(pid)}/helper/sessions/${e(sid)}/turn`, body),
   // the Graph plugin's search (plugins/graph), over http: the launcher, KeelBot's @ and the Code page use it

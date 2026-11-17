@@ -20,12 +20,19 @@ class IndexEvents(private val notifications: NotificationService) : EngineEventH
         if (d.str("status") == "ready") {
             notifications.create("finished", event.projectId, "Index ready: ${d.long("files") ?: 0} files, ${d.long("symbols") ?: 0} symbols",
                 "Agents can use the code graph for this project.", repo)
+        } else if (d.str("error")?.startsWith(NOT_INSTALLED) == true) {
+            // 0.31 a keel without CodeGraph (the keel app, a native keel without npm): its normal state, not a failure.
+            // Agents use grep; the Code page's status bar says so. No red notification on every project.
+            return
         } else {
             notifications.create("failed", event.projectId, "Index failed: ${d.str("error")?.take(160) ?: "unknown reason"}",
                 "Agents find their way with grep instead. Rebuild it from the Repo page.", repo)
         }
     }
 }
+
+/** The first words of the engine's "no CodeGraph on this keel" (plugins/graph/engine codegraph.NOT_INSTALLED). */
+private const val NOT_INSTALLED = "CodeGraph is not installed"
 
 // An event's fields, as keel's own handlers read them (keel.api.events keeps its helpers internal to keel's module).
 private fun Map<String, Any?>.str(key: String): String? = this[key]?.let { if (it is String) it else it.toString() }?.takeIf { it.isNotEmpty() }

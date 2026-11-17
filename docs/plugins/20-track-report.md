@@ -83,7 +83,7 @@ PASSED: 0 difference(s) not on the allow list (6.5 min)
   the same files on disk, the same `.git/info/exclude`.
 - **flow**: a `change` flow on the fake model on each project stops at the same gates.
 - **new in B**: the 12 new endpoints of steps 1–4 (plugin host, approvals, kinds, sections, plugin settings, the
-  marketplace). **allowed**: `/api/features` lists the plugins' web parts; the Control › Plugins menu entry and page;
+  marketplace). **allowed**: `/api/features` lists the plugins' web parts; the Settings › Plugins menu entry and page;
   the model probe (next part).
 - **skipped**: endpoints that need a value neither keel has (a spec page; a file's history before a flow wrote one).
 

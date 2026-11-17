@@ -1,4 +1,4 @@
-// Database connections global or per project (keel 0.18.38): Control › Databases and a project's Databases inside keel's
+// Database connections global or per project (keel 0.18.38): Settings › Databases and a project's Databases inside keel's
 // web. The list is grouped by scope with each database's logo and environment badge; the editor adds a connection for
 // all projects or this one, tests it (and offers the server's databases), keeps the password out of the URL, and its
 // Access tab never offers agents a change on prod. At a narrow width the list and the editor take turns.
