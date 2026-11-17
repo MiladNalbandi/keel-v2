@@ -96,7 +96,7 @@ describe("Helper in the Code page", () => {
 
     answer("It is saved in `api/ScoreController.kt:9`, after the check.", [{ kind: "read", text: "fun save()", path: "api/ScoreController.kt" }]);
     const link = await within(p).findByRole("link", { name: "api/ScoreController.kt:9" });
-    expect(p.querySelector(".hp-meta")).toHaveTextContent("Claude sonnet · 1.5k tokens · 4.2 s");
+    expect(p.querySelector(".hp-meta")).toHaveTextContent("Claude sonnet · 1.5k tokens (1.2k in · 300 out) · 4.2 s");
     await user.click(link);
     await waitFor(() => expect(document.querySelector('.cv-row[data-line="9"]')).toHaveClass("tgt"));
   });

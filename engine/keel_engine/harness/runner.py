@@ -167,7 +167,8 @@ class HarnessRunner:
         """When the conversation passes COMPACT_AT of the window: the model summarizes it, and the session starts again
         from that summary and the last messages. Current Claude models compact on the server instead (providers/anthropic)."""
         chat = self._chat
-        if server_side or len(session.messages) <= KEEP_RECENT + 2:
+        # a chat (KeelBot) has its own minimum below (more than CHAT_KEEP_TURNS questions); a step needs more than it keeps
+        if server_side or (not chat and len(session.messages) <= KEEP_RECENT + 2) or len(session.messages) < 3:
             return
         if _tokens(session.view(), system) < (min(CHAT_COMPACT_AT, window * COMPACT_AT) if chat else window * COMPACT_AT):
             return
@@ -400,8 +401,7 @@ class HarnessRunner:
 
         found_skills = await asyncio.to_thread(skills_mod.find_skills, box.root)
         agents = await asyncio.to_thread(skills_mod.agent_types)
-        # 0.31 deferred tools for every provider that takes a tool list per call; GitHub Copilot registers its tools
-        # when its session opens, so it gets them all until it can take new ones mid-session (dynamic_tools)
+        # 0.31 deferred tools for every provider (GitHub Copilot adds a loaded tool to its live session: dynamic_tools)
         lazy = bool(getattr(provider, "dynamic_tools", getattr(provider, "name", "") != "copilot"))
         return ToolSet(box, web=self._web(req), todos=todos, task=task, mcp=mcp_tools, mcp_check=mcp_check,
                        skills=found_skills, agents=agents, lazy=lazy, loaded=session.tools, on_load=session.set_tools)

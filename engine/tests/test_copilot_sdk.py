@@ -85,6 +85,10 @@ class FakeSession:
     async def disconnect(self):
         self.closed = True
 
+    async def set_tools(self, tools):
+        self.set = list(tools)
+        self.opts["tools"] = list(tools)
+
 
 class FakeClient:
     sessions: list = []
@@ -179,7 +183,7 @@ def test_a_tool_call_comes_back_to_keels_loop_and_its_result_goes_on():
     s = FakeClient.sessions[0]
     assert t2.stop == END and t2.text() == "It says hi."
     assert s.results == [["hi"]] and len(FakeClient.sessions) == 1        # the same SDK session went on
-    assert s.opts["available_tools"] == ["Read"] and s.opts["working_directory"] == "/tmp/x"
+    assert s.opts["available_tools"] == ["custom:*"] and [t.name for t in s.opts["tools"]] == ["Read"] and s.opts["working_directory"] == "/tmp/x"
     assert all(t.overrides_built_in_tool and t.skip_permission for t in s.opts["tools"])
 
 
@@ -331,12 +335,31 @@ def test_other_tools_open_a_new_session():
     async def go():
         msgs = [user("hi")]
         p = provider()
-        t1 = await p.turn(Request(system="s", messages=msgs, tools=[READ]), lambda *a, **k: None)
+        t1 = await p.turn(Request(system="s", messages=msgs, tools=[READ, GREP]), lambda *a, **k: None)
         msgs += [{"role": "assistant", "content": t1.blocks}, user("and now?")]
-        await p.turn(Request(system="s", messages=msgs, tools=[READ, GREP]), lambda *a, **k: None)
+        await p.turn(Request(system="s", messages=msgs, tools=[GREP]), lambda *a, **k: None)   # not a grown list
 
     run(go())
-    assert len(FakeClient.sessions) == 2 and [t.name for t in FakeClient.sessions[1].opts["tools"]] == ["Read", "Grep"]
+    assert len(FakeClient.sessions) == 2 and [t.name for t in FakeClient.sessions[1].opts["tools"]] == ["Grep"]
+
+
+def test_a_tool_loaded_mid_session_is_added_to_the_live_session():
+    FakeClient.scripts = [[("say", "need Grep")]]
+
+    async def go():
+        p = provider()
+        msgs = [user("find x")]
+        t1 = await p.turn(Request(system="s", messages=msgs, tools=[READ]), lambda *a, **k: None)
+        msgs += [{"role": "assistant", "content": t1.blocks}, user("go on")]
+        FakeClient.sessions[0].script = [("say", "found")]
+        t2 = await p.turn(Request(system="s", messages=msgs, tools=[READ, GREP]), lambda *a, **k: None)
+        return t2
+
+    t2 = run(go())
+    s = FakeClient.sessions[0]
+    assert len(FakeClient.sessions) == 1 and t2.text() == "found"          # the same session, not a new one
+    assert [t.name for t in s.set] == ["Read", "Grep"]                      # with the loaded tool added
+    assert copilot_sdk.CopilotProvider.dynamic_tools
 
 
 def test_an_effort_the_model_refuses_runs_without_it_and_says_so():

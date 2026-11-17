@@ -91,16 +91,16 @@ def test_a_keelbot_chat_compacts_early_and_keeps_its_last_questions(project, mon
     monkeypatch.setattr(runner_mod, "CHAT_COMPACT_AT", 2_000)
     monkeypatch.setattr(runner_mod, "CHAT_KEEP_TURNS", 2)
     sid = None
-    for i in range(1, 5):
+    for i in range(1, 4):
         p = Scripted([turn(text(f"answer {i} " + "y" * 3000))])
         res, steps = run(p, request(project, prompt=f"question {i}", agent="helper", session=sid, resume=bool(sid)))
         sid = res.data["session"]
     p = Scripted([lambda req: turn(text("SUMMARY of the chat."), usage=(10, 5)), turn(text("answer 5"))])
-    res, steps = run(p, request(project, prompt="question 5", agent="helper", session=sid, resume=True))
+    res, steps = run(p, request(project, prompt="question 4", agent="helper", session=sid, resume=True))
     assert any("keel summarized its older part" in t for k, t, _e in steps)
     view = p.requests[-1].messages
     said = " ".join(b.get("text", "") for m in view for b in m["content"] if isinstance(b, dict))
-    assert "SUMMARY of the chat." in said and "question 4" in said and "question 5" in said and "question 2" not in said
+    assert "SUMMARY of the chat." in said and "question 3" in said and "question 4" in said and "question 1" not in said
     # a flow's agent keeps the window-sized threshold: the same history does not compact
     p2 = Scripted([turn(text("ok"))])
     _r, steps2 = run(p2, request(project, prompt="again", session=sid, resume=True))

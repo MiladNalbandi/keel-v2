@@ -302,6 +302,7 @@ class CopilotProvider:
     """keel's harness turn on the person's Copilot plan (see the module docstring)."""
 
     name = "copilot"
+    dynamic_tools = True     # 0.31 a tool keel loads mid-session (LoadTools) is added with the SDK's set_tools
 
     def __init__(self, model: str, token: str | None, factory=None):
         self.model = model or DEFAULT_MODEL
@@ -320,24 +321,13 @@ class CopilotProvider:
         client = await client_for(self._token, self._factory)
         loop = asyncio.get_running_loop()
 
-        def handler_for(name: str):
-            async def handler(inv):
-                fut: asyncio.Future = loop.create_future()
-                call = {"type": "tool_call", "id": str(_field(inv, "tool_call_id", default="") or f"call_{uuid.uuid4().hex[:12]}"),
-                        "name": name, "input": _field(inv, "arguments", default=None) or {}}
-                conv.batch.append((call, fut))
-                conv.wake.set()
-                out = await fut
-                content, is_error = out
-                return ToolResult(text_result_for_llm=content, result_type="failure" if is_error else "success")
-            return handler
-
-        tools = [Tool(name=t.name, description=t.description, parameters=t.schema, handler=handler_for(t.name),
-                      overrides_built_in_tool=True, skip_permission=True) for t in req.tools]
+        tools = self._sdk_tools(conv, req.tools, Tool, ToolResult, loop)
         opts: dict[str, Any] = {
             "model": self.model, "streaming": True, "tools": tools,
             # none of Copilot's own tools: only keel's, so keel's rules check every call
-            "available_tools": [t.name for t in req.tools],
+            # (custom:* = every tool keel itself supplies, also one added later with set_tools; Copilot's built-in
+            # tools stay off)
+            "available_tools": ["custom:*"] if req.tools else [],
             "system_message": {"mode": "replace", "content": req.system or "You are a helpful assistant."},
         }
         if approve_all is not None:
@@ -422,6 +412,40 @@ class CopilotProvider:
             conv.idle.set()
             conv.wake.set()
 
+    @staticmethod
+    def _sdk_tools(conv: _Conv, specs, Tool, ToolResult, loop) -> list:
+        """keel's tools as SDK tools: a call waits for keel's harness to run it (keel's rules first)."""
+        def handler_for(name: str):
+            async def handler(inv):
+                fut: asyncio.Future = loop.create_future()
+                call = {"type": "tool_call", "id": str(_field(inv, "tool_call_id", default="") or f"call_{uuid.uuid4().hex[:12]}"),
+                        "name": name, "input": _field(inv, "arguments", default=None) or {}}
+                conv.batch.append((call, fut))
+                conv.wake.set()
+                out = await fut
+                content, is_error = out
+                return ToolResult(text_result_for_llm=content, result_type="failure" if is_error else "success")
+            return handler
+
+        return [Tool(name=t.name, description=t.description, parameters=t.schema, handler=handler_for(t.name),
+                     overrides_built_in_tool=True, skip_permission=True) for t in specs]
+
+    async def _grow_tools(self, conv: _Conv, specs) -> bool:
+        """The live session gets the tools keel loaded since it opened (only ever more: the list grows at its end)."""
+        names = tuple(t.name for t in specs)
+        if names[:len(conv.tools)] != conv.tools or conv.session is None or not hasattr(conv.session, "set_tools"):
+            return False
+        if self._factory is not None:
+            Tool, ToolResult = _FakeTool, _FakeResult
+        else:
+            _, _p, Tool, ToolResult = sdk()
+        try:
+            await conv.session.set_tools(self._sdk_tools(conv, specs, Tool, ToolResult, asyncio.get_running_loop()))
+        except Exception:  # noqa: BLE001 - the runtime did not take it: a new session with every tool instead
+            return False
+        conv.tools = names
+        return True
+
     async def _send(self, conv: _Conv, prompt: str) -> None:
         conv.idle.clear()
         try:
@@ -439,8 +463,8 @@ class CopilotProvider:
             conv = None                       # another agent call uses it right now: this one opens its own
             key += ":" + uuid.uuid4().hex[:6]
         new = req.messages[conv.seen:] if conv and len(req.messages) >= conv.seen else None
-        if conv is not None and conv.tools != tuple(t.name for t in req.tools):
-            new = None                        # the tools changed (another mode, a tool loaded): a session with them
+        if conv is not None and conv.tools != tuple(t.name for t in req.tools) and not await self._grow_tools(conv, req.tools):
+            new = None                        # other tools (another mode): a session with them
         if conv is None or new is None or not new or (conv.pending and not _answers(new, conv.pending)):
             if conv is not None:
                 await self._close(key)
