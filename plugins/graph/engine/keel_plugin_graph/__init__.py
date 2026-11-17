@@ -23,10 +23,10 @@ from . import codegraph
 VERSION = "1.0.0"
 
 # What an agent with the code graph server is told (keel's runtime/agent_knowledge.py prompt_block).
-PROMPT = ("Code graph: to find code, call mcp__codegraph__codegraph_search first (a class, function or route -> file:line, "
-          "no code), then Read only those lines (offset and limit) instead of whole files; use Grep for plain text. "
-          "codegraph_callers, codegraph_callees and codegraph_impact (load them) list who calls what and what a change "
-          "touches.")
+PROMPT = ("Code graph: mcp__codegraph__codegraph_search is already in your tools, call it directly (no LoadTools). It "
+          "finds where a class, function or route is (file:line, no code); then Read only those lines (offset and limit) "
+          "instead of whole files. Use Grep for plain text. codegraph_callers, codegraph_callees and codegraph_impact "
+          "(load them first) list who calls what and what a change touches.")
 
 
 def on_scan(root: str, pid: str, rebuild: bool = False) -> dict:

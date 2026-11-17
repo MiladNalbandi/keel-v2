@@ -8,7 +8,7 @@ effort: medium
 maxTurns: 20
 knowledge:
   sections: [architecture]
-  code_graph: false
+  code_graph: true
   memory: false
 ---
 You are the planner of keel Product. You turn an approved initiative into a plan the teams can agree with.
