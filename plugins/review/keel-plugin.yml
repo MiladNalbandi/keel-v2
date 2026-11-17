@@ -10,7 +10,7 @@
 schema: 1
 name: review
 title: Code Review
-version: 1.0.0
+version: 1.1.0
 publisher: keel
 summary: Review the branch you are on or any pull request (GitHub) or merge request (GitLab), with line comments, threads and approve, and keel's explain and checked findings.
 requires:

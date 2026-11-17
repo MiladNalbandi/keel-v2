@@ -8,7 +8,7 @@
 schema: 1
 name: keelbot
 title: KeelBot
-version: 1.0.0
+version: 1.1.0
 publisher: keel
 summary: keel's chat about your project, in the Code page and on a page of its own - it answers with file:line links, suggests the right workflow, and fixes things at a gate or in its own worktree.
 requires:
