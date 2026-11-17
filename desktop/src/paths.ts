@@ -48,6 +48,8 @@ export type Bundle = {
   front: string;
   /** the Copilot SDK's runtime (GitHub Copilot, your plan) */
   copilot: string;
+  /** CodeGraph (the Graph plugin's code graph), with its own Node */
+  codegraph: string;
 };
 
 /** The keel and the runtimes inside the app (resources/), or KEEL_DESKTOP_RESOURCES (a dev build: desktop/build/stage). */
@@ -62,5 +64,6 @@ export function bundleIn(resources: string): Bundle {
     engine: path.join(bin, "keel-engine"),
     front: path.join(bin, "keel-api"),
     copilot: path.join(rt, "copilot", "copilot-runtime"),
+    codegraph: path.join(rt, "codegraph", "bin", "codegraph"),
   };
 }

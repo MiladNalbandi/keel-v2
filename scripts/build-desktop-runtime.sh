@@ -6,6 +6,7 @@
 #                            Python api and their locked packages in its own site-packages (no venv: a venv cannot move)
 #   <out>/runtime/jre/       a small Java 21 for the Kotlin api, made with jlink from this computer's JDK 21
 #   <out>/runtime/bin/       rg (ripgrep), and keel-engine and keel-api: two-line wrappers around the Python above
+#   <out>/runtime/codegraph/ CodeGraph with its own Node (the code graph agents search before they read whole files)
 #
 #   scripts/build-desktop-runtime.sh <keel-v2-<version>-native.tar.gz> [out dir, default desktop/build/stage]
 #
@@ -121,6 +122,16 @@ echo "ripgrep…"
 tar -xzf "$(fetch rg)" -C "$work"
 cp "$(ls -d "$work"/ripgrep-*/)rg" "$out/runtime/bin/rg"
 chmod 0755 "$out/runtime/bin/rg"
+
+# 0.31 the code graph (the Graph plugin): CodeGraph's platform package carries its own Node, so the app needs none.
+# keelenv.ts sets KEEL_CODEGRAPH_BIN to it; without it agents fall back to grep and whole-file reads.
+echo "CodeGraph…"
+mkdir -p "$work/codegraph"
+tar -xzf "$(fetch codegraph)" -C "$work/codegraph"
+rm -rf -- "$out/runtime/codegraph"
+cp -a "$work/codegraph/package" "$out/runtime/codegraph"
+chmod 0755 "$out/runtime/codegraph/bin/codegraph"
+"$out/runtime/codegraph/bin/codegraph" --version | sed 's/^/  codegraph /'
 
 # keel-start runs these two: the engine and the Python api, on the Python above. -P: never the folder it starts in
 # on sys.path (it is a project folder).
