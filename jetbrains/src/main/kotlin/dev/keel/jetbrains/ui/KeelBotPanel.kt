@@ -319,10 +319,10 @@ class KeelBotPanel(private val project: Project, parent: Disposable) : JPanel(Bo
             p.add(KeelUi.card(KeelUi.prose(m.text), KeelUi.CARD_BG, KeelUi.LINE))
             return p
         }
-        p.add(KeelUi.row(KeelUi.chip("k"), KeelUi.bold(if (m.role == "assistant") "KeelBot" else m.role)).full())
+        p.add(KeelUi.row(KeelUi.chip("k"), KeelUi.bold(if (m.isAnswer) "KeelBot" else m.role)).full())
         m.callId?.let { cid ->
             val st = steps[cid]
-            if (st == null && m.role == "assistant") loadSteps(cid)
+            if (st == null && m.isAnswer) loadSteps(cid)
             if (st != null && st.steps.isNotEmpty()) {
                 val opened = cid in openLogs
                 p.add(KeelUi.link("✓ ${toolSummary(st.steps)} ${if (opened) "▾" else "▸"}") {

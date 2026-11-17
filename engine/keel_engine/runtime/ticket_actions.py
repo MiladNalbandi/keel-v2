@@ -663,12 +663,31 @@ def _source_branch(a, cfg: dict, branch: str, base: str | None) -> tuple[dict | 
     return {"pr": None, "branch": branch, "ref": ref, "base": base, "base_ref": base, "head": head, "title": None}, None
 
 
-def _source(a, cfg: dict, want: dict) -> tuple[dict | None, str | None]:
+# 0.35 the preflight's source, kept for the run's prep step a moment later: review-pr asked gh about the PR and fetched it
+# twice before any reviewer started. Keyed by the folder and what was asked; used only while its refs are still there.
+SOURCE_KEEP = 300.0
+_SOURCES: dict[str, tuple[float, dict]] = {}
+
+
+def _source_key(root: str, want: dict) -> str:
+    return json.dumps([str(root), {k: want.get(k) for k in ("pr", "branch", "base", "force")}], sort_keys=True, default=str)
+
+
+def _source(a, cfg: dict, want: dict, keep: bool = False) -> tuple[dict | None, str | None]:
     if want["uncommitted"]:
         return _source_working(a)
-    if want["pr"]:
-        return _source_pr(a, want["pr"], want["force"], cfg, want["base"])
-    return _source_branch(a, cfg, want["branch"], want["base"])
+    import time
+
+    key = _source_key(a.root, want)
+    kept = _SOURCES.pop(key, None)
+    if kept and time.monotonic() - kept[0] < SOURCE_KEEP and _ref_ok(a.root, kept[1]["ref"]) and \
+            _ref_ok(a.root, kept[1]["base_ref"]):
+        return dict(kept[1]), None
+    src, err = (_source_pr(a, want["pr"], want["force"], cfg, want["base"]) if want["pr"]
+                else _source_branch(a, cfg, want["branch"], want["base"]))
+    if keep and src and not err:
+        _SOURCES[key] = (time.monotonic(), dict(src))
+    return src, err
 
 
 SNAPSHOT_PREFIX = "refs/keel/review/snapshot-"   # + the snapshot's short sha: one ref per reviewed snapshot
@@ -773,7 +792,7 @@ def preflight(root: str, body: dict) -> str:
         raise EngineError(400, "Not a git repository: there is no PR or branch to review.")
     a = SimpleNamespace(root=root, keys=dict(body.get("keys") or {}), data=data, request=body.get("request") or "")
     cfg = rules.load_config(root)
-    src, err = _source(a, cfg, want)
+    src, err = _source(a, cfg, want, keep=True)      # the run's prep uses it again (one gh call and one fetch a run)
     if err:
         raise EngineError(409, err[:1].upper() + err[1:])
     return f"pr:{want['pr']}" if want["pr"] else "uncommitted" if want["uncommitted"] else f"branch:{want['branch']}"

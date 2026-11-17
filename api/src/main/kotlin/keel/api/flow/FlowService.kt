@@ -411,10 +411,26 @@ class FlowService(
      *  each), with keel's GitHub login for a remote on its host: the result per remote, or null when the engine could
      *  not answer. Never fails the start. 0.22.0 a side agent's start too (KeelBot's Helper): its "merged or not" reads
      *  the remote refs. */
-    fun fetchForStart(pid: String, root: Path): JsonNode? =
-        runCatching { engine.post("/remotes/fetch", mapOf("root" to root.toString(), "keys" to contributedKeys(pid).takeIf { it.isNotEmpty() }), long = true) }
+    fun fetchForStart(pid: String, root: Path): JsonNode? {
+        lastFetch[root.toString()] = System.currentTimeMillis()
+        return runCatching { engine.post("/remotes/fetch", mapOf("root" to root.toString(), "keys" to contributedKeys(pid).takeIf { it.isNotEmpty() }), long = true) }
             .onFailure { log.warn("no fetch before the start in {}: {}", pid, it.message) }
             .getOrNull()?.get("fetched")?.takeIf { it.isArray }
+    }
+
+    /** 0.35 KeelBot's fetch: in the background, and only when this folder was not fetched in the last [freshMs]. A chat
+     *  never waits for the remotes (one fetch took up to 20 s a remote before its first answer); git is fresh a few seconds
+     *  later, and a chat started right after another one does not fetch again. True when a fetch was started. */
+    fun fetchInBackground(pid: String, root: Path, freshMs: Long = FETCH_FRESH_MS): Boolean {
+        val now = System.currentTimeMillis()
+        var go = false
+        lastFetch.compute(root.toString()) { _, t -> if (t == null || now - t >= freshMs) { go = true; now } else t }
+        if (go) fetchPool.execute { fetchForStart(pid, root) }
+        return go
+    }
+
+    private val lastFetch = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val fetchPool = java.util.concurrent.Executors.newCachedThreadPool { r -> Thread(r, "keel-fetch").apply { isDaemon = true } }
 
     /** 0.18.64 keel_fetch_remotes: every remote of the project fetched, one result per remote (ok, or failed and why), and
      *  how far the base branch is behind each remote's copy and default branch (the engine's report). */
@@ -1209,6 +1225,9 @@ class FlowService(
 }
 
 /** v0.15.4 A flow that is not deleted from the history (a flow that runs or waits always shows). */
+/** 0.35 a folder fetched this recently is not fetched again for a KeelBot chat (FlowService.fetchInBackground). */
+const val FETCH_FRESH_MS = 120_000L
+
 private const val SHOWN = "(hidden_at IS NULL OR status IN ('running','waiting'))"
 
 /**

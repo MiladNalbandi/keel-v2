@@ -106,4 +106,16 @@ class ReviewModeLogicTest {
         val ask = askWhatChanged("src/Prefs.kt", rs[0], 7)
         assertTrue(ask.startsWith("What changed here in PR #7, and why might it matter? @src/Prefs.kt:2-6\n```diff\n-    fun pageSize(user: String) = 20\n+    private val cache"))
     }
+
+    @Test
+    fun `a review card finds KeelBot's answer by its role helper, or the note of a failed turn`() {
+        val msgs = listOf(
+            HelperMessage(1, "user", "first card"), HelperMessage(2, "helper", "first answer"),
+            HelperMessage(3, "user", "second card"),
+        )
+        assertEquals("first answer", answerAfter(msgs, 1)?.text)
+        assertEquals(null, answerAfter(msgs, 3))
+        assertEquals("KeelBot stopped", answerAfter(msgs + HelperMessage(4, "note", "KeelBot stopped"), 3)?.text)
+        assertTrue(HelperMessage(5, "helper").isAnswer && !HelperMessage(6, "user").isAnswer)
+    }
 }

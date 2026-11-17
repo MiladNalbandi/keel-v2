@@ -350,7 +350,7 @@ class HelperRunner:
                 body["auto_title"] = update(sid, title=short_title(text))["title"]
             call_id = uuid.uuid4().hex
             update(sid, status="running", error=None)
-            self.tasks[sid] = asyncio.create_task(self._run(sid, n, question, body, call_id))
+            self.tasks[sid] = asyncio.create_task(self._run(sid, n, question, {**body, "_asked_at": time.monotonic()}, call_id))
             return {"session": sid, "call_id": call_id, "n": n, "command": command, "images": att["images"],
                     "images_skipped": att["skipped"]}
         finally:
@@ -550,7 +550,9 @@ class HelperRunner:
             # 0.18.62 "what does this branch do?": the branch's exact git facts and the answer's order
             facts = await asyncio.to_thread(branch_facts.facts, root) if branch_facts.asks_about_branch(question) else None
             transcript = "" if (resume or model.get("mode") == "api" or provider == "fake") else _transcript(hist)
-            prompt = build_prompt(mode=mode, root=root, question=question, know=know, branch=s.get("branch") or "", pid=project,
+            # 0.35 off the event loop: with hints on it may load the whole code graph (other chats and flows go on)
+            prompt = await asyncio.to_thread(
+                build_prompt, mode=mode, root=root, question=question, know=know, branch=s.get("branch") or "", pid=project,
                                   graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), flow=body.get("flow"),
                                   mentions=body.get("mentions"), selection=body.get("selection"), open_file=body.get("open_file"),
                                   transcript=transcript, keel={**(body.get("keel") or {}), "plugins": on},
@@ -568,7 +570,8 @@ class HelperRunner:
                                    mcp_specs=mcp_specs, tools_allow=tools_allow, key=models.key_for(provider, keys),
                                    workdir=tmp, timeout=int(body.get("timeout") or TURN_TIMEOUT), keys=keys, session=session,
                                    resume=resume, on_session=on_session, thread=sid, knowledge=know,
-                                   history=hist[-HISTORY_TURNS:] if model.get("mode") == "api" or provider == "fake" else [])
+                                   history=hist[-HISTORY_TURNS:] if model.get("mode") == "api" or provider == "fake" else [],
+                                   asked_at=body.get("_asked_at"))
                 gfile = guard_ctx.GuardFile(Path(tmp) / guard_ctx.FILE, **guard_ctx.context_for(req))
                 req.guard_ctx = gfile.path
                 if session and not resume:

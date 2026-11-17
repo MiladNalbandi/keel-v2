@@ -31,6 +31,7 @@ import com.intellij.util.ui.JBUI
 import dev.keel.jetbrains.api.ChangeKind
 import dev.keel.jetbrains.api.ChangeRange
 import dev.keel.jetbrains.api.PrFileStatus
+import dev.keel.jetbrains.api.answerAfter
 import dev.keel.jetbrains.api.askWhatChanged
 import dev.keel.jetbrains.api.placeThreads
 import dev.keel.jetbrains.api.rangeAt
@@ -275,18 +276,27 @@ class ReviewModeMarks(private val project: Project) : Disposable {
             svc.scope.launch {
                 try {
                     val api = KeelConnection.get().ensure()
-                    val chat = api.newChat(pid, "ask")
-                    sid = chat.id
-                    val turn = api.send(pid, chat.id, ask)
+                    // 0.35 one KeelBot chat for this PR's cards: a new chat for each card paid for a new session (and
+                    // its start) every time; a card asked while an answer runs waits in the chat's queue
+                    val chatKey = "$pid#${mode.number ?: path}"
+                    var chatId = reviewChats[chatKey]
+                    val turn = chatId?.let { runCatching { api.send(pid, it, ask) }.getOrNull() } ?: run {
+                        val chat = api.newChat(pid, "ask")
+                        chatId = chat.id
+                        reviewChats[chatKey] = chat.id
+                        api.send(pid, chat.id, ask)
+                    }
+                    val cid = chatId!!
+                    sid = cid
                     repeat(240) {
                         delay(1_500)
                         val partial = svc.live.liveText.value[turn.callId]
-                        val s = api.chat(pid, chat.id)
-                        val done = s.status != "running" && s.busy != true
-                        val answer = s.messages.orEmpty().lastOrNull { it.role == "assistant" && it.n > turn.n }?.text ?: s.messages.orEmpty().lastOrNull { it.role == "assistant" }?.text
+                        val s = api.chat(pid, cid)
+                        val answer = answerAfter(s.messages, turn.n)
+                        val done = answer != null
                         edt {
                             when {
-                                done -> show(answer?.ifBlank { null } ?: s.error ?: "KeelBot gave no answer.")
+                                done -> show(answer?.text?.ifBlank { null } ?: s.error ?: "KeelBot gave no answer.")
                                 !partial.isNullOrBlank() -> show(partial)
                             }
                         }
@@ -347,6 +357,8 @@ class ReviewModeMarks(private val project: Project) : Disposable {
     }
 
     companion object {
+        /** 0.35 the KeelBot chat of each PR's review cards ("<project>#<PR>"), for the IDE's life. */
+        private val reviewChats = java.util.concurrent.ConcurrentHashMap<String, String>()
         val MARK: Key<ChangeRange> = Key.create("keel.review.mark")
         private const val OUTER = "keel.review.outer"
         val MODIFIED = com.intellij.ui.JBColor(java.awt.Color(0x2F6FDB), java.awt.Color(0x5C9DFF))

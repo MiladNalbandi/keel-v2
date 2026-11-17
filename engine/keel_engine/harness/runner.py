@@ -157,12 +157,40 @@ def _env(req: AgentRequest) -> str:
             "</environment>")
 
 
+
+def _secs(x: float) -> str:
+    return f"{x:.1f} s"
+
+
+def _start_fields(t: dict) -> dict:
+    return {k: round(v, 3) for k, v in (("prepare", t.get("prepare")), ("tools", t.get("tools")), ("git", t.get("git")))
+            if v is not None} | {"servers": {k: round(v, 3) for k, v in (t.get("servers") or {}).items()}}
+
+
+def start_line(t: dict, now: float) -> str:
+    """0.35 where the wait before the first answer went, one line in the step feed:
+    "start: prepare 0.3 s · tools 1.2 s (keel 0.4 s, codegraph 1.2 s) · git 0.1 s · first answer 2.4 s"."""
+    parts = []
+    if t.get("prepare") is not None:
+        parts.append(f"prepare {_secs(t['prepare'])}")
+    if t.get("tools") is not None:
+        servers = t.get("servers") or {}
+        slow = ", ".join(f"{n} {_secs(v) if v else 'kept'}" for n, v in sorted(servers.items(), key=lambda kv: -kv[1]))
+        parts.append(f"tools {_secs(t['tools'])}" + (f" ({slow})" if slow else ""))
+    if t.get("git") is not None:
+        parts.append(f"git {_secs(t['git'])}")
+    if t.get("t_model") is not None:
+        session = f" (opening the model's session {_secs(t['session'])})" if (t.get("session") or 0) >= 0.1 else ""
+        parts.append(f"first answer {_secs(now - t['t_model'])}{session}")
+    return "start: " + " · ".join(parts)
+
 class HarnessRunner:
     """The Runner of every real model (models/__init__.py runner_for); the fake model keeps its own."""
 
     def __init__(self, provider=None):
         self._provider = provider          # tests: a provider made already
         self._chat = False                 # a KeelBot chat (CHAT_AGENTS): earlier compaction
+        self._timing: dict = {"servers": {}}   # 0.35 the start line (start_line): set again by each run
 
     async def _resolve(self, req: AgentRequest):
         if self._provider is not None:
@@ -237,14 +265,20 @@ class HarnessRunner:
     # ------------------------------------------------------------------ the loop
 
     async def run(self, req: AgentRequest, emit: Emit) -> AgentResult:
+        t_run = time.monotonic()
+        self._timing = {"prepare": (t_run - req.asked_at) if req.asked_at else None, "servers": {}}
         provider = await self._resolve(req)
+        warm = getattr(provider, "warm", None)
+        warming = asyncio.ensure_future(warm()) if callable(warm) else None   # 0.35 side by side with the tools below
         self._chat = req.agent in CHAT_AGENTS
         await asyncio.to_thread(transcript.sweep)
         await asyncio.to_thread(sweep_outputs)
         session, fresh = self._session(req, provider, emit)
         used = Usage()
         system = (req.system.rstrip() + "\n\n" + GUIDE) if req.system else GUIDE
+        t0 = time.monotonic()
         tools = await self._tools(req, session, provider, used, emit)
+        self._timing["tools"] = time.monotonic() - t0
         web = "WebSearch" in self._web(req) and provider.name == "anthropic"
         effort = catalog.effort_for(req.model)
         window = self._window(req)
@@ -256,7 +290,12 @@ class HarnessRunner:
             for role, text in req.history:
                 if text:
                     session.add("user" if role == "user" else "assistant", [{"type": "text", "text": text}])
+        t0 = time.monotonic()
         start = await asyncio.to_thread(context.session_start, req.toolbox) if fresh else ""
+        self._timing["git"] = time.monotonic() - t0
+        if warming is not None:
+            await warming
+        self._timing["t_model"] = time.monotonic()
         session.add("user", [{"type": "text", "text": (start + "\n\n" + req.prompt) if start else req.prompt}])
         try:
             return await self._loop(req, emit, provider, session, used, system, tools, web, effort, window, server_side, extra)
@@ -292,6 +331,10 @@ class HarnessRunner:
             emit("context", context_line(parts, turn.usage, prev_cached, int(getattr(provider, "min_cache_tokens", 0) or 0)),
                  **parts, cached=turn.usage.cache_read, cache_write=turn.usage.cache_write, compaction=turn.usage.compaction)
             prev_cached = turn.usage.cache_read
+            if self._timing.get("t_model") is not None:
+                self._timing["session"] = getattr(provider, "open_s", None)
+                emit("context", start_line(self._timing, time.monotonic()), start=_start_fields(self._timing))
+                self._timing["t_model"] = None
             session.add("assistant", turn.blocks, api=provider.name, model=provider.model, raw=turn.raw)
             turns_since_todo += 1
             for b in turn.blocks:
@@ -420,7 +463,7 @@ class HarnessRunner:
         mcp_tools: list = []
         if req.mcp_specs:
             try:
-                mcp_tools, _client = await mcp.langchain_tools(req.mcp_specs, req.tools_allow)
+                mcp_tools, _client = await mcp.langchain_tools(req.mcp_specs, req.tools_allow, self._timing["servers"])
             except Exception as exc:  # noqa: BLE001 - a server that does not start costs its tools, not the run
                 emit("text", f"An MCP server did not start, so its tools are missing: {str(exc)[:200]}")
 
