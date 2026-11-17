@@ -45,14 +45,14 @@ test.describe("J20 Task to the Org", () => {
     await expect(all.getByRole("heading", { level: 4 })).toHaveText(["Build", "Fix", "Check", "Plan", "Ship & set up"]);
     await expect(all).not.toContainText("lead a mission");
     await expect(all).not.toContainText("review the team's work");
-    await shot(page, "j11-flows-in-groups");
+    await shot(page, "j20-flows-in-groups");
     await s.getByRole("button", { name: "Fewer flows" }).click();
 
     // Hand to Org
     await s.getByRole("button", { name: "Hand to Org" }).click();
     const form = s.getByRole("group", { name: "Hand to Org" });
     await expect(form.getByLabel("Org", { exact: true })).toHaveValue("small-team");
-    await shot(page, "j11-hand-to-org");
+    await shot(page, "j20-hand-to-org");
     await form.getByRole("button", { name: "Give to Small team" }).click();
     const m = d.getByRole("region", { name: "Org mission" });
     await expect(m).toContainText("Org small-team", { timeout: 30_000 });
@@ -85,7 +85,7 @@ test.describe("J20 Task to the Org", () => {
     const parts = m.getByRole("list", { name: "Parts" }).getByRole("listitem");
     await expect(parts).toHaveCount(2);
     await expect(parts.nth(0)).toContainText("Show the cart count (fe)");
-    await shot(page, "j11-in-review");
+    await shot(page, "j20-in-review");
     const t2 = await api("GET", `/tasks/${task.id}`);
     for (const p of t2.parts) {
       const pt = await api("GET", `/tasks/${p.id}`);
@@ -101,7 +101,7 @@ test.describe("J20 Task to the Org", () => {
     await expect(d.getByText("Done", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
     const done = await api("GET", `/tasks/${task.id}`);
     expect(done.parts.map((p: { status: string }) => p.status)).toEqual(["done", "done"]);
-    await shot(page, "j11-done");
+    await shot(page, "j20-done");
     await expectNoConsoleErrors(errors);
   });
 });
