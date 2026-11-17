@@ -37,11 +37,23 @@ def kubectl_path() -> str | None:
 
 
 def kube_env() -> dict:
-    """kubectl's environment: its discovery cache in keel's data when ~/.kube is not writable (keel2 mounts it read-only)."""
+    """kubectl's environment: its discovery cache in keel's data when ~/.kube is not writable (keel2 mounts it read-only), the
+    person's kubeconfig and then keel's own (the GKE clusters added in Cluster › Connect, gcloud.add_cluster), and gcloud's
+    environment for the GKE plugin (gcloud.env)."""
+    from . import gcloud
+
     env = dict(os.environ)
     if "KUBECACHEDIR" not in env and env.get("KEEL_DATA") and not os.access(os.path.expanduser("~/.kube"), os.W_OK):
         env["KUBECACHEDIR"] = os.path.join(env["KEEL_DATA"], "cluster", "cache")
-    return env
+    own = gcloud.own_kubeconfig()
+    if own.is_file():
+        files = [f for f in (env.get("KUBECONFIG") or "").split(os.pathsep) if f]
+        if not files and os.path.exists(os.path.expanduser("~/.kube/config")):
+            files = [os.path.expanduser("~/.kube/config")]
+        if str(own) not in files:
+            files.append(str(own))
+        env["KUBECONFIG"] = os.pathsep.join(files)
+    return gcloud.env(env)
 
 
 def kubeconfig() -> str | None:
@@ -51,6 +63,12 @@ def kubeconfig() -> str | None:
         return env.split(os.pathsep)[0]
     p = os.path.expanduser("~/.kube/config")
     return p if os.path.exists(p) else None
+
+
+def forget_contexts() -> None:
+    """The kubeconfig changed (a GKE cluster was added): read the contexts again on the next call."""
+    global _CTX_CACHE
+    _CTX_CACHE = (0.0, [])
 
 
 def in_docker() -> bool:
@@ -171,7 +189,11 @@ def contexts() -> dict:
     """The kubeconfig's contexts: names, cluster and server only (kubectl's `config view` leaves out the secrets)."""
     global _CTX_CACHE
     exe = kubectl_path()
-    out = {"kubectl": bool(exe), "kubectl_version": None, "kubeconfig": kubeconfig(), "in_docker": in_docker(), "contexts": []}
+    from . import gcloud
+
+    own_file = gcloud.own_kubeconfig()
+    out = {"kubectl": bool(exe), "kubectl_version": None, "kubeconfig": kubeconfig(), "in_docker": in_docker(), "contexts": [],
+           "own_kubeconfig": str(own_file) if own_file.is_file() else None}
     if not exe:
         return out
     try:
@@ -185,12 +207,14 @@ def contexts() -> dict:
     servers = {c.get("name"): (c.get("cluster") or {}).get("server") or "" for c in cfg.get("clusters") or []}
     users = {u.get("name"): u.get("user") or {} for u in cfg.get("users") or []}
     current = cfg.get("current-context") or ""
+    added = gcloud.own_contexts()
     rows = []
     for c in cfg.get("contexts") or []:
         name, ctx = c.get("name") or "", c.get("context") or {}
         server = servers.get(ctx.get("cluster"), "")
         rows.append({"name": name, "cluster": ctx.get("cluster") or "", "server": server, "namespace": ctx.get("namespace") or "",
-                     "current": name == current, "local": is_local(server), "auth": gke.auth_of(users.get(ctx.get("user")) or {})})
+                     "current": name == current, "local": is_local(server), "auth": gke.auth_of(users.get(ctx.get("user")) or {}),
+                     "added": name in added})
     out["contexts"] = rows
     _CTX_CACHE = (time.time(), rows)
     return out
@@ -222,7 +246,7 @@ def test(ctx: str) -> dict:
     from . import gke
 
     return {"ok": True, "ms": int((time.monotonic() - t) * 1000), "version": (v.get("serverVersion") or {}).get("gitVersion"),
-            "nodes": count, "note": note, "as": gke.email() if auth_of(ctx) == "gke" else None}
+            "nodes": count, "note": note, "as": gke.signed_in_as() if auth_of(ctx) == "gke" else None}
 
 
 # ---------- rows ----------

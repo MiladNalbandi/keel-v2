@@ -14,7 +14,7 @@ rest = [a for i, a in enumerate(args) if a != "--context" and (i == 0 or args[i 
 if ctx == "far-away":
     sys.stderr.write("Unable to connect to the server: dial tcp 10.9.9.9:6443: i/o timeout\n")
     sys.exit(1)
-if ctx == "gke-prod":
+if ctx == "gke-prod" or ctx.startswith("gke_"):
     # what kubectl does for an exec user: run the helper found on PATH and take the token from its ExecCredential
     import shutil
     import subprocess
@@ -26,7 +26,11 @@ if ctx == "gke-prod":
     env = dict(os.environ, KUBERNETES_EXEC_INFO=json.dumps({"apiVersion": "client.authentication.k8s.io/v1beta1",
                                                              "kind": "ExecCredential", "spec": {"interactive": False}}))
     out = subprocess.run([helper], capture_output=True, text=True, env=env)
-    cred = json.loads(out.stdout) if out.returncode == 0 else {}
+    if out.returncode != 0:
+        sys.stderr.write(out.stderr + f"Unable to connect to the server: getting credentials: exec: executable {helper} failed "
+                         f"with exit code {out.returncode}\n")
+        sys.exit(1)
+    cred = json.loads(out.stdout)
     with open(os.environ["FAKE_KUBE_LOG"] + ".cred", "a") as f:
         f.write(json.dumps(cred) + "\n")
     if cred.get("kind") != "ExecCredential" or (cred.get("status") or {}).get("token") != os.environ.get("FAKE_GKE_ACCEPTS"):
@@ -35,7 +39,16 @@ if ctx == "gke-prod":
 if rest[:2] == ["version", "--client"]:
     print(json.dumps({"clientVersion": {"gitVersion": "v1.32.3"}}))
 elif rest[:2] == ["config", "view"]:
-    print((HERE / "config.json").read_text())
+    # like kubectl: the files of KUBECONFIG merged, the first entries win (config.json stands for the person's kubeconfig)
+    cfg = json.loads((HERE / "config.json").read_text())
+    for extra in [f for f in os.environ.get("KUBECONFIG", "").split(os.pathsep) if f and os.path.isfile(f) and f.endswith("kubeconfig")]:
+        import yaml
+
+        more = yaml.safe_load(open(extra)) or {}
+        for key in ("clusters", "contexts", "users"):
+            names = {x["name"] for x in cfg[key]}
+            cfg[key] += [x for x in more.get(key) or [] if x["name"] not in names]
+    print(json.dumps(cfg))
 elif rest[:1] == ["version"]:
     print(json.dumps({"serverVersion": {"gitVersion": "v1.31.2"}}))
 elif rest[:2] == ["get", "nodes"] and ctx == "staging-eu":

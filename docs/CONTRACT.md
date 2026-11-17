@@ -4067,3 +4067,32 @@ A step that fails no longer ends the flow by itself, and every crash is kept so 
   is refused (`rules.checks.check_content`).
 - **Fix**: the api's `PUT /api/projects/{pid}/rules/config` called the engine's `/rules/config` with POST; the engine
   route is a PUT, so it now sends PUT.
+
+
+## Next: Cluster, GKE sign-in with gcloud in keel's Docker image (issue #182)
+
+The image has the Google Cloud CLI 594.0.0 and `gke-gcloud-auth-plugin` 0.5.21 (pinned, sha256 checked, no bundled Python,
+gsutil or bq), `CLOUDSDK_CONFIG=/data/gcloud` (keel's own gcloud login, keel's user only), `CLOUDSDK_PYTHON=/usr/bin/python3`
+and prompts off. `keel2` mounts `~/.config/gcloud` read-only at `/home/keel/.gcloud-host` with
+`KEEL_GCLOUD_HOST=/home/keel/.gcloud-host` (`KEEL2_GCLOUD=0`: not mounted); keel copies that login once, while it has no login
+and was never signed out (marker `.keel-seeded` in its gcloud config). Native mode (no `CLOUDSDK_CONFIG`) uses the person's
+own gcloud. Cluster plugin 0.3.0.
+
+```
+PUT  /api/plugins/cluster/google               {source: vertex|own|gcloud|off, ...}   // gcloud and off send no key: kubectl runs the real plugin
+GET  /api/plugins/cluster/gcloud               -> {installed, version, plugin, owned, account, accounts, seeded, host_mounted, signing_in, error}
+POST /api/plugins/cluster/gcloud/login         -> {id, url}                // gcloud auth login --no-launch-browser; one at a time, 10 minutes
+POST /api/plugins/cluster/gcloud/login/code    {id, code} -> gcloud status  // 400 not a code, 404 sign-in ended, 409 Google said no
+POST /api/plugins/cluster/gcloud/login/cancel  {id}
+POST /api/plugins/cluster/gcloud/logout        -> gcloud status            // keel's own login only (409 in native mode); no revoke at Google
+GET  /api/plugins/cluster/gcloud/projects      -> {items: [{id, name}]}
+GET  /api/plugins/cluster/gcloud/clusters      ?project -> {project, items: [{name, location, status, version, nodes, context, added}]}
+POST /api/plugins/cluster/gcloud/add           {project, location, name} -> {context}   // get-credentials into $KEEL_DATA/cluster/kubeconfig
+GET  /api/plugins/cluster/contexts             -> ... own_kubeconfig, contexts[].added
+```
+
+- kubectl's `KUBECONFIG` is the person's kubeconfig, then keel's own when it exists. For a GKE context with no key and a
+  read-only `~/.kube`, kubectl runs with `HOME=$KEEL_DATA/cluster/home` (the plugin's token cache) and the person's kubeconfig
+  named explicitly. gcloud's Python cache goes to `$KEEL_DATA/cluster/pycache` when gcloud's folder is read-only.
+- The new POST routes are named in no MCP list: they need the MCP admin level, like the plugin's other POST routes.
+- No token in any answer; the code reaches gcloud on stdin only.

@@ -599,6 +599,11 @@ cmd_start() {
   if [ "${KEEL2_KUBE:-1}" != 0 ] && [ -d "$HOME/.kube" ]; then
     args+=(-v "$HOME/.kube:/home/keel/.kube:ro")
   fi
+  # 0.34 GKE sign-in with gcloud: this computer's gcloud login (~/.config/gcloud) is mounted read-only, and keel copies it once
+  # into its own (/data/gcloud) when keel has no Google login yet (KEEL2_GCLOUD=0: not mounted; Cluster › Connect signs in too)
+  if [ "${KEEL2_GCLOUD:-1}" != 0 ] && [ -d "$HOME/.config/gcloud" ]; then
+    args+=(-v "$HOME/.config/gcloud:/home/keel/.gcloud-host:ro" -e KEEL_GCLOUD_HOST=/home/keel/.gcloud-host)
+  fi
   if [ "$docker_mode" = 1 ]; then
     # The host's Docker runs the containers tests start. The project is mounted at the SAME path as on this
     # computer, so bind mounts that tests ask the host Docker for (Testcontainers, compose) point at real folders.

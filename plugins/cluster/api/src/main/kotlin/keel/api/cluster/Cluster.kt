@@ -26,8 +26,9 @@ import org.springframework.web.bind.annotation.RestController
 /** What keel may do on one kubeconfig context: seen in keel (`on`), and `read` | `ask` | `free` for a change. */
 data class ClusterRule(val on: Boolean = true, val access: String = "read")
 
-/** google: how GKE contexts sign in, `vertex` (the service account of Connections › Vertex AI), `own` (a key for clusters only) or
- *  `off` (the kubeconfig's own sign-in, gcloud's gke-gcloud-auth-plugin). */
+/** google: how GKE contexts sign in, `vertex` (the service account of Connections › Vertex AI), `own` (a key for clusters only),
+ *  `gcloud` (the person's own Google account: gcloud's login and its gke-gcloud-auth-plugin, keel_plugin_cluster/gcloud.py) or
+ *  `off` (the kubeconfig's own sign-in, as it is where keel runs). `gcloud` and `off` send no key: kubectl runs the real plugin. */
 data class ClusterSettings(val clusters: Map<String, ClusterRule> = emptyMap(), val google: String = "vertex")
 
 /** PUT /api/plugins/cluster/google. credentialsJson: a service-account key for clusters only (blank keeps the saved one). */
@@ -40,6 +41,11 @@ data class GoogleView(val source: String, val email: String?, val ownKeySet: Boo
 data class RuleBody(val on: Boolean? = null, val access: String? = null)
 data class SettingsBody(val clusters: Map<String, RuleBody?>? = null)
 data class ContextBody(val context: String? = null)
+/** The code Google shows after the sign-in started by POST /gcloud/login (its id). */
+data class GcloudCodeBody(val id: String? = null, val code: String? = null)
+data class GcloudIdBody(val id: String? = null)
+/** A GKE cluster to add to keel's own kubeconfig. */
+data class GkeClusterBody(val project: String? = null, val location: String? = null, val name: String? = null)
 data class ExecBody(val context: String? = null, val ns: String? = null, val name: String? = null, val container: String? = null, val command: String? = null)
 data class ChangeBody(
     val context: String? = null,
@@ -58,7 +64,15 @@ data class ChangeBody(
  *     GET  /api/plugins/cluster/contexts    the kubeconfig's contexts, each with its on and access
  *     PUT  /api/plugins/cluster/settings    {clusters: {name: {on, access}}}
  *     GET  /api/plugins/cluster/google      how GKE contexts sign in (GoogleView)
- *     PUT  /api/plugins/cluster/google      {source: vertex|own|off, credentialsJson?, clearCredentials?}
+ *     PUT  /api/plugins/cluster/google      {source: vertex|own|gcloud|off, credentialsJson?, clearCredentials?}
+ *     GET  /api/plugins/cluster/gcloud      gcloud where keel runs: installed, version, the plugin, whose login, the account
+ *     POST /api/plugins/cluster/gcloud/login         starts the sign-in with Google: {id, url}
+ *     POST /api/plugins/cluster/gcloud/login/code    {id, code}: the code Google shows; answers the gcloud status
+ *     POST /api/plugins/cluster/gcloud/login/cancel  {id}
+ *     POST /api/plugins/cluster/gcloud/logout        keel's own login only (Docker)
+ *     GET  /api/plugins/cluster/gcloud/projects      the account's Google Cloud projects
+ *     GET  /api/plugins/cluster/gcloud/clusters      ?project=   its GKE clusters
+ *     POST /api/plugins/cluster/gcloud/add           {project, location, name}: into keel's own kubeconfig
  *     POST /api/plugins/cluster/test        {context}
  *     GET  /api/plugins/cluster/snapshot    ?context=&ns=
  *     GET  /api/plugins/cluster/logs        ?context=&ns=&name=&container=&previous=&tail=
@@ -137,7 +151,7 @@ class ClusterService(
 
     fun putGoogle(body: GoogleBody): GoogleView {
         val source = body.source?.trim()?.takeIf { it.isNotEmpty() } ?: settings().google
-        if (source !in GOOGLE) throw BadRequest("source is vertex, own or off, not \"$source\"")
+        if (source !in GOOGLE) throw BadRequest("source is vertex, own, gcloud or off, not \"$source\"")
         val json = body.credentialsJson?.trim()?.takeIf { it.isNotEmpty() }
         if (json != null) {
             val n = runCatching { mapper.readTree(json) }.getOrNull()
@@ -225,6 +239,40 @@ class ClusterService(
 
     fun history(): JsonNode = engine.post("$PATH/history", emptyMap<String, Any>(), long = true)
 
+    // ---- GKE sign-in with the person's own Google account (gcloud), and adding a GKE cluster: the engine runs gcloud ----
+
+    fun gcloud(): JsonNode = engine.post("$PATH/gcloud-status", emptyMap<String, Any>(), long = true)
+
+    fun gcloudLogin(): JsonNode = engine.post("$PATH/gcloud-login", emptyMap<String, Any>(), long = true)
+
+    fun gcloudCode(body: GcloudCodeBody): JsonNode {
+        val id = body.id?.trim().orEmpty()
+        val code = body.code?.trim().orEmpty()
+        if (id.isEmpty()) throw BadRequest("Say which sign-in (its id)", "Start it with Sign in with Google.")
+        if (code.isEmpty()) throw BadRequest("Paste the code Google shows")
+        return engine.post("$PATH/gcloud-code", mapOf("id" to id, "code" to code), long = true)
+    }
+
+    fun gcloudCancel(body: GcloudIdBody): JsonNode =
+        engine.post("$PATH/gcloud-cancel", mapOf("id" to body.id?.trim().orEmpty()), long = true)
+
+    fun gcloudLogout(): JsonNode = engine.post("$PATH/gcloud-logout", emptyMap<String, Any>(), long = true)
+
+    fun gkeProjects(): JsonNode = engine.post("$PATH/gcloud-projects", emptyMap<String, Any>(), long = true)
+
+    fun gkeClusters(project: String?): JsonNode {
+        if (project.isNullOrBlank()) throw BadRequest("Say which Google Cloud project")
+        return engine.post("$PATH/gcloud-clusters", mapOf("project" to project.trim()), long = true)
+    }
+
+    fun gkeAdd(body: GkeClusterBody): JsonNode {
+        val project = body.project?.trim().orEmpty()
+        val location = body.location?.trim().orEmpty()
+        val name = body.name?.trim().orEmpty()
+        if (project.isEmpty() || location.isEmpty() || name.isEmpty()) throw BadRequest("Say the project, the location and the cluster")
+        return engine.post("$PATH/gcloud-add", mapOf("project" to project, "location" to location, "name" to name), long = true)
+    }
+
     /** What an agent call carries: `{context: access}` of the contexts that are on (a context not in it is off for agents). */
     fun accessJson(): String {
         val rules = settings().clusters
@@ -236,7 +284,7 @@ class ClusterService(
         const val PATH = "/plugins/cluster"
         const val GOOGLE_SECRET = "CLUSTER_GOOGLE_CREDENTIALS"
         val ACCESS = setOf("read", "ask", "free")
-        val GOOGLE = setOf("vertex", "own", "off")
+        val GOOGLE = setOf("vertex", "own", "gcloud", "off")
     }
 }
 
@@ -305,4 +353,28 @@ class ClusterController(private val cluster: ClusterService) {
 
     @GetMapping("/history")
     fun history(): JsonNode = cluster.history()
+
+    @GetMapping("/gcloud")
+    fun gcloud(): JsonNode = cluster.gcloud()
+
+    @PostMapping("/gcloud/login")
+    fun gcloudLogin(): JsonNode = cluster.gcloudLogin()
+
+    @PostMapping("/gcloud/login/code")
+    fun gcloudCode(@RequestBody body: GcloudCodeBody): JsonNode = cluster.gcloudCode(body)
+
+    @PostMapping("/gcloud/login/cancel")
+    fun gcloudCancel(@RequestBody body: GcloudIdBody): JsonNode = cluster.gcloudCancel(body)
+
+    @PostMapping("/gcloud/logout")
+    fun gcloudLogout(): JsonNode = cluster.gcloudLogout()
+
+    @GetMapping("/gcloud/projects")
+    fun gkeProjects(): JsonNode = cluster.gkeProjects()
+
+    @GetMapping("/gcloud/clusters")
+    fun gkeClusters(@RequestParam(required = false) project: String?): JsonNode = cluster.gkeClusters(project)
+
+    @PostMapping("/gcloud/add")
+    fun gkeAdd(@RequestBody body: GkeClusterBody): JsonNode = cluster.gkeAdd(body)
 }

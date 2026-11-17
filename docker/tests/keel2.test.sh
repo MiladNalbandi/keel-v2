@@ -121,6 +121,16 @@ reset
 KEEL_IMAGE=keel-v2:mine "$KEEL2" start --core "$WORK/project" > "$WORK/out" 2>&1 || true
 check "start --core with KEEL_IMAGE: KEEL_IMAGE wins" ran_with " keel-v2:mine$"
 
+echo "keel2 start: this computer's gcloud login"
+reset
+mkdir -p "$HOME/.config/gcloud"
+"$KEEL2" start "$WORK/project" > "$WORK/out" 2>&1 || true
+check "start: ~/.config/gcloud is mounted read-only for GKE sign-in" ran_with "$HOME/.config/gcloud:/home/keel/.gcloud-host:ro -e KEEL_GCLOUD_HOST=/home/keel/.gcloud-host"
+reset
+KEEL2_GCLOUD=0 "$KEEL2" start "$WORK/project" > "$WORK/out" 2>&1 || true
+check "start with KEEL2_GCLOUD=0: not mounted" bash -c "! grep '^docker run ' '$WORK/log' | tail -1 | grep -q gcloud-host"
+rm -rf "$HOME/.config/gcloud"
+
 echo "keel2 status"
 reset
 "$KEEL2" start --core "$WORK/project" > /dev/null 2>&1 || true

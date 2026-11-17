@@ -1,4 +1,5 @@
-"""GKE sign-in without gcloud. A GKE context's kubeconfig user runs `gke-gcloud-auth-plugin`, which needs gcloud and a gcloud login.
+"""GKE sign-in with a Google service-account key (the other way, the person's own gcloud login, is gcloud.py). A GKE context's
+kubeconfig user runs `gke-gcloud-auth-plugin`, which needs gcloud and a gcloud login.
 When the api sends a Google service-account key with a call (Cluster › Connect › Google Cloud: the Vertex AI connection's key or a key
 for clusters only), keel answers that exec call itself: kubectl runs with keel's own `gke-gcloud-auth-plugin` first on its PATH, and
 that small program prints the access token keel made from the key (an ExecCredential, the exec plugin protocol). The kubeconfig is
@@ -148,9 +149,30 @@ def auth_of(user: dict) -> str:
     return "kubeconfig"
 
 
+def signed_in_as() -> str | None:
+    """Who a GKE context signs in as: the service account of the key sent with the call, else gcloud's account."""
+    if key():
+        return email()
+    from . import gcloud
+
+    return gcloud.account()
+
+
 def env_for(auth: str, env: dict) -> dict:
-    """kubectl's environment for a context: keel's helper and a fresh token for a GKE context while a Google key is set."""
+    """kubectl's environment for a context: keel's helper and a fresh token for a GKE context while a Google key is set. With no
+    key a GKE context runs the real gke-gcloud-auth-plugin (gcloud's login); its token cache goes to keel's data when ~/.kube
+    is read-only (keel2's mount), so it does not ask gcloud again at every kubectl run."""
     raw = key()
+    if auth in ("gke", "gke-path") and not raw:
+        home = os.path.expanduser("~")
+        if env.get("KEEL_DATA") and not os.access(os.path.join(home, ".kube"), os.W_OK):
+            env = dict(env)
+            if not env.get("KUBECONFIG") and os.path.exists(os.path.join(home, ".kube", "config")):
+                env["KUBECONFIG"] = os.path.join(home, ".kube", "config")   # kubectl looks in $HOME/.kube: keep the person's file
+            alt = Path(env["KEEL_DATA"]) / "cluster" / "home"
+            (alt / ".kube").mkdir(parents=True, exist_ok=True)
+            env["HOME"] = str(alt)
+        return env
     if auth != "gke" or not raw:
         return env
     tok, exp = token(raw)
@@ -166,8 +188,14 @@ def hint(auth: str, err: str) -> str | None:
     """A hint for a failed kubectl run on a context that signs in with Google, or None."""
     low = err.lower()
     who = email()
+    if auth in ("gke", "gke-path") and not who and PLUGIN in low and "not found" in low:
+        return ("This is a GKE cluster, and gke-gcloud-auth-plugin is not installed where keel runs. Choose a service account in "
+                "Cluster › Connect › Google Cloud, or install gcloud and the plugin (keel's Docker image has both).")
+    if auth in ("gke", "gke-path") and not who and ("gcloud" in low or PLUGIN in low) and (
+            "auth login" in low or "credential" in low or "reauthentication" in low or "no active account" in low):
+        return "This GKE cluster signs in with gcloud, which has no login here: Sign in with Google in Cluster › Connect › Google Cloud."
     if auth in ("gke", "gke-path") and not who and PLUGIN in low:
-        return "This is a GKE cluster. keel can sign in with a Google service account: choose one in Cluster › Connect › Google Cloud."
+        return "This is a GKE cluster: sign in with Google or choose a service account in Cluster › Connect › Google Cloud."
     if auth == "gke-path" and who:
         return (f"Your kubeconfig runs {PLUGIN} by its full path, so keel cannot sign in for it. Run `gcloud container clusters "
                 f"get-credentials` again (it writes the short name), or change the user's exec command to {PLUGIN}.")
@@ -175,4 +203,10 @@ def hint(auth: str, err: str) -> str | None:
         return "This kubeconfig uses the old gcp sign-in, which kubectl no longer has. Run `gcloud container clusters get-credentials` again."
     if auth == "gke" and who and ("unauthorized" in low or "must be logged in" in low or "forbidden" in low):
         return f"keel signed in as {who}, and the cluster said no. {ROLE_HINT}"
+    if auth in ("gke", "gke-path") and not who and ("unauthorized" in low or "forbidden" in low):
+        from . import gcloud
+
+        acct = gcloud.account()
+        if acct:
+            return f"keel signed in with gcloud as {acct}, and the cluster said no. {ROLE_HINT}"
     return None

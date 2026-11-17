@@ -10,14 +10,24 @@ export type Access = "read" | "ask" | "free";
 export type Auth = "gke" | "gke-path" | "gcp" | "exec" | "kubeconfig";
 export type Context = {
   name: string; cluster: string; server: string; namespace: string; current: boolean; local: boolean; on: boolean; access: Access; auth?: Auth;
+  /** added in keel (Cluster › Connect › Add a GKE cluster): it lives in keel's own kubeconfig */
+  added?: boolean;
 };
-export type GoogleSource = "vertex" | "own" | "off";
+export type GoogleSource = "vertex" | "own" | "gcloud" | "off";
 /** How GKE contexts sign in: email is the account in use (none: the kubeconfig's own sign-in). */
 export type GoogleView = { source: GoogleSource; email: string | null; own_key_set: boolean; own_email: string | null; vertex_email: string | null };
 export type GoogleBody = { source: GoogleSource; credentials_json?: string; clear_credentials?: boolean };
 export type Contexts = {
-  kubectl: boolean; kubectl_version?: string | null; kubeconfig?: string | null; in_docker: boolean; contexts: Context[]; google?: GoogleView;
+  kubectl: boolean; kubectl_version?: string | null; kubeconfig?: string | null; own_kubeconfig?: string | null; in_docker: boolean;
+  contexts: Context[]; google?: GoogleView;
 };
+/** gcloud where keel runs. owned: keel's own login (Docker); else the person's own gcloud on this computer. Never a token. */
+export type Gcloud = {
+  installed: boolean; version: string | null; plugin: boolean; owned: boolean; account: string | null; accounts: string[];
+  seeded: boolean; host_mounted: boolean; signing_in?: boolean; error: string | null;
+};
+export type GkeProject = { id: string; name: string };
+export type GkeCluster = { name: string; location: string; status: string | null; version: string | null; nodes?: number | null; context: string; added: boolean };
 
 export type Pod = {
   name: string; ns: string; ready: string; status: string; restarts: number; ip: string | null; node: string | null; age: number | null;
@@ -65,6 +75,14 @@ export const clusterApi = {
   change: (b: ChangeBody) => post<{ done: boolean; message: string }>(`${P}/change`, b),
   runs: (pid: string) => get<Runs>(`${P}/runs?${q({ pid })}`),
   history: () => get<{ items: HistoryItem[] }>(`${P}/history`),
+  gcloud: () => get<Gcloud>(`${P}/gcloud`),
+  gcloudLogin: () => post<{ id: string; url: string }>(`${P}/gcloud/login`, {}),
+  gcloudCode: (id: string, code: string) => post<Gcloud>(`${P}/gcloud/login/code`, { id, code }),
+  gcloudCancel: (id: string) => post<{ ok: boolean }>(`${P}/gcloud/login/cancel`, { id }),
+  gcloudLogout: () => post<Gcloud>(`${P}/gcloud/logout`, {}),
+  gkeProjects: () => get<{ items: GkeProject[] }>(`${P}/gcloud/projects`),
+  gkeClusters: (project: string) => get<{ project: string; items: GkeCluster[] }>(`${P}/gcloud/clusters?${q({ project })}`),
+  gkeAdd: (b: { project: string; location: string; name: string }) => post<{ context: string }>(`${P}/gcloud/add`, b),
 };
 
 /** A context that signs in with Google (GKE). */
