@@ -2,6 +2,8 @@ id: hunt-next
 name: hunt next (keel)
 keel_rules: true
 version: 1
+about: "fix the next group of bugs a hunt found"
+group: fix
 # own_branch: false: hunt-next only hands over; the fix flow it starts gets its own fix/ branch from the base
 own_branch: false
 # Drains one group from the hunt backlog (the latest hunt, or settings.run / the seed's run). Refuses while any

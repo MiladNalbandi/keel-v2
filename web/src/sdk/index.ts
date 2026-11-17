@@ -132,6 +132,10 @@ export { InitAsk, isInitFlow, needsInit, startInit, useStartInit } from "../comp
 // 0.18.57 the flows a request can be sized into (one line each), and "only test code changes" (the address flow): the
 // Tasks plugin's "keel suggests" card names the flow and its steps with them
 export { SIZE_FLOWS, testOnlyFiles } from "../flowSize";
+// 0.34 the flows in groups (Build, Fix, Check, Plan, Ship & set up, keel Product, Support, Your flows) for a picker, the
+// pick and its group's neighbours; own-page flows (the Org's runner, Goals, Desk, Answers, CI) left out
+export { FLOW_GROUPS, groupFlows, pickable } from "../flowGroups";
+export type { FlowGroup } from "../flowGroups";
 
 // keel's workflow pictures (the Flow page and the builder draw with them; the Wiki plugin shows a workflow read only):
 // the blocks, the step table, the graph with zoom, the Blocks / Table / Graph choice, the tokens per step, and the

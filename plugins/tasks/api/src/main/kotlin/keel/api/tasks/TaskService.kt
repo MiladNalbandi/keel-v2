@@ -8,6 +8,7 @@ import keel.api.common.NotFound
 import keel.api.common.Time
 import keel.api.connections.SecretService
 import keel.api.engine.EngineClient
+import keel.api.engine.EngineDown
 import keel.api.events.EngineEvent
 import keel.api.events.EventHub
 import keel.api.flow.Ac
@@ -65,6 +66,8 @@ class TaskService(
         t.id, t.projectId, t.title, t.description, t.type, t.status, t.source, t.externalKey, t.externalUrl, t.externalStatus,
         t.assignee, t.priority, t.threadId, t.workflowId, t.prUrl, t.reviewers, t.blockedReason, t.createdAt, t.updatedAt,
         flow = t.threadId?.let { store.flow(it) }, waiting = store.openItems(t.id), events = if (events) store.events(t.id) else null,
+        mission = t.missionId?.let { TaskMission(it, t.missionOrg, t.missionStatus) }, parentTaskId = t.parentTaskId,
+        parts = if (events) store.parts(t.id).map { TaskPart(it.id, it.title, it.status, it.externalKey, it.missionStatus) } else null,
     )
 
     fun list(pid: String, source: String? = null): TaskList {
@@ -186,6 +189,122 @@ class TaskService(
         // a flow runs now: keel's open proposal to run one is answered (it no longer waits in the Inbox)
         closeItems(id, kind = TaskAutomations.PROPOSAL, stage = "flow")
         return view(fire(id, Trigger.Start(wid, tid, "Follow it in keel: ${link(t)}", actor)), events = true)
+    }
+
+    /**
+     * 0.34 Hand to Org: the task goes to an org of the Org plugin as a mission (the engine's /org/orgs/{org}/missions,
+     * with the task's id). The lead gets the title, the description and the ticket's link; the task then follows the
+     * mission's org.mission.* events ([onMissionEvent]). Refused while a flow or another mission works on it.
+     */
+    fun handToOrg(id: String, b: HandToOrg, actor: String = "user"): TaskView {
+        val t = store.require(id)
+        val org = b.org.trim().ifEmpty { throw BadRequest("Pick the org to give it to", "The Org page lists your orgs.") }
+        if (t.status !in setOf(TaskStatus.TODO, IN_PROGRESS, TaskStatus.BLOCKED)) {
+            throw Conflict("${t.label} is ${TaskStatus.LABELS[t.status] ?: t.status}: a task goes to the Org from To do, In progress or Blocked.",
+                "Send it back to In progress first.")
+        }
+        val running = t.threadId?.let { store.flow(it) }?.takeIf { it.status in setOf("running", "waiting") }
+        if (running != null) throw Conflict("A flow already runs for ${t.label}", "Stop it first, or let it finish.")
+        if (t.missionId != null && t.missionStatus in OPEN_MISSION) {
+            throw Conflict("${t.label} is already with the Org ${t.missionOrg ?: ""}".trim(), "Follow it on the Org page, or stop that mission first.")
+        }
+        val tr = tracker(t)
+        val title = (t.externalKey?.let { "$it: " } ?: "") + t.title
+        val request = buildString {
+            append(ticketText(t))
+            if (t.externalKey != null) append("\n\n${named(tr, t)} ticket: ").append(t.externalKey).append(t.externalUrl?.let { " ($it)" } ?: "")
+            append("\n\nkeel task: ").append(link(t))
+        }
+        val body = linkedMapOf<String, Any?>("project_id" to t.projectId, "title" to title.take(200), "request" to request.take(20_000),
+            "task_id" to t.id)
+        b.role?.trim()?.ifEmpty { null }?.let { body["role"] = it }
+        t.externalKey?.let { body["source"] = it }
+        b.capTokens?.let { body["cap_tokens"] = it }
+        val m = try {
+            engine.post("/org/orgs/${java.net.URLEncoder.encode(org, Charsets.UTF_8)}/missions", body)
+        } catch (e: ApiException) {
+            val off = e.status.value() == 404 && e !is EngineDown && !e.message.contains("org", ignoreCase = true)
+            store.event(id, "org_refused", t.status, t.status, "The Org did not take it: ${if (off) "the Org plugin is off" else e.message}${e.hint?.let { " $it" } ?: ""}", "keel")
+            changed(t.projectId)
+            if (off) throw NotFound("The Org plugin is off", "Turn it on in Settings › Plugins, then make an org on the Org page.")
+            throw e
+        }
+        val mid = m.get("id")?.asText()?.takeIf { it.isNotBlank() } ?: throw Conflict("The Org did not say which mission it made")
+        val role = m.get("role")?.asText().orEmpty()
+        synchronized(lock(id)) {
+            val cur = store.require(id)
+            // a fast mission may already have told its start (onMissionEvent): keep the newer status
+            store.update(cur.copy(missionId = mid, missionOrg = org, missionStatus = cur.missionStatus.takeIf { cur.missionId == mid }
+                ?: m.get("status")?.asText()))
+            store.event(id, "org", null, null, "Handed to the Org $org${if (role.isNotEmpty()) " ($role)" else ""}: mission $mid.", actor)
+        }
+        closeItems(id, kind = TaskAutomations.PROPOSAL, stage = "flow")
+        changed(t.projectId)
+        return get(id)
+    }
+
+    /**
+     * 0.34 an org.mission.* event (the Org plugin): the task the mission works on (task_id / root_task_id) or the part task
+     * of that mission follows it; a lead that gave work out (delegated) makes one part task per part, each also a Jira
+     * sub-task when the task it is part of came from Jira (an error there is written down: the mission goes on).
+     */
+    fun onMissionEvent(e: EngineEvent) {
+        val d = e.data
+        val kind = e.type.removePrefix("org.mission.")
+        val mid = d["mission_id"]?.toString() ?: return
+        val org = d["org"]?.toString().orEmpty()
+        val top = d["parent_id"] == null
+        val t = (if (top) (d["task_id"] ?: d["root_task_id"])?.toString()?.let { store.find(it) } else null) ?: store.byMission(mid)
+        if (kind == "delegated") {
+            val root = d["root_task_id"]?.toString()?.let { store.find(it) }
+            val parent = t ?: root
+            if (parent != null) parts(parent, root ?: parent, org, d["children"] as? List<*> ?: emptyList<Any>())
+        }
+        if (t == null) return
+        synchronized(lock(t.id)) {
+            val cur = store.require(t.id)
+            store.update(cur.copy(missionId = cur.missionId ?: mid, missionOrg = cur.missionOrg ?: org,
+                missionStatus = d["status"]?.toString() ?: cur.missionStatus))
+        }
+        val note = (d["summary"] ?: d["reason"])?.toString()
+        val n = (d["children"] as? List<*>)?.size ?: 0
+        quietly(t) { fire(t.id, Trigger.Mission(kind, org, note, n, d["stage"]?.toString())) }
+    }
+
+    /** The part tasks of a lead's work (one per child mission), under [parent]; the Jira sub-task goes under [root]'s ticket. */
+    private fun parts(parent: Task, root: Task, org: String, children: List<*>) {
+        val tracker = tracker(root)
+        val jiraKey = root.externalKey?.takeIf { tracker?.source == "jira" || (tracker == null && root.source == "jira") }
+        for (c in children) {
+            val m = c as? Map<*, *> ?: continue
+            val cmid = m["mission_id"]?.toString() ?: continue
+            if (store.byMission(cmid) != null) continue
+            val role = m["role"]?.toString().orEmpty()
+            val title = "${m["title"]?.toString().orEmpty()}".trim().ifEmpty { "Part of ${parent.label}" }.take(300)
+            val desc = m["request"]?.toString().orEmpty().take(20_000)
+            val now = Time.now()
+            var part = store.insert(Task(TaskStore.newId(), parent.projectId, title, desc, "task", TaskStatus.TODO, "local", null, null, null,
+                role.ifEmpty { null }, null, null, null, null, emptyList(), null, now, now,
+                missionId = cmid, missionOrg = org, missionStatus = "queued", parentTaskId = parent.id))
+            store.event(part.id, "created", null, part.status, "Part of ${parent.label}: the Org's lead gave it to ${role.ifEmpty { "a team member" }}.", "keel")
+            if (jiraKey != null) {
+                val client = tracker?.client(root.projectId)
+                if (client == null) {
+                    store.event(part.id, "jira_error", null, null, "No Jira sub-task: this project has no Jira connection.", "keel")
+                } else try {
+                    val key = client.createSubtask(jiraKey, "$title${if (role.isNotEmpty()) " ($role)" else ""}".take(250), desc)
+                    if (key != null) {
+                        part = store.update(part.copy(externalKey = key, source = tracker.source, externalUrl = tracker.ticketUrl(root.projectId, key)))
+                        store.event(part.id, "jira", null, null, "Jira: made the sub-task $key under $jiraKey.", "keel")
+                        store.event(root.id, "jira", null, null, "Jira: made the sub-task $key for the part \"$title\".", "keel")
+                    }
+                } catch (ex: TicketException) {
+                    store.event(part.id, "jira_error", null, null, "Jira: no sub-task under $jiraKey. ${ex.message}", "keel")
+                    store.event(root.id, "jira_error", null, null, "Jira: no sub-task for the part \"$title\". ${ex.message}", "keel")
+                }
+            }
+        }
+        changed(parent.projectId)
     }
 
     /** What a flow is asked when nobody wrote it: the task's title and description as they are now. */
@@ -570,6 +689,8 @@ class TaskService(
         /** The key that ties an Inbox item's bell notification to it (the notification's thread_id, like an approval id's). */
         fun itemRef(itemId: Long) = "task-item:$itemId"
         val PR_OPENED = Regex("^PR opened: (https?://\\S+)")
+        /** 0.34 a mission that has not ended (the Org plugin's statuses). */
+        val OPEN_MISSION = setOf("proposed", "queued", "running", "delegated")
         private val CRITERIA = Regex("```[ \\t]*keel-criteria[ \\t]*\\n(.*?)\\n[ \\t]*```", RegexOption.DOT_MATCHES_ALL)
         private val CRITERION = Regex("^[-*]?\\s*(AC-\\d+)\\s*\\[(\\w+)]\\s*(.+)$")
     }

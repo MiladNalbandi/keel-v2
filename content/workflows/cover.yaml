@@ -2,6 +2,8 @@ id: cover
 name: cover (keel)
 keel_rules: true
 version: 1
+about: "tests for code that already exists"
+group: check
 # Ported from keel v1 cover. A coverage test is written against code that already exists, so it passes the moment it is
 # written: the assertions review replaces "it must fail first". Measure (coverage.reports: changed lines vs the base,
 # groups by file and proximity, security paths at 100%) -> per group decide test / delete / accept (accept needs a

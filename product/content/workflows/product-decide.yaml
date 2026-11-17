@@ -2,6 +2,8 @@ id: product-decide
 name: decide (keel Product)
 keel_rules: false
 version: 1
+about: "the decision memo, then the product owner's choice"
+group: product
 # keel Product, stage Decision. The decision memo (value, cost, time, risk, three options), the presentation built from
 # the documents, then the product owner's choice: go (with an option), not now, or back to the memo with a note.
 steps:

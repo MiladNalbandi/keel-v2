@@ -168,6 +168,41 @@ RUN arch="$(dpkg --print-architecture)"; \
     && echo "$sum  /usr/local/bin/kubectl" | sha256sum -c - \
     && chmod 0755 /usr/local/bin/kubectl && kubectl version --client >/dev/null
 
+# The Google Cloud CLI and gke-gcloud-auth-plugin for the Cluster plugin's GKE sign-in with the person's own Google account
+# (plugins/cluster/engine/keel_plugin_cluster/gcloud.py): pinned, each download checked against its sha256 (the plugin's from
+# Google's components-2.json). Its bundled Python, gsutil and bq are left out (it runs on this image's python3): ~320 MB.
+# keel's gcloud login lives in its data (CLOUDSDK_CONFIG), so it survives restarts; keel2 mounts this computer's
+# ~/.config/gcloud read-only and keel copies that login once (KEEL_GCLOUD_HOST).
+ARG GCLOUD_VERSION=594.0.0
+ARG GCLOUD_SHA256_AMD64=1f7233537c26bba94a3ea3f9085a60396745eaf44b21b8454fc6fdd15bb6fcde
+ARG GCLOUD_SHA256_ARM64=e58fb86fff3dfd7101e1ff138f06bd4e338c7bf12a7508a7871985e7ea886275
+ARG GKE_AUTH_PLUGIN_STAMP=20261030071842
+ARG GKE_AUTH_PLUGIN_SHA256_AMD64=b8d3bf3ebce3aff0146d85457146869ea66da7dc62d291e176cb88b6e73dd452
+ARG GKE_AUTH_PLUGIN_SHA256_ARM64=773ce0d886108cc47d19816449948b4187bc2b54bb26ec55729e2f34e3f45dcc
+RUN arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) g=x86_64; sum="$GCLOUD_SHA256_AMD64"; psum="$GKE_AUTH_PLUGIN_SHA256_AMD64" ;; \
+      arm64) g=arm; sum="$GCLOUD_SHA256_ARM64"; psum="$GKE_AUTH_PLUGIN_SHA256_ARM64" ;; \
+      *) echo "no gcloud for $arch" >&2; exit 1 ;; \
+    esac; \
+    base=https://dl.google.com/dl/cloudsdk/channels/rapid; \
+    curl -fsSLo /tmp/gcloud.tgz "$base/downloads/google-cloud-cli-${GCLOUD_VERSION}-linux-${g}.tar.gz" \
+    && echo "$sum  /tmp/gcloud.tgz" | sha256sum -c - \
+    && tar -xzf /tmp/gcloud.tgz -C /opt && rm /tmp/gcloud.tgz \
+    && rm -rf /opt/google-cloud-sdk/platform/bundledpythonunix /opt/google-cloud-sdk/platform/gsutil /opt/google-cloud-sdk/platform/bq \
+              /opt/google-cloud-sdk/bin/gsutil /opt/google-cloud-sdk/bin/bq /opt/google-cloud-sdk/RELEASE_NOTES \
+              /opt/google-cloud-sdk/.install/.backup \
+    && curl -fsSLo /tmp/gke.tgz "$base/components/google-cloud-sdk-gke-gcloud-auth-plugin-linux-${g}-${GKE_AUTH_PLUGIN_STAMP}.tar.gz" \
+    && echo "$psum  /tmp/gke.tgz" | sha256sum -c - \
+    && tar -xzf /tmp/gke.tgz -C /opt/google-cloud-sdk bin/gke-gcloud-auth-plugin && rm /tmp/gke.tgz \
+    && ln -s /opt/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud \
+    && ln -s /opt/google-cloud-sdk/bin/gke-gcloud-auth-plugin /usr/local/bin/gke-gcloud-auth-plugin \
+    && CLOUDSDK_CONFIG=/tmp/gcloud-check CLOUDSDK_PYTHON=/usr/bin/python3 gcloud version \
+    && gke-gcloud-auth-plugin --version \
+    && rm -rf /tmp/gcloud-check && find /opt/google-cloud-sdk -name __pycache__ -prune -exec rm -rf {} +
+ENV CLOUDSDK_PYTHON=/usr/bin/python3 CLOUDSDK_CONFIG=/data/gcloud CLOUDSDK_CORE_DISABLE_PROMPTS=1 \
+    CLOUDSDK_COMPONENT_MANAGER_DISABLE_UPDATE_CHECK=1 CLOUDSDK_CORE_DISABLE_USAGE_REPORTING=true
+
 # CodeGraph (the code index agents query through MCP; content/NOTICE.md). It is pinned: keel parses its
 # `status --json` and starts `serve --mcp`. #101 the coding-agent apps (Claude Code, Codex, Copilot CLI, OpenCode) are
 # no longer in the image: keel's own harness runs every model on its API. INSTALL_CLIS keeps its name for old build

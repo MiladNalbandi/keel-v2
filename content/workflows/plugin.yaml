@@ -2,6 +2,8 @@ id: plugin
 name: plugin (keel)
 keel_rules: true
 version: 1
+about: "build a keel plugin in this repo"
+group: ship
 # Build a keel plugin in this repo's plugins/<name>/ (docs/plugins/17-publish-your-plugin.md, keel 0.18.6): the plugin's
 # spec (its name, its parts, the permissions it asks for, numbered criteria) and its gate; the scaffold from keel's
 # template (tools/keel-plugin: keel-plugin new) in one commit; the test-first loop per criterion; keel-plugin lint on the

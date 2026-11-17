@@ -2,6 +2,8 @@ id: harness
 name: harness (keel)
 keel_rules: true
 version: 1
+about: "one agent session does the whole job, keel checks each step"
+group: ship
 # keel 0.19.0 plan mode in one session: keel's harness (#101 keel's own agent harness, on the default model's API) does
 # the work in ONE session of its own, the way a person works in a coding agent; keel is the control room.
 # The harness plans (read only), you approve the plan (or send a note back to the same session), the same session

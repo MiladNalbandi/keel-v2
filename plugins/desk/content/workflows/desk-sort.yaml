@@ -4,6 +4,8 @@ keel_rules: true
 own_branch: false
 version: 1
 about: An agent sorts one support request (what it is, how urgent, which part of the code) and you choose what happens next.
+group: support
+start: own-page
 # Started from the Desk page (the plugin's api), with the request and its past cases as the flow's request. The agent only
 # reads. The gate is a person's: no run mode and no Supervisor answers it. A fix or a change is a new flow with its own
 # gates; a task or a close is done by the Desk plugin when it hears the gate's answer.

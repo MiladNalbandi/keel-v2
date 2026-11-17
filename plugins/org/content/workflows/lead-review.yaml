@@ -4,6 +4,8 @@ keel_rules: true
 own_branch: false
 version: 1
 about: The last flow of an Org mission. The lead checks what each member of its team did, writes a report with proof, and you accept it or send it back with a note.
+group: org
+start: own-page
 budget: { max_tokens: 300000, on_limit: pause }
 # Started by the Org plugin's runner when every mission the lead gave out has ended; the request lists their reports.
 # The report gate is a person's: no run mode and no Supervisor answers it. It asks only for the mission you gave

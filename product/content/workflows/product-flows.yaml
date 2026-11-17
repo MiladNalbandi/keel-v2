@@ -2,6 +2,8 @@ id: product-flows
 name: business flows (keel Product)
 keel_rules: false
 version: 1
+about: "a map of the business flows of each repo"
+group: product
 # keel Product's map of the business flows: one flow analyst per repo of the teams, all at the same time, each in its own
 # repo and read only (root: item). keel checks every file:line, keeps the flows per repo in the product repo
 # (flows/<project>.json) and the api shows them on the Product map. No gate: nothing is decided here.

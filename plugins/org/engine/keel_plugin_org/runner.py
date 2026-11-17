@@ -32,6 +32,9 @@ log = logging.getLogger("keel.org")
 SWEEP = 30.0
 WAKE = ("thread.done", "thread.failed", "gate.waiting")
 RUN_MODE = {"act": "auto", "propose": "manual"}
+# 0.34 the events a mission's status sends on keel's bus (the Tasks plugin follows the task a mission works on)
+EVENTS = {"running": "org.mission.started", "delegated": "org.mission.delegated", "reported": "org.mission.reported",
+          "done": "org.mission.done", "failed": "org.mission.failed", "stopped": "org.mission.stopped"}
 REPORT_MAX = 6000
 
 
@@ -122,13 +125,15 @@ class Runner:
     # ------------------------------------------------------------------ the person's actions
 
     async def assign(self, oid: str, org: config.Org, *, role: str, project_id: str, title: str, request: str,
-                     source: str | None = None, workflow: str | None = None, cap_tokens: int | None = None) -> dict:
+                     source: str | None = None, workflow: str | None = None, cap_tokens: int | None = None,
+                     task_id: str | None = None) -> dict:
         r = org.roles[role]
         wf = workflow or r.first_flow()
         stage = "plan" if wf and wf == r.plan else "work"
         m = await asyncio.to_thread(store.add, org_id=oid, role=role, project_id=project_id, title=title, request=request,
                                     source=source, workflow=wf, stage=stage,
-                                    status="proposed" if r.autonomy == "watch" else "queued", cap_tokens=cap_tokens)
+                                    status="proposed" if r.autonomy == "watch" else "queued", cap_tokens=cap_tokens,
+                                    task_id=task_id)
         await asyncio.to_thread(store.note, m["id"], "made", f"You gave this to {role} ({wf}).")
         await self.pump(oid)
         return await asyncio.to_thread(store.get, m["id"])
@@ -137,7 +142,7 @@ class Runner:
         """A proposed mission (its role only watches): the person starts it."""
         m = await asyncio.to_thread(store.get, mid)
         if m and m["status"] == "proposed":
-            await asyncio.to_thread(store.update, mid, status="queued")
+            await self._set(mid, status="queued")
             await asyncio.to_thread(store.note, mid, "started", "You started it.")
             await self.pump(m["org_id"])
         return await asyncio.to_thread(store.get, mid)
@@ -165,7 +170,7 @@ class Runner:
                     await self.engine.stop(x["thread_id"])
                 except Exception as exc:       # a flow that already ended
                     log.info("org: stop %s: %s", x["thread_id"], exc)
-            await asyncio.to_thread(store.update, x["id"], status="stopped")
+            await self._set(x["id"], status="stopped")
             await asyncio.to_thread(store.note, x["id"], "stopped", "You stopped it.")
         await self.pump(m["org_id"])
         return await asyncio.to_thread(store.get, mid)
@@ -181,7 +186,7 @@ class Runner:
                 org = config.parse(row["yaml"])
             except config.OrgError as exc:
                 for m in await asyncio.to_thread(store.queued, oid):
-                    await asyncio.to_thread(store.update, m["id"], status="failed", note=f"The org has problems: {exc.problems[0]}")
+                    await self._set(m["id"], status="failed", note=f"The org has problems: {exc.problems[0]}")
                 return
             free = org.limits.max_running - await asyncio.to_thread(store.running_count, oid)
             for m in (await asyncio.to_thread(store.queued, oid))[:max(0, free)]:
@@ -190,7 +195,7 @@ class Runner:
     async def _launch(self, org: config.Org, row: dict, m: dict) -> None:
         role = org.roles.get(m["role"])
         if role is None or role.human:
-            await asyncio.to_thread(store.update, m["id"], status="failed", note=f"The role {m['role']} is not in the org any more.")
+            await self._set(m["id"], status="failed", note=f"The role {m['role']} is not in the org any more.")
             return
         key = secrets.token_urlsafe(18)
         stage = m["stage"]
@@ -221,12 +226,12 @@ class Runner:
             why = str(exc) if isinstance(exc, StartError) else f"{type(exc).__name__}: {exc}"[:500]
             if not isinstance(exc, StartError):
                 log.exception("org: starting %s failed", m["id"])
-            await asyncio.to_thread(store.update, m["id"], status="failed", note=why)
+            await self._set(m["id"], status="failed", note=why)
             await asyncio.to_thread(store.note, m["id"], "failed", f"The flow did not start: {why}")
             await self._boss_hears(m)
             return
         await asyncio.to_thread(store.link_thread, tid, m["id"], stage)
-        await asyncio.to_thread(store.update, m["id"], thread_id=tid)
+        await self._tell(await asyncio.to_thread(store.update, m["id"], thread_id=tid))
         await asyncio.to_thread(store.note, m["id"], "flow", f"{wf} started.", {"thread_id": tid, "stage": stage})
         # a fast flow (the fake model) may have ended before its thread was linked: look once
         try:
@@ -275,6 +280,46 @@ class Runner:
             lines += [f"Budget: {m['cap_tokens']} tokens for this mission."]
         return "\n".join(lines)
 
+    # ------------------------------------------------------------------ what a mission's status tells keel
+
+    async def _set(self, mid: str, **fields) -> dict | None:
+        """A mission's change; a new status is told on keel's bus (_tell)."""
+        old = await asyncio.to_thread(store.get, mid)
+        new = await asyncio.to_thread(store.update, mid, **fields)
+        if new and "status" in fields and (not old or old["status"] != new["status"]):
+            await self._tell(new)
+        return new
+
+    async def _tell(self, m: dict | None) -> None:
+        """org.mission.<started|delegated|reported|done|failed|stopped> on keel's bus, with the task the mission's tree
+        works on (root_task_id): the Tasks plugin moves that task, and makes a task for each part the lead gives out."""
+        kind = EVENTS.get((m or {}).get("status"))
+        if not kind or self.bus is None:
+            return
+
+        def data() -> dict:
+            top = store.root(m)
+            d = {"mission_id": m["id"], "parent_id": m.get("parent_id"), "org": m["org_id"], "role": m["role"],
+                 "title": m["title"], "status": m["status"], "task_id": m.get("task_id"),
+                 "root_task_id": top.get("task_id"), "root_mission_id": top["id"], "thread_id": m.get("thread_id"),
+                 "stage": m.get("stage")}
+            rep = m.get("report") or {}
+            if m["status"] == "reported" and rep.get("summary"):
+                d["summary"] = str(rep["summary"])[:600]
+            if m["status"] in ("failed", "stopped") and m.get("note"):
+                d["reason"] = str(m["note"])[:300]
+            if m["status"] == "delegated":
+                mark = f"{m['id']}#r{m['send_backs']}"
+                d["children"] = [{"mission_id": c["id"], "role": c["role"], "title": c["title"],
+                                  "request": str(c.get("request") or "")[:4000]}
+                                 for c in store.children(m["id"]) if c.get("source") == mark]
+            return d
+
+        try:
+            self.bus.emit(kind, m.get("thread_id") or "", m["project_id"], data=await asyncio.to_thread(data))
+        except Exception:                    # telling keel must never stop the mission
+            log.exception("org: could not tell %s for %s", kind, m.get("id"))
+
     # ------------------------------------------------------------------ flows that end
 
     async def on_event(self, ev: dict) -> None:
@@ -289,6 +334,10 @@ class Runner:
             d = ev.get("data") or {}
             await asyncio.to_thread(store.note, m["id"], "waiting", f"Waits: {d.get('title') or ev.get('step') or 'a gate'}",
                                     {"thread_id": tid, "step": ev.get("step")})
+            # 0.34 the lead's report waits for the person (the review flow of the mission a person gave): the task it
+            # works on goes to In review until the person accepts it or sends it back
+            if stage == "review" and not m.get("parent_id") and m["status"] == "running" and m.get("thread_id") == tid:
+                await self._tell({**m, "status": "reported", "report": None})
             return
         if tid in self.handled or m.get("thread_id") != tid or m["status"] != "running":
             return
@@ -300,11 +349,11 @@ class Runner:
         m = await asyncio.to_thread(store.get, m["id"])
         if ev["type"] == "thread.failed" or status == "failed":
             err = str((ev.get("data") or {}).get("error") or "the flow failed")[:500]
-            await asyncio.to_thread(store.update, m["id"], status="failed", note=err)
+            await self._set(m["id"], status="failed", note=err)
             await asyncio.to_thread(store.note, m["id"], "failed", f"The flow failed: {err}", {"thread_id": tid})
             await self._boss_hears(m)
         elif status == "stopped":
-            await asyncio.to_thread(store.update, m["id"], status="stopped")
+            await self._set(m["id"], status="stopped")
             await asyncio.to_thread(store.note, m["id"], "stopped", "The flow was stopped.", {"thread_id": tid})
             await self._boss_hears(m)
         elif stage == "review":
@@ -324,11 +373,11 @@ class Runner:
         mark = f"{m['id']}#r{m['send_backs']}"
         kids = [c for c in await asyncio.to_thread(store.children, m["id"]) if c.get("source") == mark]
         if kids:
-            await asyncio.to_thread(store.update, m["id"], status="delegated")
+            await self._set(m["id"], status="delegated")
             await asyncio.to_thread(store.note, m["id"], "delegated", f"Waits for {len(kids)} mission(s) of its team.")
             return
         rep = m.get("report") or await self._flow_report(m, tid)
-        await asyncio.to_thread(store.update, m["id"], status="reported", report=rep)
+        await self._set(m["id"], status="reported", report=rep)
         await asyncio.to_thread(store.note, m["id"], "reported", "Its flow ended; the report went up.")
         await self._boss_hears(m)
 
@@ -355,31 +404,32 @@ class Runner:
         limit = org.limits.send_backs if org else 0
         if dec.get("choice") == "send_back" and not m.get("parent_id"):
             if m["send_backs"] < limit:
-                await asyncio.to_thread(store.update, m["id"], status="queued", stage="plan", send_backs=m["send_backs"] + 1,
+                await self._set(m["id"], status="queued", stage="plan", send_backs=m["send_backs"] + 1,
                                         workflow=(org.roles[m["role"]].plan or m["workflow"]) if org and m["role"] in org.roles else m["workflow"])
                 await asyncio.to_thread(store.note, m["id"], "sent_back", f"You sent it back: {dec.get('why') or '(no reason)'}")
                 return
-            await asyncio.to_thread(store.update, m["id"], status="reported",
+            await self._set(m["id"], status="reported",
                                     note=f"Sent back {m['send_backs']} times already, the org's limit: it waits for you.")
             await asyncio.to_thread(store.note, m["id"], "limit", "The send-back limit is reached.")
             return
         if dec.get("choice") == "accept" and not m.get("parent_id"):
             await self._done(m, dec.get("why") or "You accepted the report.")
             return
-        await asyncio.to_thread(store.update, m["id"], status="reported")
+        await self._set(m["id"], status="reported")
         await asyncio.to_thread(store.note, m["id"], "reported", "The review ended; the report went up.")
         await self._boss_hears(m)
 
     async def _done(self, m: dict, why: str) -> None:
-        """The mission is done, and so is every report under it (a failed or stopped one stays as it is)."""
-        await asyncio.to_thread(store.update, m["id"], status="done")
+        """The mission is done, and so is every report under it (a failed or stopped one stays as it is). The reports
+        under it first: whoever sees the mission done sees its team done too."""
         todo = list(await asyncio.to_thread(store.children, m["id"]))
         while todo:
             x = todo.pop()
             todo += await asyncio.to_thread(store.children, x["id"])
             if x["status"] == "reported":
-                await asyncio.to_thread(store.update, x["id"], status="done")
+                await self._set(x["id"], status="done")
         await asyncio.to_thread(store.note, m["id"], "done", why)
+        await self._set(m["id"], status="done")
 
     async def _boss_hears(self, m: dict) -> None:
         """A mission ended: when all of its boss's missions of this round ended, the boss reviews (or reports)."""
@@ -401,12 +451,12 @@ class Runner:
                 org = None
         role = org.roles.get(boss["role"]) if org else None
         if role and role.review:
-            await asyncio.to_thread(store.update, boss["id"], status="queued", stage="review")
+            await self._set(boss["id"], status="queued", stage="review")
             await asyncio.to_thread(store.note, boss["id"], "review", f"Its team ended ({len(kids)}): {role.review} is next.")
             return
         rep = {"summary": boss.get("note") or f"The team ended {len(kids)} mission(s).",
                "children": [{"role": c["role"], "title": c["title"], "status": c["status"],
                              "summary": str((c.get("report") or {}).get("summary") or "")[:REPORT_MAX]} for c in kids]}
-        await asyncio.to_thread(store.update, boss["id"], status="reported", report=rep)
+        await self._set(boss["id"], status="reported", report=rep)
         await asyncio.to_thread(store.note, boss["id"], "reported", "Its team ended; the report went up.")
         await self._boss_hears(boss)

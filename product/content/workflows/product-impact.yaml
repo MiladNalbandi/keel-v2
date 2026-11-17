@@ -2,6 +2,8 @@ id: product-impact
 name: impact (keel Product)
 keel_rules: false
 version: 1
+about: "what the change touches in each repo"
+group: product
 # keel Product, stage Impact. One impact analyst per repo the product owner picked, all at the same time, each in its
 # own repo and read only (root: item). Their reports become one impact document; the leads confirm it, correct it, or
 # disagree (the api runs it again with the objection).

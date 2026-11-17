@@ -2,6 +2,8 @@ id: product-outcome
 name: outcome (keel Product)
 keel_rules: false
 version: 1
+about: "after the release: did the metric move"
+group: product
 # keel Product, stage Outcome. After the release the product owner enters what the metric is now; the product manager
 # compares it with the brief's target and the guardrails and writes what we learned.
 steps:

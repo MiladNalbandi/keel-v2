@@ -2,6 +2,8 @@ id: implement
 name: implement (keel)
 keel_rules: true
 version: 1
+about: "the code, then its tests; done when they pass"
+group: build
 # The usual order, not test-first (keel 0.18.12): the implementer writes the code, the test author writes the tests for
 # it, keel runs them. They pass: keel commits the code and its tests together and the flow is done. They fail: an
 # implementer fixes the code (or a test that is wrong, with a reason) and keel runs them again, up to 2 rounds, then

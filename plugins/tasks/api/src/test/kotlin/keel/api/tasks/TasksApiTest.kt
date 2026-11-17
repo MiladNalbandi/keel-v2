@@ -200,4 +200,85 @@ class TasksApiTest : ApiTest() {
         assertThat(get("/api/projects/$pid/tasks").json()["tasks"].map { it["id"].asText() }).containsExactly(t["id"].asText())
         org.junit.jupiter.api.assertThrows<keel.api.common.BadRequest> { sink.create(pid, "Add a price helper", text, "epic") }
     }
+
+    @Test
+    fun `0_34 a task handed to the Org follows its mission, and each part the lead gives out becomes a task`() {
+        val (pid, _) = newProject("tasks-org")
+        val id = post("/api/projects/$pid/tasks", mapOf("title" to "Carrier size rules", "description" to "Store a carrier's limits."))
+            .andExpect(status().isOk).json()["id"].asText()
+        post("/api/tasks/$id/org", mapOf("org" to " ")).andExpect(status().isBadRequest)
+
+        val t = post("/api/tasks/$id/org", mapOf("org" to "small-team", "cap_tokens" to 400000)).andExpect(status().isOk).json()
+        val body = engine.lastBody("/org/orgs/small-team/missions")!!
+        assertThat(body["task_id"].asText()).isEqualTo(id)
+        assertThat(body["project_id"].asText()).isEqualTo(pid)
+        assertThat(body["request"].asText()).contains("Store a carrier's limits.").contains("keel task:")
+        assertThat(body["cap_tokens"].asInt()).isEqualTo(400000)
+        assertThat(body.has("role")).isFalse()           // the org's lead decides
+        val mid = t["mission"]["id"].asText()
+        assertThat(t["mission"]["org"].asText()).isEqualTo("small-team")
+        assertThat(notes(t).last()).contains("Handed to the Org small-team (lead): mission $mid.")
+        // a second hand-over while the mission is open is refused
+        post("/api/tasks/$id/org", mapOf("org" to "small-team")).andExpect(status().isConflict)
+
+        fun mission(kind: String, m: String, status: String, extra: Map<String, Any?> = emptyMap()) = ev("org.mission.$kind", pid, "", data =
+            mapOf("mission_id" to m, "org" to "small-team", "status" to status, "root_task_id" to id, "root_mission_id" to mid) + extra)
+
+        send(mission("started", mid, "running", mapOf("task_id" to id, "parent_id" to null)))
+        assertThat(task(id)["status"].asText()).isEqualTo("in_progress")
+        send(mission("delegated", mid, "delegated", mapOf("task_id" to id, "parent_id" to null, "children" to listOf(
+            mapOf("mission_id" to "m_fe", "role" to "fe", "title" to "The rule store's API", "request" to "PUT /carriers/{id}/rules"),
+            mapOf("mission_id" to "m_be", "role" to "be", "title" to "The rule table", "request" to "A migration")))))
+        val parts = task(id)["parts"]
+        assertThat(parts.map { it["title"].asText() }).containsExactly("The rule store's API", "The rule table")
+        assertThat(notes(task(id)).last()).isEqualTo("The Org's lead gave the work out in 2 parts.")
+        val fe = parts[0]["id"].asText()
+        assertThat(task(fe)["parent_task_id"].asText()).isEqualTo(id)
+        assertThat(task(fe)["assignee"].asText()).isEqualTo("fe")
+        assertThat(task(fe)["mission"]["id"].asText()).isEqualTo("m_fe")
+        // the same delegation told twice makes no second part
+        send(mission("delegated", mid, "delegated", mapOf("task_id" to id, "parent_id" to null, "children" to listOf(
+            mapOf("mission_id" to "m_fe", "role" to "fe", "title" to "The rule store's API")))))
+        assertThat(task(id)["parts"].size()).isEqualTo(2)
+
+        // a part follows its own mission
+        send(mission("started", "m_fe", "running", mapOf("parent_id" to mid)))
+        assertThat(task(fe)["status"].asText()).isEqualTo("in_progress")
+        send(mission("reported", "m_fe", "reported", mapOf("parent_id" to mid, "summary" to "PUT works.")))
+        assertThat(task(fe)["status"].asText()).isEqualTo("in_review")
+        send(mission("failed", "m_be", "failed", mapOf("parent_id" to mid, "reason" to "the migration did not run")))
+        assertThat(task(parts[1]["id"].asText())["status"].asText()).isEqualTo("blocked")
+        assertThat(task(parts[1]["id"].asText())["blocked_reason"].asText()).isEqualTo("the migration did not run")
+
+        // the lead's review flow checks its team's work: said as such, the task stays In progress
+        send(mission("started", mid, "running", mapOf("task_id" to id, "parent_id" to null, "stage" to "review")))
+        assertThat(notes(task(id)).last()).isEqualTo("The Org's lead checks its team's work.")
+        assertThat(task(id)["status"].asText()).isEqualTo("in_progress")
+
+        // the lead's report waits for the person, then it is accepted: the task and its reported parts are done
+        send(mission("reported", mid, "reported", mapOf("task_id" to id, "parent_id" to null, "summary" to "Both parts ended.")))
+        val inReview = task(id)
+        assertThat(inReview["status"].asText()).isEqualTo("in_review")
+        assertThat(notes(inReview).last()).contains("its report waits for you").contains("Both parts ended.")
+        send(mission("done", mid, "done", mapOf("task_id" to id, "parent_id" to null)), mission("done", "m_fe", "done", mapOf("parent_id" to mid)))
+        assertThat(task(id)["status"].asText()).isEqualTo("done")
+        assertThat(task(id)["mission"]["status"].asText()).isEqualTo("done")
+        assertThat(task(fe)["status"].asText()).isEqualTo("done")
+    }
+
+    @Test
+    fun `0_34 the Org refusing a task leaves it where it was, with why`() {
+        val (pid, _) = newProject("tasks-org-no")
+        val id = post("/api/projects/$pid/tasks", mapOf("title" to "x")).andExpect(status().isOk).json()["id"].asText()
+        engine.orgMissionAnswer = 400 to mapOf("error" to "The org has no role qa", "hint" to "Its roles: lead, fe.")
+        try {
+            post("/api/tasks/$id/org", mapOf("org" to "small-team", "role" to "qa")).andExpect(status().isBadRequest)
+        } finally {
+            engine.orgMissionAnswer = null
+        }
+        val t = task(id)
+        assertThat(t["status"].asText()).isEqualTo("todo")
+        assertThat(t["mission"]?.isNull ?: true).isTrue()
+        assertThat(notes(t).last()).contains("The Org did not take it: The org has no role qa")
+    }
 }

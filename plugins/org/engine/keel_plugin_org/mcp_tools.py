@@ -10,6 +10,8 @@
             keel_org_give_mission  give a mission to a role (starts its flow)
             keel_org_stop_mission  stop a mission and everything under it (asks first)
             keel_org_accept      accept a reported mission (asks first)
+            keel_task_hand_to_org  0.34 give a task (Tasks plugin) to an org: its status follows the mission, each part
+                                 the lead gives out becomes a task (and a Jira sub-task)
 
 A gate a mission's flow waits at (the plan, the report) is answered like any flow's: keel_read_gate, then keel_resume
 with the thread id keel_org_mission names. The org's YAML stays out of agents' reach: keel's own agents get keel's MCP
@@ -161,6 +163,18 @@ def org_give_mission(api: KeelApi, org: str, role: str, title: str, request: str
             f"{m['id']}; it waits for you at its plan (when the role proposes) and at its report.")
 
 
+def task_hand_to_org(api: KeelApi, task: str, org: str, role: str | None = None, cap_tokens: int | None = None) -> str:
+    body: dict = {"org": org}
+    if role:
+        body["role"] = role
+    if cap_tokens:
+        body["cap_tokens"] = int(cap_tokens)
+    t = api.post(f"/tasks/{_q(task)}/org", body)
+    m = t.get("mission") or {}
+    return (f"{t.get('external_key') or t['id']} went to the org {org} as mission {m.get('id')} ({m.get('status')}); the "
+            f"task is {t.get('status')}. Follow it with keel_org_mission {m.get('id')}.")
+
+
 def org_stop_mission(api: KeelApi, mission: str) -> str:
     m = api.post(f"/org/missions/{_q(mission)}/stop", {})
     return f"Mission {m['id']} is {m['status']}: it and everything under it stopped."
@@ -237,6 +251,15 @@ def register(srv, api: KeelApi, guard, write: bool) -> None:
         and a token cap."""
         return await act(ctx, "keel_org_give_mission", f"give {role} in {org} the mission {title!r}", org_give_mission,
                          api, org, role, title, request, project, workflow, cap_tokens)
+
+    @srv.tool(annotations=rw, structured_output=False)
+    async def keel_task_hand_to_org(task: str, org: str, role: str | None = None, cap_tokens: int | None = None,
+                                    ctx: Context | None = None) -> str:
+        """Org plugin with Tasks: give a task (its id, tk_...) to an org as a mission (role: default the role a person of
+        the org gives work to). The lead gets the ticket's title, description and link; the task's status follows the
+        mission; each part the lead gives out becomes a task under it (and a Jira sub-task when the task came from Jira)."""
+        return await act(ctx, "keel_task_hand_to_org", f"give the task {task} to the org {org}", task_hand_to_org, api,
+                         task, org, role, cap_tokens)
 
     @srv.tool(annotations=rx, structured_output=False)
     async def keel_org_stop_mission(mission: str, ctx: Context | None = None) -> str:

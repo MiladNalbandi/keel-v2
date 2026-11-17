@@ -78,6 +78,9 @@ interface TicketClient {
 
     /** 0.18.52 the ticket's newest comments as "<author>: <text>", oldest first (the flow pick reads them). */
     fun comments(key: String, max: Int = 10): List<String> = emptyList()
+
+    /** 0.34 a sub-task under [parentKey] (a part of the work the Org's lead gave out); its key, or null when this tracker has none. */
+    fun createSubtask(parentKey: String, title: String, description: String): String? = null
 }
 
 /** A move: [moved] false = the ticket was in [to] already. */

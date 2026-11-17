@@ -55,7 +55,8 @@ WRITE_TOOLS = {"keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answ
                # the whole test suite before push (off asks the person first)
                "keel_release_check",
                # 0.29 a connected session does the harness flow's work orders
-               "keel_session_open", "keel_session_next", "keel_session_plan", "keel_session_todo", "keel_session_done"}
+               "keel_session_open", "keel_session_next", "keel_session_plan", "keel_session_todo", "keel_session_done",
+               "keel_task_create"}
 ADMIN_TOOLS = {"keel_delete_run", "keel_add_project", "keel_remove_project", "keel_pause", "keel_focus", "keel_connect_github",  # 0.19.x
                "keel_edit_workflow", "keel_rule_install", "keel_rule_edit",                         # v0.17.2 rules
                "keel_start_options"}                                                                # 0.21.2
@@ -251,9 +252,10 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
     release = ["keel_release_check"]                           # after keel_base_branch
     session = ["keel_session_open", "keel_session_next", "keel_session_plan", "keel_session_todo",
                "keel_session_done"]                            # 0.29 after keel_start_options, before the marketplace's
-    assert names("write") == read + write + tui + sync + ci + base + release + session + MARKET_TOOLS
+    task = ["keel_task_create"]                                # 0.34 after the session tools
+    assert names("write") == read + write + tui + sync + ci + base + release + session + task + MARKET_TOOLS
     start = ["keel_start_options"]                             # 0.21.2 after keel_release_check, admin only
-    assert names("admin") == read + write + admin + tui + rules + sync + ci + base + release + start + session + MARKET_TOOLS
+    assert names("admin") == read + write + admin + tui + rules + sync + ci + base + release + start + session + task + MARKET_TOOLS
 
 
 async def test_allow_covers_the_marketplace_tools(stub):

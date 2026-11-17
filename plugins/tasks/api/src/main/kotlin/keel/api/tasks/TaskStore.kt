@@ -14,12 +14,13 @@ import java.util.UUID
 class TaskStore(private val jdbc: JdbcTemplate) {
 
     private val cols = "id, project_id, title, description, type, status, source, external_key, external_url, external_status, assignee, " +
-        "priority, thread_id, workflow_id, pr_url, reviewers, blocked_reason, created_at, updated_at"
+        "priority, thread_id, workflow_id, pr_url, reviewers, blocked_reason, created_at, updated_at, mission_id, mission_org, mission_status, parent_task_id"
 
     private fun task(rs: ResultSet) = Task(
         rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4) ?: "", rs.getString(5), rs.getString(6), rs.getString(7),
         rs.getString(8), rs.getString(9), rs.getString(10), rs.getString(11), rs.getString(12), rs.getString(13), rs.getString(14),
         rs.getString(15), reviewers(rs.getString(16)), rs.getString(17), rs.getString(18), rs.getString(19),
+        rs.getString(20), rs.getString(21), rs.getString(22), rs.getString(23),
     )
 
     private fun reviewers(json: String?): List<Reviewer> =
@@ -34,6 +35,14 @@ class TaskStore(private val jdbc: JdbcTemplate) {
 
     fun byKey(pid: String, key: String): Task? =
         jdbc.query("SELECT $cols FROM tasks WHERE project_id = ? AND external_key = ?", { rs, _ -> task(rs) }, pid, key).firstOrNull()
+
+    /** 0.34 the task an Org mission works on (Hand to Org) or is a part of (a part task). */
+    fun byMission(mid: String): Task? =
+        jdbc.query("SELECT $cols FROM tasks WHERE mission_id = ? ORDER BY updated_at DESC LIMIT 1", { rs, _ -> task(rs) }, mid).firstOrNull()
+
+    /** 0.34 a task's part tasks, oldest first. */
+    fun parts(id: String): List<Task> =
+        jdbc.query("SELECT $cols FROM tasks WHERE parent_task_id = ? ORDER BY created_at, id", { rs, _ -> task(rs) }, id)
 
     fun byThread(tid: String): Task? =
         jdbc.query("SELECT $cols FROM tasks WHERE thread_id = ? ORDER BY updated_at DESC LIMIT 1", { rs, _ -> task(rs) }, tid).firstOrNull()
@@ -50,9 +59,10 @@ class TaskStore(private val jdbc: JdbcTemplate) {
 
     fun insert(t: Task): Task {
         jdbc.update(
-            "INSERT INTO tasks($cols) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tasks($cols) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             t.id, t.projectId, t.title, t.description, t.type, t.status, t.source, t.externalKey, t.externalUrl, t.externalStatus,
             t.assignee, t.priority, t.threadId, t.workflowId, t.prUrl, Json.write(t.reviewers), t.blockedReason, t.createdAt, t.updatedAt,
+            t.missionId, t.missionOrg, t.missionStatus, t.parentTaskId,
         )
         return t
     }
@@ -62,9 +72,10 @@ class TaskStore(private val jdbc: JdbcTemplate) {
         jdbc.update(
             """UPDATE tasks SET title = ?, description = ?, type = ?, status = ?, source = ?, external_key = ?, external_url = ?,
                external_status = ?, assignee = ?, priority = ?, thread_id = ?, workflow_id = ?, pr_url = ?, reviewers = ?,
-               blocked_reason = ?, updated_at = ? WHERE id = ?""",
+               blocked_reason = ?, updated_at = ?, mission_id = ?, mission_org = ?, mission_status = ?, parent_task_id = ? WHERE id = ?""",
             t.title, t.description, t.type, t.status, t.source, t.externalKey, t.externalUrl, t.externalStatus, t.assignee, t.priority,
-            t.threadId, t.workflowId, t.prUrl, Json.write(t.reviewers), t.blockedReason, now, t.id,
+            t.threadId, t.workflowId, t.prUrl, Json.write(t.reviewers), t.blockedReason, now, t.missionId, t.missionOrg, t.missionStatus,
+            t.parentTaskId, t.id,
         )
         return t.copy(updatedAt = now)
     }

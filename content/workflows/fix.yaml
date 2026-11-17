@@ -16,6 +16,8 @@
 id: fix
 name: fix (keel)
 version: 1
+about: "a bug: a failing test first, then the fix and ship"
+group: fix
 keel_rules: true
 
 steps:

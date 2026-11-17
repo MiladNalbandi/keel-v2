@@ -53,6 +53,9 @@ class StubEngine private constructor(private val server: HttpServer) {
     /** What POST /providers/test answers; null = OK. */
     @Volatile var providerTestAnswer: Map<String, Any?>? = null
 
+    /** 0.34 the Org plugin's POST /org/orgs/{oid}/missions: its answer (status, body); null = a queued mission for the body's role. */
+    @Volatile var orgMissionAnswer: Pair<Int, Any?>? = null
+
     /** What POST /agents/ask answers (the Doctor's model call); null = "fake" (rules only). */
     /** v0.11.0 the CI/CD plugin's runs (newest first); a test adds a failed one with ciRun. */
     val ciRuns = java.util.concurrent.CopyOnWriteArrayList<Map<String, Any?>>()
@@ -157,6 +160,10 @@ class StubEngine private constructor(private val server: HttpServer) {
         path.startsWith("/marketplace/") -> market.route(method, path, body, query)
         path == "/threads" && method == "POST" && threadRefusal != null -> threadRefusal!!
         path == "/health" -> 200 to mapOf("ok" to true, "version" to "stub", "fake" to true)
+        Regex("^/org/orgs/[^/]+/missions$").matches(path) && method == "POST" -> orgMissionAnswer ?: (200 to mapOf(
+            "id" to "m_stub" + (calls.count { it.path == path } + 100), "org_id" to path.split("/")[3],
+            "role" to (body?.path("role")?.asText()?.ifEmpty { null } ?: "lead"), "status" to "queued",
+            "task_id" to body?.path("task_id")?.asText(), "title" to body?.path("title")?.asText()))
         // keel 0.18.65 Settings › Review with nothing written: keel's two reviewers (engine runtime/review_config.py)
         path == "/review-config/view" -> 200 to reviewConfigView(body?.path("models")?.path("default"))
         path == "/setup/status" -> 200 to mapOf("state" to "running", "mode" to "container", "busy" to true,

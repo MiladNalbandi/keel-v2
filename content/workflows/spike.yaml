@@ -2,6 +2,8 @@ id: spike
 name: spike (keel)
 keel_rules: true
 version: 1
+about: "research before building: a question, options, a decision"
+group: plan
 # Research before building: frame the question (0.18.21: with one round of questions about the decision when only
 # the person knows the answer; 0.18.23: about the decision only, how to build it goes to the spec as open
 # questions), research what it needs from outside the repo on the web (0.18.20 web_docs: the web-researcher searches
