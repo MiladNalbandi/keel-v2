@@ -895,7 +895,7 @@ export type HelperMessage = {
   text: string;
   /** the turn's agent call: its steps come from /jobs/{call_id}/steps and live agent steps */
   call_id?: string | null;
-  data: { status?: string; provider?: string; model?: string; effort?: string; tokens_in?: number; tokens_out?: number; tokens_cached?: number;
+  data: { status?: string; provider?: string; model?: string; effort?: string; tokens_in?: number; tokens_out?: number; tokens_cached?: number; ai_credits?: number;
     cost_usd?: number; ms?: number; command?: string; mentions?: HelperMention[]; selection?: HelperSelection; sha?: string; files?: string[];
     /** 0.18.20 an answer: its turn (the user message's n); `files` is then what this answer changed ([] for none) */
     turn?: number;

@@ -71,7 +71,7 @@ class Tool:
 
     @property
     def spec(self) -> ToolSpec:
-        return ToolSpec(self.name, self.description, self.schema)
+        return ToolSpec(self.name, self.description, self.schema, deferrable=deferrable(self.name))
 
 
 def _obj(props: dict, required: list[str]) -> dict:

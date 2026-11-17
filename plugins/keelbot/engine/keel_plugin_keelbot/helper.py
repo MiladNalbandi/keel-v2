@@ -633,6 +633,8 @@ class HelperRunner:
                     data={"status": status, "mode": mode, "provider": provider, "model": model.get("model"),
                           **({"effort": effort} if effort else {}), "tokens_in": tin, "tokens_out": tout,
                           "tokens_cached": cached, "cost_usd": round(cost, 6), "ms": int((time.monotonic() - t0) * 1000),
+                          # 0.32 GitHub Copilot: the AI credits the answer cost, as Copilot counted them
+                          **({"ai_credits": res.data["ai_credits"]} if res and (res.data or {}).get("ai_credits") else {}),
                           # 0.18.20 the files this answer changed (keel TUI lists only these after it), and its turn
                           "turn": n, "files": turn_files,
                           **({"source": {**source, **({"paths": dict(read_at)} if read_at else {})}} if source or read_at else {}),

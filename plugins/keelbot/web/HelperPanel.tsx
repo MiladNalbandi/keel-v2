@@ -872,6 +872,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             {m.role === "helper" && (
               <p className="hp-meta" title={usageParts(m.data).title}>{m.data.model ? `${provLabel(m.data.provider)} ${answerModel(m.data)} · ` : ""}{usageText(messageTokens(m), m.data.cost_usd ?? 0)}
                 {(m.data.tokens_cached ?? 0) > 0 || (m.data.tokens_in ?? 0) > 0 ? ` (${usageParts(m.data).line})` : ""}
+                {(m.data.ai_credits ?? 0) > 0 ? ` · about ${(m.data.ai_credits ?? 0).toFixed(2)} AI credits` : ""}
                 {m.data.ms ? ` · ${(m.data.ms / 1000).toFixed(1)} s` : ""}</p>
             )}
           </div>
