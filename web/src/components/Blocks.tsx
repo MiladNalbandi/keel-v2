@@ -625,9 +625,9 @@ function FaceText({ s, head, custom, count, locked, tags, facts, inLoop, live }:
     <>
       <span className="sb-ico" aria-hidden="true"><KindIcon kind={s.kind} /></span>
       <span className="sb-text">
-        <span className="sb-name">{head && <span className="sb-head">{head}</span>}{s.name}{locked && <span className="sb-lock" title="keel rule: cannot be removed while keel rules are on"><span aria-hidden="true"> 🔒</span><span className="sr-only">keel rule</span></span>}</span>
+        <span className="sb-name">{head && (s.kind === "gate" ? <span className="sb-head is-tag" aria-hidden="true">⚑ waits for you</span> : <span className="sb-head">{head}</span>)}{s.name}{locked && <span className="sb-lock" title="keel rule: cannot be removed while keel rules are on"><span aria-hidden="true"> 🔒</span><span className="sr-only">keel rule</span></span>}</span>
         <span className="sb-meta">
-          {s.agent && <span className={`sb-agent ${custom ? "is-custom" : ""}`}>{custom && !s.agent.startsWith("★") ? "★ " : ""}{s.agent}{model && <span className="sb-model">{model}</span>}</span>}
+          {s.agent && <span className={`sb-agent ${custom ? "is-custom" : ""}`} title={model ? `${s.agent} · ${model}` : s.agent}>{custom && !s.agent.startsWith("★") ? "★ " : ""}{s.agent}{model && <span className="sb-model">{model}</span>}</span>}
           {line && <span className="sb-facts">{line}</span>}
           {count && <span className="sb-count">{count}</span>}
           {tags.map((t) => <span key={t} className="sb-tag">{t}</span>)}
