@@ -7,7 +7,7 @@ effort: high
 maxTurns: 25
 knowledge:
   sections: [domain, conventions]
-  code_graph: false
+  code_graph: true
   memory: true
   strict: false
 ---

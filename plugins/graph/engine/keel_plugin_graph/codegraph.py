@@ -32,8 +32,9 @@ SYNC_TIMEOUT = 120
 # The MCP tools agents see. Measured on ludus (Haiku explorer, 2+2 runs): codegraph_explore returns 10-17k characters
 # per call even with maxFiles 1-2 and agents still read the files afterwards, so it cost ~38% MORE tokens than no
 # graph. The lookups are small (search: locations only; callers/callees/impact: lists), so those are the default.
-# Lookup-only was measured too (2 runs: 196k, 158k vs 95k, 155k without): no saving, so every agent's code_graph is
-# off by default in content/agents; turn it on per agent in the Agents drawer.
+# Lookup-only was measured too (2 runs: 196k, 158k vs 95k, 155k without). 0.33 every agent's code_graph is on: the
+# search is a base tool next to Grep (harness/tools.py BASE_MCP), the others load on demand; turn it off per agent in
+# the Agents drawer.
 MCP_TOOLS = os.environ.get("KEEL_CODEGRAPH_TOOLS", "search,callers,callees,impact")
 QUIET = {"CODEGRAPH_TELEMETRY": "0", "DO_NOT_TRACK": "1", "CODEGRAPH_NO_UPDATE_CHECK": "1"}
 # CodeGraph's own words for a database it cannot open or lock where it is.

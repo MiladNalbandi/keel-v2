@@ -46,10 +46,13 @@ WEB_TEXT = 40_000              # characters of a page the model reads
 # is added at the END of the list, so the cached start of every request stays the same. Every MCP / plugin tool is one.
 DEFERRED = frozenset({"NotebookEdit", "BashOutput", "KillShell", "Skill", "Task", "WebFetch"})
 LOAD_TOOLS = "LoadTools"
+# 0.33 the code graph's search is keel's RAG: it sits next to Grep in the base list (not behind LoadTools), so the model
+# finds where a symbol lives (file:line) before it reads files; the code graph's other tools stay deferred
+BASE_MCP = frozenset({"mcp__codegraph__codegraph_search"})
 
 
 def deferrable(name: str) -> bool:
-    return name in DEFERRED or name.startswith("mcp__")
+    return name in DEFERRED or (name.startswith("mcp__") and name not in BASE_MCP)
 
 
 def _first_sentence(text: str, n: int = 110) -> str:

@@ -8,7 +8,7 @@ effort: medium
 maxTurns: 20
 knowledge:
   sections: [conventions]
-  code_graph: false
+  code_graph: true
   memory: false
 ---
 You are the story writer of keel Product. You write stories a developer can start without asking anything.

@@ -8,7 +8,7 @@ maxTurns: 15
 disallowedTools: Write, Edit
 knowledge:
   sections: [architecture, domain]
-  code_graph: false
+  code_graph: true
   memory: true
   strict: false
 ---

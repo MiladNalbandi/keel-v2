@@ -160,9 +160,9 @@ def test_its_agent_is_keels_helper_agent(repo):
     assert prompts.system_prompt("helper", None).startswith("You are KeelBot.")
     k = agent_knowledge.default_for("helper")
     assert k["sections"] == ["architecture", "domain", "conventions", "data", "integrations", "journeys"]
-    # 0.18.57 the code graph tools are off for KeelBot by default: in the RAG evaluation (0.18.55, real Sonnet) they
-    # added about 2.3k tokens of tool schemas to every call and the answers were no better; a person turns them on
-    assert not k["code_graph"] and not k["memory"]
+    # 0.33 the code graph is on for KeelBot: only its search is in the base tool list, the other tools load on demand
+    # (0.18.57 had it off: all its tool schemas, about 2.3k tokens, were in every call)
+    assert k["code_graph"] and not k["memory"]
     assert "helper" in addons.info()["addons"][0]["agents"]
 
 

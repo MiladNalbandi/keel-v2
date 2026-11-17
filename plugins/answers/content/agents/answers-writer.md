@@ -7,7 +7,7 @@ effort: low
 maxTurns: 8
 knowledge:
   sections: []
-  code_graph: false
+  code_graph: true
   memory: false
   strict: false
 ---

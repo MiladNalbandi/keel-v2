@@ -8,7 +8,7 @@ maxTurns: 30
 disallowedTools: Edit
 knowledge:
   sections: []
-  code_graph: false
+  code_graph: true
   memory: true
   strict: false
 ---

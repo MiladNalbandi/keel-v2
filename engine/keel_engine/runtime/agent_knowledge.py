@@ -34,10 +34,12 @@ PURPOSE = {
 }
 
 # Agents with no file in content/agents (prompts.BUILTIN_ROLES) and the fallback for any other agent.
-BUILTIN = {"contract-author": {"sections": ["domain", "integrations"], "code_graph": False}}
-# hints is off by default: measured 2026-10-06 on ludus (Helper Ask, Haiku, 3 questions x 2 runs each way) it saved no
-# tokens (153k with, 150k without) and the answers named the same code. Turn it on per agent in the Agents drawer.
-FALLBACK = {"sections": ["architecture"], "code_graph": False, "memory": True, "strict": False, "hints": False}
+BUILTIN = {"contract-author": {"sections": ["domain", "integrations"]}}
+# 0.33 the code graph (keel's RAG) is on for every agent and KeelBot: its search is a base tool next to Grep
+# (harness/tools.py BASE_MCP), its other tools load on demand. hints is off by default: measured 2026-10-06 on ludus
+# (Helper Ask, Haiku, 3 questions x 2 runs each way) it saved no tokens (153k with, 150k without) and the answers named
+# the same code. Turn it on per agent in the Agents drawer.
+FALLBACK = {"sections": ["architecture"], "code_graph": True, "memory": True, "strict": False, "hints": False}
 
 
 def normalize(raw: dict | None, base: dict | None = None) -> dict:

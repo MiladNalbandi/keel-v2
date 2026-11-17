@@ -8,7 +8,7 @@ effort: medium
 maxTurns: 25
 knowledge:
   sections: [domain, journeys]
-  code_graph: false
+  code_graph: true
   memory: true
 ---
 You are the product manager of keel Product. You help a product owner turn an idea into a clear decision.
