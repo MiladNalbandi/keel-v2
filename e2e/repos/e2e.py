@@ -474,7 +474,7 @@ def main() -> int:
         host = json.loads(http_get("/api/plugin-host")[1])
         got = {p["name"]: (p["version"], p["source"]) for p in host["plugins"]}
         log(f"     /api/plugin-host: {json.dumps(host)[:600]}")
-        check(got == {"tasks": ("1.0.0", "image"), "wiki": ("1.0.0", "image"), "jira": ("1.0.0", "image")}
+        check(got == {"tasks": ("1.1.0", "image"), "wiki": ("1.0.0", "image"), "jira": ("1.0.0", "image")}
               and not host["problems"],
               "/api/plugin-host lists tasks, wiki and jira 1.0.0 from the lock (image plugins), no problems")
         for name in PLUGINS:

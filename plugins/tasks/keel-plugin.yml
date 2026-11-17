@@ -4,7 +4,7 @@
 schema: 1
 name: tasks
 title: Tasks
-version: 1.0.0
+version: 1.1.0
 publisher: keel
 summary: The work of a project as a board - local tasks or Jira tickets - each started as a flow and walked through review, PP testing and production.
 requires:
