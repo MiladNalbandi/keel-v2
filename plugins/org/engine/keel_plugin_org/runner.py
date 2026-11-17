@@ -301,7 +301,8 @@ class Runner:
             top = store.root(m)
             d = {"mission_id": m["id"], "parent_id": m.get("parent_id"), "org": m["org_id"], "role": m["role"],
                  "title": m["title"], "status": m["status"], "task_id": m.get("task_id"),
-                 "root_task_id": top.get("task_id"), "root_mission_id": top["id"], "thread_id": m.get("thread_id")}
+                 "root_task_id": top.get("task_id"), "root_mission_id": top["id"], "thread_id": m.get("thread_id"),
+                 "stage": m.get("stage")}
             rep = m.get("report") or {}
             if m["status"] == "reported" and rep.get("summary"):
                 d["summary"] = str(rep["summary"])[:600]
@@ -336,8 +337,7 @@ class Runner:
             # 0.34 the lead's report waits for the person (the review flow of the mission a person gave): the task it
             # works on goes to In review until the person accepts it or sends it back
             if stage == "review" and not m.get("parent_id") and m["status"] == "running" and m.get("thread_id") == tid:
-                await self._tell({**m, "status": "reported",
-                                  "report": {"summary": f"{d.get('title') or 'The report'} waits for you on the Org page."}})
+                await self._tell({**m, "status": "reported", "report": None})
             return
         if tid in self.handled or m.get("thread_id") != tid or m["status"] != "running":
             return

@@ -781,7 +781,7 @@ a.tkn-link,
   flex-wrap: wrap;
   gap: 10px;
 }
-.tkn-org-fields label {
+.tkn-org-fields > span {
   display: grid;
   gap: 4px;
   flex: 1 1 160px;

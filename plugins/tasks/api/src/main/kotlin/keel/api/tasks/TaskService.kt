@@ -268,7 +268,7 @@ class TaskService(
         }
         val note = (d["summary"] ?: d["reason"])?.toString()
         val n = (d["children"] as? List<*>)?.size ?: 0
-        quietly(t) { fire(t.id, Trigger.Mission(kind, org, note, n)) }
+        quietly(t) { fire(t.id, Trigger.Mission(kind, org, note, n, d["stage"]?.toString())) }
     }
 
     /** The part tasks of a lead's work (one per child mission), under [parent]; the Jira sub-task goes under [root]'s ticket. */

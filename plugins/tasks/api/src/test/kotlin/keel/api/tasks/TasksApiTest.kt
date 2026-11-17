@@ -250,6 +250,11 @@ class TasksApiTest : ApiTest() {
         assertThat(task(parts[1]["id"].asText())["status"].asText()).isEqualTo("blocked")
         assertThat(task(parts[1]["id"].asText())["blocked_reason"].asText()).isEqualTo("the migration did not run")
 
+        // the lead's review flow checks its team's work: said as such, the task stays In progress
+        send(mission("started", mid, "running", mapOf("task_id" to id, "parent_id" to null, "stage" to "review")))
+        assertThat(notes(task(id)).last()).isEqualTo("The Org's lead checks its team's work.")
+        assertThat(task(id)["status"].asText()).isEqualTo("in_progress")
+
         // the lead's report waits for the person, then it is accepted: the task and its reported parts are done
         send(mission("reported", mid, "reported", mapOf("task_id" to id, "parent_id" to null, "summary" to "Both parts ended.")))
         val inReview = task(id)

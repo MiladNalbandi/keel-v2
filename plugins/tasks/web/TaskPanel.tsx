@@ -340,19 +340,19 @@ function OrgHandoff({
         </span>
       ) : (
         <div className="tkn-org-fields">
-          <label>
-            <span className="sub">Org</span>
-            <select value={oid} onChange={(e) => { setOrg(e.target.value); setRole(""); }}>
+          <span>
+            <label className="sub" htmlFor={`tkn-org-${t.id}`}>Org</label>
+            <select id={`tkn-org-${t.id}`} value={oid} onChange={(e) => { setOrg(e.target.value); setRole(""); }}>
               {usable.map((x) => (
                 <option key={x.id} value={x.id}>
                   {x.name || x.id}
                 </option>
               ))}
             </select>
-          </label>
-          <label>
-            <span className="sub">To</span>
-            <select value={role} onChange={(e) => setRole(e.target.value)}>
+          </span>
+          <span>
+            <label className="sub" htmlFor={`tkn-role-${t.id}`}>To</label>
+            <select id={`tkn-role-${t.id}`} value={role} onChange={(e) => setRole(e.target.value)}>
               <option value="">its lead (the org decides)</option>
               {roles.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -360,10 +360,11 @@ function OrgHandoff({
                 </option>
               ))}
             </select>
-          </label>
-          <label>
-            <span className="sub">Budget (optional)</span>
+          </span>
+          <span>
+            <label className="sub" htmlFor={`tkn-cap-${t.id}`}>Budget (optional)</label>
             <input
+              id={`tkn-cap-${t.id}`}
               type="text"
               className="inline-input"
               placeholder="400k tokens"
@@ -371,7 +372,7 @@ function OrgHandoff({
               value={cap}
               onChange={(e) => setCap(e.target.value)}
             />
-          </label>
+          </span>
         </div>
       )}
       {err && <ErrorBox error={err} />}

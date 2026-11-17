@@ -39,7 +39,7 @@ sealed interface Trigger {
 
     /** 0.34 the Org mission the task went to (or a part task's mission) changed: [status] is the mission's (started,
      *  delegated, reported, done, failed, stopped), [org] its org, [note] its report's summary or why it ended. */
-    data class Mission(val status: String, val org: String, val note: String? = null, val parts: Int = 0) : Trigger { override val actor = "keel" }
+    data class Mission(val status: String, val org: String, val note: String? = null, val parts: Int = 0, val stage: String? = null) : Trigger { override val actor = "keel" }
 
     /** Someone moved the ticket in Jira; [keel] is the keel status it maps to (null: none, the task stays). */
     /** The ticket moved in its tracker: [actor] is the tracker's source ("jira", 0.22.0 "github"). */
@@ -170,12 +170,16 @@ object TaskMachine {
         val org = tr.org
         val closed = s in setOf(DONE, CANCELLED)
         return when (tr.status) {
-            "started" -> if (closed || s == IN_PROGRESS) Plan(s, "org", "The Org $org works on it.", tr.actor)
-                else Plan(IN_PROGRESS, "org", "The Org $org works on it.", tr.actor, moveJira = true,
+            "started" -> {
+                // the lead's review flow (stage review) checks its team's work; a send-back plans again
+                val what = if (tr.stage == "review") "The Org's lead checks its team's work." else "The Org $org works on it."
+                if (closed || s == IN_PROGRESS) Plan(s, "org", what, tr.actor)
+                else Plan(IN_PROGRESS, "org", what, tr.actor, moveJira = true,
                     comment = "keel's Org \"$org\" works on this ticket.")
+            }
             "delegated" -> Plan(s, "org", "The Org's lead gave the work out in ${tr.parts} part${if (tr.parts == 1) "" else "s"}.", tr.actor)
             "reported" -> if (closed || s == IN_REVIEW) Plan(s, "org", "The Org $org reported${tail(tr.note)}", tr.actor)
-                else Plan(IN_REVIEW, "org", "The Org $org reported: its report waits for you (Org page)${tail(tr.note)}", tr.actor,
+                else Plan(IN_REVIEW, "org", "The Org $org reported: its report waits for you on the Org page${tail(tr.note)}", tr.actor,
                     moveJira = true, comment = "keel's Org \"$org\" reported. ${tr.note?.trim()?.take(600).orEmpty()}".trim())
             "done" -> if (closed) Plan(s, "org", "The Org $org finished.", tr.actor)
                 else Plan(DONE, "org", "The Org $org finished: its report was accepted.", tr.actor, moveJira = true,

@@ -198,7 +198,8 @@ def test_0_34_a_mission_from_a_task_tells_keel_each_status_with_the_task(client)
     # the lead's report waited for the person at its review flow: told as reported, before done
     kinds = [e["type"] for e in top]
     assert kinds.index("org.mission.reported") < kinds.index("org.mission.done")
-    assert next(e for e in top if e["type"] == "org.mission.reported")["data"]["summary"].endswith("waits for you on the Org page.")
+    assert next(e for e in top if e["type"] == "org.mission.reported")["data"]["stage"] == "review"
+    assert [e["data"]["stage"] for e in top if e["type"] == "org.mission.started"][:2] == ["plan", "review"]
     assert store.get(m["id"])["task_id"] == "tk_000000000042"
 
 
