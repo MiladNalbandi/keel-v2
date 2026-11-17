@@ -244,7 +244,7 @@ def test_the_egm_content_is_whole_read_only_and_credited():
         f = CONTENT / "agents" / f"{name}.md"
         fm = front_matter(f)
         assert "Write" in fm["disallowedTools"] and "Edit" in fm["disallowedTools"]
-        assert fm["knowledge"] == {"sections": [], "code_graph": False, "memory": False, "strict": False}
+        assert fm["knowledge"] == {"sections": [], "code_graph": True, "memory": False, "strict": False}
         assert "GOLDFISH: done" in f.read_text() and "Core Mandates" in f.read_text()
     assert "Write" in front_matter(CONTENT / "agents/egm-resolver.md")["tools"]
     assert re.search(r"Elephant-Goldfish.*403d8881", (CONTENT / "NOTICE.md").read_text(), re.S)

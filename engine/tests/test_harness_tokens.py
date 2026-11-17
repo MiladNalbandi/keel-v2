@@ -121,3 +121,11 @@ def _tools_with(mcp_names):
         return ts
 
     return tools
+
+
+def test_the_code_graph_search_is_a_base_tool_and_its_other_tools_load_on_demand():
+    # 0.33 keel's RAG: the code graph's search sits next to Grep; every other MCP tool stays behind LoadTools
+    assert not tools_mod.deferrable("mcp__codegraph__codegraph_search")
+    assert tools_mod.deferrable("mcp__codegraph__codegraph_callers")
+    assert tools_mod.deferrable("mcp__db__query")
+    assert not tools_mod.deferrable("Grep")

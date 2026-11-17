@@ -7,7 +7,7 @@ effort: medium
 maxTurns: 40
 knowledge:
   sections: [conventions, journeys]
-  code_graph: false
+  code_graph: true
   memory: true
   strict: false
 ---
