@@ -42,7 +42,7 @@ CORE_COMMANDS = [
 
 
 def test_one_version_and_name_everywhere():
-    assert MANIFEST["version"] == keel_plugin_keelbot.VERSION == keel_plugin_keelbot.ADDON["version"] == "1.0.0"
+    assert MANIFEST["version"] == keel_plugin_keelbot.VERSION == keel_plugin_keelbot.ADDON["version"] == "1.1.0"
     assert MANIFEST["name"] == keel_plugin_keelbot.ADDON["name"] == keel_plugin_keelbot.PART["name"] == "keelbot"
     assert MANIFEST["requires"] == {"sdk": 1} and MANIFEST["per_project"] is False
     assert MANIFEST["parts"]["engine"] == {"path": "engine", "package": keel_plugin_keelbot.__name__}

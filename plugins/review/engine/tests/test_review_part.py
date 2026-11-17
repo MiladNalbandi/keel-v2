@@ -31,7 +31,7 @@ GOLDEN = json.loads((Path(__file__).parent / "fake_answers_0151.json").read_text
 
 
 def test_one_version_and_name_everywhere():
-    assert MANIFEST["version"] == keel_plugin_review.VERSION == keel_plugin_review.ADDON["version"] == "1.0.0"
+    assert MANIFEST["version"] == keel_plugin_review.VERSION == keel_plugin_review.ADDON["version"] == "1.1.0"
     assert MANIFEST["name"] == keel_plugin_review.ADDON["name"] == "review"
     assert MANIFEST["requires"] == {"sdk": 1, "plugins": {"keelbot": ">=1.0.0"}} and MANIFEST["per_project"] is True
     assert MANIFEST["parts"]["engine"] == {"path": "engine", "package": keel_plugin_review.__name__}
