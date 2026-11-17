@@ -2,6 +2,8 @@ id: quick
 name: quick (keel)
 keel_rules: true
 version: 1
+about: "a small, clear change: one agent, the tests, one look, one commit"
+group: build
 # A small, clear change in a few steps (keel 0.18.12): one agent makes the change and a test that proves it (phase ac:
 # code and tests), keel runs the tests (up to 2 fix rounds, then keel asks), you look at the diff once, keel commits.
 # No spec, no criteria loop, no ship: for a typo, a small bug, a config value. Bigger work: small, implement, change or

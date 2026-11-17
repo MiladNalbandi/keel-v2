@@ -2,6 +2,8 @@ id: knowledge-refresh
 name: knowledge refresh (keel)
 keel_rules: true
 version: 1
+about: "refresh the project's knowledge pages"
+group: ship
 # Which sections: StartThread.settings.sections (e.g. ["architecture", "data"]) gives one librarian
 # per section. Without it, `parallel` librarians cover keel's five sections in order
 # (architecture, domain, conventions, data, integrations).

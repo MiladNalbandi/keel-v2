@@ -2,6 +2,8 @@ id: init
 name: init (keel)
 keel_rules: true
 version: 1
+about: "set a project up for keel"
+group: ship
 # 0.18.57 the project notes (knowledge base) are opt-in: the questions recommend none for a new project, and audit_now
 # offers to build them (notes: the knowledge-refresh flow).
 # Options (StartThread.settings): fast (no knowledge base unless the user names sections, a rung that passed before

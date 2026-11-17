@@ -2,6 +2,8 @@ id: diagnose
 name: diagnose (keel)
 keel_rules: true
 version: 1
+about: "a bug nobody can make fail yet: find why, change nothing"
+group: fix
 # For a bug nobody can make fail on demand yet. Read-only (phase bug-investigate): no production code, no tests; the only
 # commit is an investigation note when nothing is confirmed. It never ends by fixing something.
 steps:

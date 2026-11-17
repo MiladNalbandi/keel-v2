@@ -220,6 +220,21 @@ def start_flow(api: KeelApi, type: str | None, idea: str | None, project: str | 
     return "\n".join(out)
 
 
+def _task_create(api: KeelApi, title: str, description: str, type: str, ticket: str | None, project: str | None) -> str:
+    """keel_task_create: POST /api/projects/{pid}/tasks (the Tasks plugin; 404 when it is off)."""
+    pid = _project(api, project)["id"]
+    body: dict[str, Any] = {"title": title, "description": description or "", "type": type}
+    if ticket:
+        body["external_key"] = ticket
+    try:
+        t = api.post(f"/projects/{pid}/tasks", body)
+    except ApiError as exc:
+        if getattr(exc, "status", None) == 404:
+            return "The Tasks plugin is off for keel: turn it on in Settings › Plugins."
+        raise
+    return f"Task {t.get('external_key') or t['id']} made on {pid}: {t['title']} ({t['status']}). Its id: {t['id']}."
+
+
 def init_first(p: dict, type: str | None) -> str:
     """keel 0.18.55 a project keel does not know yet (configured false: no .keel/config.yml) gets one line about the
     init flow first. Only a line: the flow asked for still starts. An older keel sends no `configured`: no line."""
@@ -1543,6 +1558,15 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         mine, client = _as(ctx, "keel_session_done")
         return await anyio.to_thread.run_sync(
             lambda: guard(sess.done, mine, project, client, session_state, flow, summary, status, todos))
+
+    @reg(rw)
+    async def keel_task_create(title: str, description: str = "", type: Literal["task", "bug", "story"] = "task",
+                               ticket: str | None = None, project: str | None = None, ctx: Context | None = None) -> str:
+        """0.34 a task on the project's Tasks page (the Tasks plugin): a title, what should change, its type, and
+        optionally its ticket key (ABC-123 or #12). It starts nothing: start a flow for it, or give it to an org with
+        keel_task_hand_to_org."""
+        return await act(ctx, "keel_task_create", f"make the task {title!r}", _task_create, api, title, description, type,
+                         ticket, project)
 
     @reg(ro)
     def keel_marketplace_search(q: str = "", category: str | None = None) -> str:

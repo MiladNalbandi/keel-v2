@@ -49,7 +49,17 @@ export type Task = {
   waiting: TaskItem[];
   /** GET /tasks/{id} only */
   events?: TaskEvent[] | null;
+  /** 0.34 the Org mission it went to (Hand to Org); the task it is part of; its parts (GET /tasks/{id} only). */
+  mission?: TaskMission | null;
+  parent_task_id?: string | null;
+  parts?: TaskPart[] | null;
 };
+/** 0.34 a mission's statuses (the Org plugin): proposed, queued, running, delegated, reported, done, failed, stopped. */
+export type TaskMission = { id: string; org: string | null; status: string | null };
+export type TaskPart = { id: string; title: string; status: TaskStatus; external_key: string | null; mission_status: string | null };
+/** 0.34 an org as the Org plugin lists it (GET /api/org/orgs; a 404 when the plugin is off). */
+export type OrgRole = { id: string; title: string; human: boolean; workflows: string[]; boss: string | null; team: string[] };
+export type OrgSummary = { id: string; name: string; problems: string[]; roles: OrgRole[]; projects?: string[] };
 /** 0.22.0 tracker: the project's tracker (jira, github; null without one); where: what it follows (GitHub: owner/repo). */
 export type SyncInfo = {
   connected: boolean; kind: "cloud" | "server" | "github" | null; last_sync_at: string | null; last_sync_error: string | null; me: string | null; poll_minutes: number | null;
@@ -100,6 +110,10 @@ export const tasksApi = {
   act: (itemId: number, action: string, note?: string) => post<Task>(`/inbox/tasks/${itemId}/act`, { action, ...(note ? { note } : {}) }),
   /** 0.18.52 a proposal's or review comment's button, with the picked flow, the answers or a note. */
   actWith: (itemId: number, action: string, b: ItemActBody) => post<Task>(`/inbox/tasks/${itemId}/act`, { action, ...b }),
+  /** 0.34 Hand to Org: the task goes to an org as a mission (role: default the org's lead); its status follows it. */
+  handToOrg: (id: string, b: { org: string; role?: string; cap_tokens?: number }) => post<Task>(`/tasks/${e(id)}/org`, b),
+  /** 0.34 the Org plugin's orgs (a 404 when it is off) */
+  orgs: () => get<OrgSummary[]>(`/org/orgs`),
   /** "Pick a flow for me" and "Review it": keel opens a proposal (it starts nothing from here). */
   pick: (id: string) => post<Task>(`/tasks/${e(id)}/pick`),
   review: (id: string) => post<Task>(`/tasks/${e(id)}/review`),

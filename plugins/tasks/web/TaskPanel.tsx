@@ -17,6 +17,7 @@ import {
   ErrorBox,
   errorParts,
   go,
+  groupFlows,
   hashForScreen as hashFor,
   InitAsk,
   isInitFlow,
@@ -30,11 +31,13 @@ import {
   useStartInit,
   WorkspaceDoctor,
   type ClarifyAnswers,
+  type FlowGroup,
   type RunMode,
   type Workflow,
 } from "@keel/web-sdk";
 import {
   tasksApi,
+  type OrgSummary,
   type Task,
   type TaskEvent,
   type TaskItem,
@@ -74,6 +77,15 @@ const short = (w: Workflow | undefined, id: string) =>
 /** The Inbox, on this item's project, with the item in view (the Inbox's ?item=, its id there: task-item-<id>). */
 const inboxItemHash = (it: TaskItem) =>
   `${hashFor("inbox", it.project_id)}?item=task-item-${it.id}`;
+
+/** 0.34 an Org mission's status in a few words, and its pill's tone. */
+const MISSION_WORDS: Record<string, string> = {
+  proposed: "waits for you to start it", queued: "queued", running: "working", delegated: "its team works",
+  reported: "reported", done: "done", failed: "failed", stopped: "stopped",
+};
+function missionTone(s: string | null): "ok" | "warn" | "bad" | "run" | "idle" {
+  return s === "done" ? "ok" : s === "failed" ? "bad" : s === "reported" || s === "proposed" ? "warn" : s === "stopped" ? "idle" : "run";
+}
 
 export function StatusPill({ s }: { s: TaskStatus }) {
   return <span className={`pill tkn-pill tkn-s-${s}`}>{STATUS_WORDS[s]}</span>;
@@ -217,6 +229,169 @@ function WaitCard({
   );
 }
 
+/** 0.34 flows as chips, one row per group with its name (Build, Fix, Check, …); [mark] is keel's pick. */
+function FlowChips({
+  groups,
+  wid,
+  mark,
+  onPick,
+  label = "Pick another flow",
+}: {
+  groups: FlowGroup[];
+  wid: string;
+  mark?: string;
+  onPick: (id: string) => void;
+  label?: string;
+}) {
+  return (
+    <div className="tkn-groups" role="group" aria-label={label}>
+      {groups.map((g) => (
+        <div key={g.id} className="tkn-group">
+          <h4 className="tkn-group-h">{g.title}</h4>
+          <div className="tkn-chips">
+            {g.flows.map((w) => (
+              <button
+                key={w.id}
+                type="button"
+                className="tkn-chip"
+                aria-pressed={wid === w.id}
+                title={w.about}
+                onClick={() => onPick(w.id)}
+              >
+                {short(w, w.id)}
+                {w.id === mark ? " (keel's pick)" : ""}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** "4k", "400k", "1.5m" or a plain number of tokens; null when empty or not a number. */
+function tokensOf(raw: string): number | null {
+  const m = raw.trim().toLowerCase().replace(/[, _]/g, "").match(/^(\d+(?:\.\d+)?)([km]?)$/);
+  if (!m) return null;
+  return Math.round(Number(m[1]) * (m[2] === "k" ? 1e3 : m[2] === "m" ? 1e6 : 1));
+}
+
+/**
+ * 0.34 Hand to Org: the task goes to an org (the Org plugin) as a mission. The org, the role (default: the role a
+ * person of the org gives work to, its lead) and a token budget; the task then follows the mission.
+ */
+function OrgHandoff({
+  t,
+  onHanded,
+  onCancel,
+}: {
+  t: Task;
+  onHanded: (t: Task) => void;
+  onCancel: () => void;
+}) {
+  const orgs = useLoad("org:orgs", () => tasksApi.orgs());
+  const usable = (orgs.data ?? []).filter(
+    (o) => !o.problems.length && (!o.projects?.length || o.projects.includes(t.project_id)),
+  );
+  const [org, setOrg] = useState("");
+  const [role, setRole] = useState("");
+  const [cap, setCap] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<Err | null>(null);
+  const oid = org || usable[0]?.id || "";
+  const o: OrgSummary | undefined = usable.find((x) => x.id === oid);
+  const humans = (o?.roles ?? []).filter((r) => r.human).map((r) => r.id);
+  // the roles a person of the org gives work to (else every agent role, as the Org page offers them)
+  const roles = (o?.roles ?? []).filter((r) => !r.human && (!humans.length || (r.boss && humans.includes(r.boss))));
+  const capN = tokensOf(cap);
+  const give = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      onHanded(
+        await tasksApi.handToOrg(t.id, {
+          org: oid,
+          ...(role ? { role } : {}),
+          ...(capN ? { cap_tokens: capN } : {}),
+        }),
+      );
+    } catch (e) {
+      setErr(errorParts(e));
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="tkn-org" role="group" aria-label="Hand to Org">
+      <b>Give {nameOf(t)} to an Org</b>
+      <span className="sub">
+        The Org's lead reads the ticket, plans, gives parts to its team and reports to you. The task follows the
+        mission; each part becomes a task{t.source === "jira" ? " and a Jira sub-task" : ""}.
+      </span>
+      {orgs.error ? (
+        <ErrorBox error={orgs.error} />
+      ) : !orgs.data ? (
+        <span className="sub">Loading the orgs…</span>
+      ) : !usable.length ? (
+        <span className="sub">
+          No org works on this project yet.{" "}
+          <a className="tkn-link" href="#/org">
+            Make one on the Org page ▸
+          </a>
+        </span>
+      ) : (
+        <div className="tkn-org-fields">
+          <label>
+            <span className="sub">Org</span>
+            <select value={oid} onChange={(e) => { setOrg(e.target.value); setRole(""); }}>
+              {usable.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name || x.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="sub">To</span>
+            <select value={role} onChange={(e) => setRole(e.target.value)}>
+              <option value="">its lead (the org decides)</option>
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.title || r.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="sub">Budget (optional)</span>
+            <input
+              type="text"
+              className="inline-input"
+              placeholder="400k tokens"
+              aria-invalid={!!cap.trim() && !capN}
+              value={cap}
+              onChange={(e) => setCap(e.target.value)}
+            />
+          </label>
+        </div>
+      )}
+      {err && <ErrorBox error={err} />}
+      <div className="row">
+        <button
+          className="btn primary"
+          type="button"
+          disabled={busy || !oid || (!!cap.trim() && !capN)}
+          onClick={() => void give()}
+        >
+          {busy ? "Giving…" : `Give to ${o?.name || oid || "the Org"}`}
+        </button>
+        <button className="btn ghost" type="button" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** keel's proposal ("I want to run the fix flow on SHOPS-1234"): why, its questions, Start / Use another flow / Not now. */
 function ProposalCard({
   it,
@@ -262,7 +437,7 @@ function ProposalCard({
     }
   };
   const dirty = !!err && /uncommitted changes/i.test(err.message);
-  const others = (wfs ?? []).filter((w) => w.id !== proposed);
+  const others = groupFlows((wfs ?? []).filter((w) => w.id !== proposed)).groups;
   return (
     <section
       className="tkn-suggest"
@@ -320,20 +495,10 @@ function ProposalCard({
         </p>
       )}
       {other && (
-        <div className="tkn-chips" role="group" aria-label="Pick another flow">
-          {others.map((w) => (
-            <button
-              key={w.id}
-              type="button"
-              className="tkn-chip"
-              aria-pressed={wid === w.id}
-              onClick={() => setWid(w.id)}
-            >
-              {short(w, w.id)}
-            </button>
-          ))}
+        <>
+          <FlowChips groups={others} wid={wid} onPick={setWid} />
           {!wfs && <span className="sub">Loading the flows…</span>}
-        </div>
+        </>
       )}
       {(dirty || allowDirty) && (
         <label className="chk">
@@ -415,6 +580,7 @@ function SuggestCard({
   onNotNow,
   onPick,
   picking,
+  onHanded,
 }: {
   t: Task;
   wfs: Workflow[] | null;
@@ -422,9 +588,13 @@ function SuggestCard({
   onNotNow: () => void;
   onPick: () => void;
   picking: boolean;
+  /** 0.34 the task went to an Org (only offered while the Org plugin is on) */
+  onHanded: (t: Task) => void;
 }) {
   const pid = t.project_id;
   const s = wfs ? suggestFor(t, wfs) : null;
+  const orgOn = useHasPage("org");
+  const [toOrg, setToOrg] = useState(false);
   const [chosen, setChosen] = useState<string | null>(null);
   const wid = chosen ?? s?.id ?? "";
   const [other, setOther] = useState(false);
@@ -455,6 +625,10 @@ function SuggestCard({
   // 0.18.57 one owner per task: another flow or side agent works on this ticket, branch or files
   const owned = !!err && /already works on this/i.test(err.message);
   const wf = wfs?.find((w) => w.id === wid);
+  // 0.34 keel's pick and up to 3 more of its group first; "More flows" shows every flow in its group
+  const fg = groupFlows(wfs, s?.id);
+  const first = [...(fg.pick ? [fg.pick] : []), ...fg.near];
+  if (wf && !first.some((w) => w.id === wf.id)) first.push(wf);
   const start = async (anyway = askedOk) => {
     if (unknown && !anyway) {
       setAsking(true);
@@ -519,18 +693,15 @@ function SuggestCard({
           {stepsOf(wid, wf) && (
             <p className="tkn-steps mono">{stepsOf(wid, wf)}</p>
           )}
-          {other && (
-            <div
-              className="tkn-chips"
-              role="group"
-              aria-label="Pick another flow"
-            >
-              {wfs.map((w) => (
+          {!other && first.length > 1 && (
+            <div className="tkn-chips" role="group" aria-label="Pick a flow">
+              {first.map((w) => (
                 <button
                   key={w.id}
                   type="button"
                   className="tkn-chip"
                   aria-pressed={wid === w.id}
+                  title={w.about}
                   onClick={() => pickOther(w.id)}
                 >
                   {short(w, w.id)}
@@ -539,6 +710,7 @@ function SuggestCard({
               ))}
             </div>
           )}
+          {other && <FlowChips groups={fg.groups} wid={wid} mark={s.id} onPick={pickOther} />}
           <label className="tkn-runs">
             <span className="sub">How it runs</span>
             <select
@@ -627,6 +799,16 @@ function SuggestCard({
         >
           {busy ? "Starting…" : `Start ${short(wf, wid || "the")} flow`}
         </button>
+        {orgOn && (
+          <button
+            className="btn"
+            type="button"
+            onClick={() => setToOrg((v) => !v)}
+            aria-expanded={toOrg}
+          >
+            Hand to Org
+          </button>
+        )}
         <button
           className="btn"
           type="button"
@@ -634,12 +816,13 @@ function SuggestCard({
           onClick={() => setOther((o) => !o)}
           aria-expanded={other}
         >
-          {other ? "Hide other flows" : "Use another flow"}
+          {other ? "Fewer flows" : "More flows"}
         </button>
         <button className="btn ghost" type="button" onClick={onNotNow}>
           Not now
         </button>
       </div>
+      {toOrg && <OrgHandoff t={t} onHanded={onHanded} onCancel={() => setToOrg(false)} />}
       <p className="sub tkn-pick">
         Not sure?{" "}
         <button
@@ -812,8 +995,10 @@ export function TaskPanel({
 
   const title = t ? `${nameOf(t)} · ${t.title}` : "Task";
   const flowRuns = !!t?.flow && ["running", "waiting"].includes(t.flow.status);
+  // 0.34 a task with the Org: its mission has not ended
+  const withOrg = !!t?.mission && ["proposed", "queued", "running", "delegated"].includes(t.mission.status ?? "");
   const canStart =
-    !!t && ["todo", "in_progress", "blocked"].includes(t.status) && !flowRuns;
+    !!t && ["todo", "in_progress", "blocked"].includes(t.status) && !flowRuns && !withOrg;
   const backable =
     !!t && ["in_review", "testing_pp", "ready_prod"].includes(t.status);
   const closed = !!t && (t.status === "done" || t.status === "cancelled");
@@ -1140,6 +1325,44 @@ export function TaskPanel({
             </section>
           ))}
 
+          {t.parent_task_id && (
+            <p className="sub tkn-parent">
+              A part of{" "}
+              <a className="tkn-link" href={`#/tasks/${encodeURIComponent(t.parent_task_id)}`}>
+                the task it came from ▸
+              </a>{" "}
+              — the Org's lead gave it out.
+            </p>
+          )}
+          {t.mission && (
+            <section className="tkn-flow tkn-mission" aria-label="Org mission">
+              <div className="tkn-flow-top">
+                <b>Org {t.mission.org ?? ""}</b>
+                <Pill tone={missionTone(t.mission.status)}>{MISSION_WORDS[t.mission.status ?? ""] ?? t.mission.status ?? "?"}</Pill>
+                <span className="tkn-grow" />
+                <a className="linkbtn tkn-link" href={`#/org/${encodeURIComponent(t.mission.org ?? "")}`}>
+                  Open on the Org page ▸
+                </a>
+              </div>
+              {t.mission.status === "reported" && !t.parent_task_id && (
+                <span className="sub">Its report waits for you: accept it or send it back on the Org page.</span>
+              )}
+              {!!t.parts?.length && (
+                <ul className="tkn-parts" aria-label="Parts">
+                  {t.parts.map((p) => (
+                    <li key={p.id}>
+                      <StatusPill s={p.status} />{" "}
+                      <a className="tkn-link" href={`#/tasks/${encodeURIComponent(p.id)}`}>
+                        {p.external_key ? `${p.external_key} · ` : ""}
+                        {p.title}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+
           {t.flow && (
             <section className="tkn-flow" aria-label="Flow">
               <div className="tkn-flow-top">
@@ -1202,6 +1425,11 @@ export function TaskPanel({
               onStarted={(nx) => {
                 r.setData(nx);
                 toast(`${nameOf(nx)}: the ${nx.workflow_id} flow started.`);
+                onChanged();
+              }}
+              onHanded={(nx) => {
+                r.setData(nx);
+                toast(`${nameOf(nx)} went to the Org ${nx.mission?.org ?? ""}: follow it here and on the Org page.`);
                 onChanged();
               }}
             />

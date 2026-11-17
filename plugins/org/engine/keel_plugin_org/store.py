@@ -4,6 +4,7 @@ mission ran, and a mission's history.
     orgs: save_org(oid, name, yaml) / org_row(oid) / org_rows() / delete_org(oid)
     missions: add(...) / get(mid) / update(mid, **fields) / children(mid) / of_org(oid, top_only) / queued(oid) /
               running_count(oid) / by_thread(tid)
+    root(m): the mission at the top of m's tree
     flows: link_thread(tid, mid, stage)
     history: note(mid, kind, text, data) / history(mid)
 """
@@ -25,7 +26,7 @@ _TABLES = (
       title text not null, request text not null default '', source text, workflow text, stage text not null,
       status text not null, thread_id text, cap_tokens integer, used_tokens integer not null default 0,
       send_backs integer not null default 0, depth integer not null default 1, report_json text, decision_json text,
-      note text, run_key text, created_at text not null, updated_at text not null)""",
+      note text, run_key text, created_at text not null, updated_at text not null, task_id text)""",
     "create index if not exists org_missions_org on org_missions (org_id, parent_id)",
     "create index if not exists org_missions_parent on org_missions (parent_id)",
     """create table if not exists org_threads (
@@ -44,7 +45,9 @@ OPEN = ("proposed", "queued", "running", "delegated")
 ENDED = ("reported", "done", "failed", "stopped")
 COLS = ("id", "org_id", "role", "parent_id", "project_id", "title", "request", "source", "workflow", "stage", "status",
         "thread_id", "cap_tokens", "used_tokens", "send_backs", "depth", "report_json", "decision_json", "note",
-        "run_key", "created_at", "updated_at")
+        "run_key", "created_at", "updated_at", "task_id")
+# 0.34 columns added after the table was first made: (column, its SQL type)
+_ADDED = (("task_id", "text"),)
 
 
 @contextmanager
@@ -54,6 +57,10 @@ def _db():
         if p not in _ready:
             for sql in _TABLES:
                 conn.execute(sql)
+            have = {r[1] for r in conn.execute("pragma table_info(org_missions)").fetchall()}
+            for col, kind in _ADDED:
+                if col not in have:
+                    conn.execute(f"alter table org_missions add column {col} {kind}")
             _ready.add(p)
         yield conn
         conn.commit()
@@ -98,13 +105,13 @@ def delete_org(oid: str) -> bool:
 
 def add(*, org_id: str, role: str, project_id: str, title: str, request: str = "", parent_id: str | None = None,
         source: str | None = None, workflow: str | None, stage: str, status: str, cap_tokens: int | None = None,
-        depth: int = 1) -> dict:
+        depth: int = 1, task_id: str | None = None) -> dict:
     mid = "m_" + uuid.uuid4().hex[:12]
     at = now()
     with _db() as c:
         c.execute(f"insert into org_missions ({', '.join(COLS)}) values ({', '.join('?' * len(COLS))})",
                   (mid, org_id, role, parent_id, project_id, title[:200], request[:20_000], source, workflow, stage, status,
-                   None, cap_tokens, 0, 0, depth, None, None, None, None, at, at))
+                   None, cap_tokens, 0, 0, depth, None, None, None, None, at, at, task_id))
     return get(mid)
 
 
@@ -143,6 +150,18 @@ def of_org(oid: str, top_only: bool = True, limit: int = 100) -> list[dict]:
         rows = c.execute(f"select {', '.join(COLS)} from org_missions where {where} order by rowid desc limit ?",
                          (oid, limit)).fetchall()
     return [_mission(r) for r in rows]
+
+
+def root(m: dict) -> dict:
+    """The mission at the top of [m]'s tree (the one a person gave): its task_id is the task the whole tree works on."""
+    seen = set()
+    while m.get("parent_id") and m["id"] not in seen:
+        seen.add(m["id"])
+        up = get(m["parent_id"])
+        if not up:
+            break
+        m = up
+    return m
 
 
 def queued(oid: str) -> list[dict]:

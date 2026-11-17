@@ -2,6 +2,8 @@ id: ship
 name: ship (keel)
 keel_rules: true
 version: 1
+about: "checks, the final review and the pull request"
+group: ship
 # Ported from keel v1 ship. The opening gate asks which skippable steps run (deferred: the push gate still waits for a fresh
 # verdict; optional: a real choice). Every skip needs a reason (data.ship_skipped: final review + PR body).
 # Off in the project's settings (band off): release, when .keel/config.yml says release: {required: false} (CI runs the

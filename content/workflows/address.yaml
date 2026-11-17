@@ -3,6 +3,7 @@ name: address (keel)
 about: "address a review comment, or change only test code: one agent changes the code and its tests, keel runs the tests, you look once"
 keel_rules: true
 version: 1
+group: build
 # Implement, then test (keel 0.18.56): for a reviewer's comment ("Address it" on a review thread) and for a change to
 # test code only (a helper for a test's fixtures, a clearer test name), where a test-first loop has no new behaviour to
 # describe. One agent makes the change with code and test files both writable (phase ac, as quick), adds or adjusts a

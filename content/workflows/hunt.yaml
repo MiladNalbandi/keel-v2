@@ -2,6 +2,8 @@ id: hunt
 name: hunt (keel)
 keel_rules: true
 version: 1
+about: "look for bugs in the code (read only) and list them"
+group: fix
 own_branch: false
 # A read-only bug hunt. Options (StartThread.settings, or a parent flow's seed): mode auto|semi (default semi),
 # scope all|diff|<path,path>, lenses [a, b] (default: hunt.lenses in .keel/config.yml, else the lenses the project's

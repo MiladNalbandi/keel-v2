@@ -2,6 +2,8 @@ id: review-pr
 name: review a PR (keel)
 keel_rules: true
 version: 1
+about: "review someone else's PR or branch against its ticket"
+group: check
 # Someone else's change (a GitHub PR or a branch) against a ticket and the team's definition of done, plus build, lint
 # and code quality. A large change gets one bug reviewer per area (migrations, deploy+config, message pipeline,
 # persistence, api, tests …) with the lenses its files need; claims merges and dedupes their findings, compares what

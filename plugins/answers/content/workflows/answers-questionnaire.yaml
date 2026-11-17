@@ -3,6 +3,8 @@ name: answer a questionnaire
 keel_rules: true
 version: 1
 about: Drafts an answer to each question from the project's code and docs, with its source. You approve every answer, then the whole document.
+group: support
+start: own-page
 # The request holds the questions, or names a file in the repo that does. One drafter and one checker per question
 # (read-only), then a gate per answer that only a person answers (person: true: no run mode, no Supervisor). Only what the
 # person approved reaches the document; the last gate shows the real diff before the commit. keel never pushes it.

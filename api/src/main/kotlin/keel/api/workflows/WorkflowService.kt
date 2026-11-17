@@ -57,7 +57,8 @@ class WorkflowService(
             ?: WorkflowDoc(name = name, basedOn = node.get("based_on")?.asText(), keelRules = keelRules, steps = steps).toYaml()
         return Workflow(id, name, node.get("based_on")?.takeIf { !it.isNull }?.asText(), keelRules, node.get("version")?.asInt(1) ?: 1, steps, yaml, "keel",
             plugin = node.get("plugin")?.takeIf { !it.isNull }?.asText(), addon = node.get("addon")?.takeIf { !it.isNull }?.asText(),
-            needsPlugins = node.get("needs_plugins")?.takeIf { it.isArray }?.map { it.asText() }?.takeIf { it.isNotEmpty() })
+            needsPlugins = node.get("needs_plugins")?.takeIf { it.isArray }?.map { it.asText() }?.takeIf { it.isNotEmpty() },
+            about = node.text("about"), group = node.text("group"), start = node.text("start"))
     }
 
     // ---- stored workflows -----------------------------------------------------------------
@@ -73,8 +74,11 @@ class WorkflowService(
         val doc = runCatching { WorkflowDoc.parse(r.yaml) }.getOrElse { WorkflowDoc(name = r.id) }
         return Workflow(r.id, doc.name, doc.basedOn, doc.keelRules, r.version, doc.steps, r.yaml, r.source,
             needsPlugins = doc.needsPlugins?.takeIf { it.isNotEmpty() },
-            market = r.marketName?.let { MarketOrigin(r.marketCatalog.orEmpty(), it, r.marketVersion.orEmpty()) })
+            market = r.marketName?.let { MarketOrigin(r.marketCatalog.orEmpty(), it, r.marketVersion.orEmpty()) },
+            about = doc.about?.takeIf { it.isNotBlank() }, group = doc.group?.takeIf { it.isNotBlank() }, start = doc.start?.takeIf { it.isNotBlank() })
     }
+
+    private fun JsonNode.text(k: String): String? = get(k)?.takeIf { it.isTextual }?.asText()?.takeIf { it.isNotBlank() }
 
     /**
      * The newest fitting version of each marketplace workflow, by name (the engine's search of the catalogs keel has on

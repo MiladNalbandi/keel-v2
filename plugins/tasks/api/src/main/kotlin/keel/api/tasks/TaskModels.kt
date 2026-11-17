@@ -93,10 +93,22 @@ data class Task(
     val blockedReason: String?,
     val createdAt: String,
     val updatedAt: String,
+    /** 0.34 the Org mission the task went to (Hand to Org), that mission's org and its last status. */
+    val missionId: String? = null,
+    val missionOrg: String? = null,
+    val missionStatus: String? = null,
+    /** 0.34 a part task (one part of the work the Org's lead gave out): the task it is part of. */
+    val parentTaskId: String? = null,
 ) {
     /** "ABC-12" or the short id: what keel calls the task in titles. */
     val label: String get() = externalKey ?: "task ${id.take(8)}"
 }
+
+/** 0.34 the Org mission a task went to: its id, its org and its last status (proposed, queued, running, delegated, reported, done, failed, stopped). */
+data class TaskMission(val id: String, val org: String?, val status: String?)
+
+/** 0.34 a part of the task's work the Org's lead gave out, as its own task. */
+data class TaskPart(val id: String, val title: String, val status: String, val externalKey: String?, val missionStatus: String?)
 
 /** The task's flow as the api last saw it (threads table; no engine call). */
 data class TaskFlow(val threadId: String, val workflowId: String?, val status: String, val phase: String?, val current: String?, val title: String?)
@@ -126,6 +138,10 @@ data class TaskView(
     val waiting: List<TaskItem>,
     /** GET /tasks/{id} only: the history, oldest first. */
     val events: List<TaskEvent>? = null,
+    /** 0.34 the Org mission it went to; the task it is part of; its parts (GET /tasks/{id} only). */
+    val mission: TaskMission? = null,
+    val parentTaskId: String? = null,
+    val parts: List<TaskPart>? = null,
 )
 
 data class TaskEvent(val id: Long, val taskId: String, val at: String, val kind: String, val fromStatus: String?, val toStatus: String?, val note: String?, val actor: String)
@@ -214,6 +230,9 @@ data class StartTask(
     /** 0.18.57 start although another flow or side agent works on the same ticket, branch or files. */
     val force: Boolean = false,
 )
+
+/** 0.34 Hand to Org: the org (its id), the role (default: the role a person of the org gives work to), a token cap. */
+data class HandToOrg(val org: String = "", val role: String? = null, val capTokens: Int? = null)
 
 data class ConfirmTask(val stage: String = "", val note: String? = null)
 data class MoveTask(val to: String = "", val note: String? = null)

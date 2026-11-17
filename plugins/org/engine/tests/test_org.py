@@ -162,6 +162,63 @@ def test_a_lead_plans_its_team_works_the_lead_reviews_and_you_accept(client):
     assert v["rollup"]["counts"] == {"done": 2}
 
 
+def test_0_34_a_mission_from_a_task_tells_keel_each_status_with_the_task(client):
+    """Hand to Org: the mission keeps the task's id; every status change goes on keel's bus as org.mission.*, the team's
+    with the task of the whole tree (root_task_id), and the lead's delegation names each part (the Tasks plugin makes a
+    task of each)."""
+    put(client)
+    m = assign(client, role="", task_id="tk_000000000042", source="SHOP-142")     # no role: the org's lead
+    assert m["role"] == "lead" and m["task_id"] == "tk_000000000042"
+    tid = wait_for(lambda: review_thread(client, m["id"]), what="the review flow")
+    wait_for(lambda: (lambda x: x if x.get("waiting") else None)(thread(client, tid)), what="the report gate")
+    answer(client, tid, "accept", "Good.")
+    wait_status(client, m["id"], "done")
+
+    def told():
+        return [e for e in list(client.bus.recent) if e["type"].startswith("org.mission.")]
+
+    evs = wait_for(lambda: (lambda x: x if any(e["type"] == "org.mission.done" and e["data"]["mission_id"] == m["id"] for e in x)
+                            else None)(told()), what="the done event")
+    top = [e for e in evs if e["data"]["mission_id"] == m["id"]]
+    assert [e["type"] for e in top][0] == "org.mission.started"
+    assert {"org.mission.started", "org.mission.delegated", "org.mission.done"} <= {e["type"] for e in top}
+    started = top[0]
+    assert started["project_id"] == "demo" and started["thread_id"] and started["data"]["task_id"] == "tk_000000000042"
+    assert started["data"]["root_task_id"] == "tk_000000000042" and started["data"]["parent_id"] is None
+    dele = next(e for e in top if e["type"] == "org.mission.delegated")
+    assert [c["role"] for c in dele["data"]["children"]] == ["fe", "be"]
+    kids = {c["mission_id"] for c in dele["data"]["children"]}
+    team = [e for e in evs if e["data"]["mission_id"] in kids]
+    # the team's missions carry no task of their own, but the tree's task; each reports, then is done with the top one
+    assert team and all(e["data"]["task_id"] is None and e["data"]["root_task_id"] == "tk_000000000042" for e in team)
+    assert all(e["data"]["parent_id"] == m["id"] for e in team)
+    for k in kids:
+        assert [e["type"] for e in team if e["data"]["mission_id"] == k][-2:] == ["org.mission.reported", "org.mission.done"]
+    assert any(e["type"] == "org.mission.reported" and e["data"].get("summary") for e in team)
+    assert store.get(m["id"])["task_id"] == "tk_000000000042"
+
+
+def test_0_34_an_old_missions_table_gets_the_task_column(env):
+    """A keel that ran the Org plugin before 0.34: its table has no task_id; the store adds it and the old rows stay."""
+    from keel_engine.runtime import db
+
+    with db.connect() as c:
+        c.execute("""create table org_missions (
+          id text primary key, org_id text not null, role text not null, parent_id text, project_id text not null,
+          title text not null, request text not null default '', source text, workflow text, stage text not null,
+          status text not null, thread_id text, cap_tokens integer, used_tokens integer not null default 0,
+          send_backs integer not null default 0, depth integer not null default 1, report_json text, decision_json text,
+          note text, run_key text, created_at text not null, updated_at text not null)""")
+        c.execute("insert into org_missions (id, org_id, role, project_id, title, stage, status, created_at, updated_at) "
+                  "values ('m_old', 'shop', 'lead', 'demo', 'Old', 'plan', 'done', 'x', 'x')")
+        c.commit()
+    store._ready.clear()
+    assert store.get("m_old")["task_id"] is None
+    new = store.add(org_id="shop", role="lead", project_id="demo", title="New", workflow="lead-intake", stage="plan",
+                    status="queued", task_id="tk_1")
+    assert store.get(new["id"])["task_id"] == "tk_1" and store.root(new)["id"] == new["id"]
+
+
 def test_send_back_plans_again_with_your_note_until_the_limit(client):
     put(client, text=ORG.replace("send_backs: 3", "send_backs: 1"))
     m = assign(client)

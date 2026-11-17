@@ -2,6 +2,8 @@ id: product-discover
 name: discover (keel Product)
 keel_rules: false
 version: 1
+about: "the brief: what we want to learn and why"
+group: product
 # keel Product, stage Brief. The product manager first asks what it needs to know (keel's clarify loop: the questions
 # are buttons on the gate, the answers go back to it), then writes the brief. The product owner approves it, or sends
 # it back with a note, which makes a new version. The api starts the next stage when this flow ends.

@@ -19,7 +19,9 @@ export type OrgView = { id: string; name: string; yaml: string; updated_at: stri
 export type Report = { summary?: string; done?: string[]; decisions?: string[]; follow_ups?: string[]; risks?: string[];
   children?: { role: string; title?: string; ok?: boolean; note?: string }[]; flow?: string };
 export type Mission = { id: string; org_id: string; role: string; parent_id: string | null; project_id: string; title: string;
-  request: string; source: string | null; workflow: string | null; stage: "plan" | "work" | "review"; status: string;
+  request: string; source: string | null; workflow: string | null;
+  /** 0.34 the task (the Tasks plugin) this mission works on: Hand to Org on a task gave it */
+  task_id?: string | null; stage: "plan" | "work" | "review"; status: string;
   thread_id: string | null; cap_tokens: number | null; used_tokens: number; send_backs: number; depth: number;
   report: Report | null; decision: { choice: string; why: string } | null; note: string | null; created_at: string; updated_at: string };
 export type MissionTree = Mission & { children: MissionTree[]; running_tokens?: number; waiting?: { step: string; title: string; person: boolean } | null };
@@ -381,7 +383,7 @@ function MissionPage({ org, mid }: { org: OrgView; mid: string }) {
   const waits = waitingFlow(m);
   return (
     <>
-      <PageHead title={m.title} sub={<>{roleTitle(org, m.role)} · {m.project_id}{m.source ? <> · <span className="mono">{m.source}</span></> : null} · given <Since from={m.created_at} /></>}
+      <PageHead title={m.title} sub={<>{roleTitle(org, m.role)} · {m.project_id}{m.source ? <> · <span className="mono">{m.source}</span></> : null}{m.task_id ? <> · <a href={`#/tasks/${encodeURIComponent(m.task_id)}`}>from its task ▸</a></> : null} · given <Since from={m.created_at} /></>}
         actions={<div className="row" style={{ gap: 6 }}>
           {back}
           {m.status === "proposed" && <button className="btn sm primary" type="button" disabled={!!busy} onClick={() => void act("start")}>Start</button>}

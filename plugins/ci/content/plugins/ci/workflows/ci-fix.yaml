@@ -2,6 +2,9 @@ id: ci-fix
 name: ci fix (keel)
 keel_rules: false
 version: 1
+about: "fix a failed CI pipeline on this branch"
+group: fix
+start: own-page
 # The CI/CD plugin's flow: read why the pipeline failed on this branch, fix it, commit, push (the Git plugin, following
 # Settings › Push and open PR at ship) and wait for CI again. Starts from Run › Jobs › Pipelines (Fix it), KeelBot's
 # button, or by itself when Settings › When CI fails says so.

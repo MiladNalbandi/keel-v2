@@ -24,7 +24,10 @@ class TaskEngineEvents(private val tasks: TaskService, private val store: TaskSt
             "thread.started" -> (e.data["parent"] as? Map<*, *>)?.get("thread_id")?.toString()?.let { store.byThread(it) } != null
             "step.finished" -> TaskService.PR_OPENED.containsMatchIn(e.data["note"]?.toString() ?: "") && store.byThread(e.threadId) != null
             "thread.done", "thread.failed" -> e.threadId.isNotBlank() && store.byThread(e.threadId) != null
-            else -> false
+            // 0.34 the Org plugin's mission of a task (Hand to Org), or of one of its part tasks
+            else -> e.type.startsWith("org.mission.") && (
+                listOf(e.data["task_id"], e.data["root_task_id"]).any { it != null && store.find(it.toString()) != null } ||
+                    e.data["mission_id"]?.let { store.byMission(it.toString()) } != null)
         }
         if (!follows) return
         if (props.inlineEffects) run(e) else worker.execute { run(e) }
@@ -32,7 +35,7 @@ class TaskEngineEvents(private val tasks: TaskService, private val store: TaskSt
 
     private fun run(e: EngineEvent) {
         try {
-            tasks.onEngineEvent(e)
+            if (e.type.startsWith("org.mission.")) tasks.onMissionEvent(e) else tasks.onEngineEvent(e)
         } catch (ex: Exception) {
             log.warn("task lifecycle for {} {}: {}", e.type, e.threadId, ex.message)
         }

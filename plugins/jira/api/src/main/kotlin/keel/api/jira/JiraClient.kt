@@ -245,6 +245,16 @@ class JiraClient(
             ?: throw JiraException("bad_request", null, "Jira created no ticket.", "Check the project key and the issue type.")
     }
 
+    /** 0.34 a sub-task under [parentKey], with the project's sub-task issue type (Sub-task, Subtask, ...). Returns its key. */
+    override fun createSubtask(parentKey: String, title: String, description: String): String {
+        val project = parentKey.substringBeforeLast('-')
+        val type = projectIssueTypes(project).firstOrNull { it.subtask }?.name
+            ?: throw JiraException("bad_request", null, "The Jira project $project has no sub-task issue type.",
+                "Add one in Jira (Project settings › Issue types), or keep the parts in keel only.")
+        return createIssue(mapOf("project" to mapOf("key" to project), "parent" to mapOf("key" to parentKey),
+            "issuetype" to mapOf("name" to type), "summary" to title.take(250), "description" to description.take(30_000)))
+    }
+
     /** v0.13.0 a link between two tickets, by Jira's link names: type "Blocks" = [inward] is blocked by [outward]. */
     fun linkIssues(type: String, inward: String, outward: String) {
         send("POST", "/rest/api/2/issueLink", mapOf("type" to mapOf("name" to type), "inwardIssue" to mapOf("key" to inward),

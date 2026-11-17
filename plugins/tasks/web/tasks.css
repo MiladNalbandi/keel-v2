@@ -747,6 +747,72 @@ a.tkn-link,
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* 0.34 every flow under its group (More flows): Build, Fix, Check, Plan, Ship & set up, keel Product, Support, yours */
+.tkn-groups {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.tkn-group {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.tkn-group-h {
+  margin: 0;
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+/* 0.34 Hand to Org: the org, the role, a budget */
+.tkn-org {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  min-width: 0;
+}
+.tkn-org-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.tkn-org-fields label {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 160px;
+  min-width: 0;
+  font-size: 13px;
+}
+.tkn-org-fields select,
+.tkn-org-fields input {
+  min-height: 36px;
+  min-width: 0;
+  width: 100%;
+}
+.tkn-parts {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+.tkn-parts li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tkn-parent {
+  margin: 0;
+  font-size: 13px;
+}
 .tkn-runs {
   display: flex;
   flex-wrap: wrap;

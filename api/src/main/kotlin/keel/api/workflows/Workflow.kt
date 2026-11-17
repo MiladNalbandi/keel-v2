@@ -98,13 +98,16 @@ data class Budget(val maxTokens: Int? = null, val onLimit: String? = null)
 
 /** What a workflow YAML file holds (also the library metadata keys, ignored by the engine). */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonPropertyOrder("id", "name", "source", "version", "about", "est_tokens", "mcp", "needs_plugins", "based_on", "keel_rules", "own_branch", "budget", "steps")
+@JsonPropertyOrder("id", "name", "source", "version", "about", "group", "start", "est_tokens", "mcp", "needs_plugins", "based_on", "keel_rules", "own_branch", "budget", "steps")
 data class WorkflowDoc(
     val id: String? = null,
     val name: String = "",
     val source: String? = null,
     val version: String? = null,
     val about: String? = null,
+    /** 0.34 where pickers show it (build, fix, check, plan, ship, product, support), and own-page: only its own page starts it. */
+    val group: String? = null,
+    val start: String? = null,
     val estTokens: Int? = null,
     val mcp: List<String>? = null,
     /** v0.16.0 the plugins it needs: the engine refuses to start it while one is not loaded (the api asks to install it). */
@@ -173,6 +176,13 @@ data class Workflow(
      */
     @get:JsonInclude(JsonInclude.Include.NON_NULL)
     val market: MarketOrigin? = null,
+    /** 0.34 what it is for in one line, its group in pickers, and own-page (pickers leave it out): only when set. */
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val about: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val group: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val start: String? = null,
 )
 
 /** A marketplace workflow's catalog, name and version; update: a newer version that fits this keel, or null. */
