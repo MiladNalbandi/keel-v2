@@ -194,4 +194,19 @@ describe("the sign-in steps (Connections › GitHub)", () => {
     await user.click(within(err).getByRole("button", { name: "Start again" }));
     await waitFor(() => expect(starts).toBe(2));
   });
+
+  it("0.35 changing the tab draws only the panel: the page and its menu stay", async () => {
+    const user = userEvent.setup();
+    await open("#/settings/general", "General");
+    const page = screen.getByTestId("settings-page");
+    const menu = screen.getByRole("navigation", { name: "Settings sections" });
+    await user.click(within(menu).getByRole("link", { name: /Models & keys/ }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Models & keys" })).toBeInTheDocument();
+    // the same page and menu elements: nothing above the panel was drawn again
+    expect(screen.getByTestId("settings-page")).toBe(page);
+    expect(screen.getByRole("navigation", { name: "Settings sections" })).toBe(menu);
+    expect(screen.queryByRole("heading", { level: 1, name: "General" })).toBeNull();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(within(menu).getByRole("link", { name: /Models & keys/ })).toHaveAttribute("aria-current", "page");
+  });
 });

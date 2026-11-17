@@ -26,7 +26,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 # the same version as ../../keel-plugin.yml (tests/test_keelbot_part.py checks it)
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 CONTENT = Path(__file__).resolve().parents[2] / "content"
 ASK_PATH = "/helper/permissions/ask"      # helper.ASK_PATH: where the guard's hook asks
 

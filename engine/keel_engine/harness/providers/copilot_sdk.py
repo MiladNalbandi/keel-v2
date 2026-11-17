@@ -320,6 +320,15 @@ class CopilotProvider:
 
     # ------------------------------------------------------------------ the SDK session
 
+    async def warm(self) -> None:
+        """0.35 start the SDK client (the Copilot runtime, a child process) while keel gets the rest of the call ready
+        (its MCP servers, the git facts): the first answer of a run no longer waits for it. Never fails: the turn says
+        what went wrong."""
+        try:
+            await client_for(self._token, self._factory)
+        except Exception:  # noqa: BLE001
+            pass
+
     async def _open(self, conv: _Conv, req: Request, emit: Emit, root: str | None) -> None:
         if self._factory is not None:
             Tool, ToolResult, approve_all = _FakeTool, _FakeResult, None
@@ -490,7 +499,9 @@ class CopilotProvider:
                 await self._close(key)
             conv = _Conv()
             self._convs[key] = conv
+            t_open = time.monotonic()
             await self._open(conv, req, emit, root)
+            self.open_s = time.monotonic() - t_open      # 0.35 the harness's start line: "session 1.2 s"
             await self._send(conv, as_prompt(req.messages))
         else:
             results = {b["id"]: b for m in new for b in (m.get("content") or []) if isinstance(b, dict)

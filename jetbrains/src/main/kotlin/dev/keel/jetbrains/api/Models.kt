@@ -456,7 +456,16 @@ data class HelperMessage(
     val callId: String? = null,
     val data: HelperMessageData = HelperMessageData(),
     val at: String = "",
-)
+) {
+    /** 0.35 KeelBot's own answer: keel stores it as role "helper" (the plugin looked for "assistant", so a review card
+     *  ended with "KeelBot gave no answer." and the chat never loaded an answer's steps). */
+    val isAnswer: Boolean get() = role == "helper" || role == "assistant"
+}
+
+/** The answer to the message numbered [after]: the first KeelBot answer after it, or the note keel writes when that turn
+ *  failed or was stopped; null while neither is there. */
+fun answerAfter(messages: List<HelperMessage>?, after: Int): HelperMessage? =
+    messages.orEmpty().firstOrNull { (it.isAnswer || it.role == "note") && it.n > after }
 
 @Serializable
 data class HelperSession(

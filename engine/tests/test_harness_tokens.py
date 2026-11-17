@@ -77,7 +77,8 @@ def test_loaded_tools_stay_for_a_continued_session(project, monkeypatch):
 def test_each_call_says_what_it_carried(project):
     p = Scripted([turn(call("Glob", 1, pattern="**/*.py")), turn(text("done"))])
     _res, steps = run(p, request(project))
-    ctx = [(t, e) for k, t, e in steps if k == "context"]
+    ctx = [(t, e) for k, t, e in steps if k == "context" and not t.startswith("start:")]
+    assert [t for k, t, _e in steps if k == "context" and t.startswith("start:")][0].startswith("start: tools")   # 0.35 once, first call
     assert len(ctx) == 2
     line, parts = ctx[0]
     assert line.startswith("context: system ") and "tools 9 (" in line and "chat 0 · new " in line

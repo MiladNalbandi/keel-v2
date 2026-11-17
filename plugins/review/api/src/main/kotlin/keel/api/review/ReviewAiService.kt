@@ -339,8 +339,9 @@ class ReviewAiService(
 
     private fun label(v: ReviewView) = if (v.kind == "pr") "Review ${if (v.host?.kind == "gitlab") "!" else "#"}${v.number}" else "Review ${v.branch}"
 
-    /** A read-only KeelBot session and its one turn; its end comes back as a helper.finished event. */
-    @Synchronized
+    /** A read-only KeelBot session and its one turn; its end comes back as a helper.finished event. 0.35 not under the
+     *  service's lock: a launch waits on the api and the engine, and held every other review's start and every end
+     *  (finished, flowFinished) while it did. The one shared write, the run's session list, keeps its own lock (addSession). */
     private fun launch(pid: String, runId: String, role: String, title: String, prompt: String, model: Model? = null) {
         val s = helper.create(pid, HelperCreate("ask", model, title))
         val sid = s.path("id").asText()
@@ -677,6 +678,8 @@ class ReviewAiService(
         val roleText = role(pid, r.agent)
         return """
             |You are reviewer ${r.letter} of a change. Do not change any file and do not run builds or tests: read only.
+            |No one answers questions during this review: never ask one, decide and go on. A rule file that is not there
+            |(AGENTS.md, CLAUDE.md, CONTRIBUTING.md) is no reason to stop: the code around the change shows the project's way.
             |Your focus: ${r.focus}.
             |${if (roleText.isNotEmpty()) "\n$roleText" else ""}
             |${scope(v)}

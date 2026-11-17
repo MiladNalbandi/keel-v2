@@ -87,6 +87,7 @@ class AgentMixin:
         toolbox.flow = f'"{ctx.title}" (thread {ctx.thread_id})'     # 0.18.64 a refused commit names this flow
         # keel v1's push gate for the agent's own `git push` / `gh pr create` (rules.push_gate)
         toolbox.push_blockers = await asyncio.to_thread(push_gates.for_agents, root, state.get("base_head"), ctx.project_id or None)
+        asked_at = time.monotonic()      # 0.35 the harness's "start:" line counts from here
         ctx.emit("agent.started", step=step.id, call_id=call_id, data={
             "agent": agent, "provider": model["provider"], "model": model.get("model"), "mode": model.get("mode"),
             "effort": catalog.effort_for(model), "phase": phase, "ac": (ac or {}).get("id"), "index": index, **({"item": item["id"]} if item else {})})
@@ -146,7 +147,8 @@ class AgentMixin:
             if line:
                 mem.note(key, line)
 
-        prompt = prompts.task_prompt(agent=agent, phase=phase, step_name=step.name, title=ctx.title, root=root, ac=ac,
+        # 0.35 off the event loop: with hints on it may load the whole code graph (other steps and chats go on)
+        prompt = await asyncio.to_thread(prompts.task_prompt, agent=agent, phase=phase, step_name=step.name, title=ctx.title, root=root, ac=ac,
                                      acs=state.get("acs") or [], feedback=state.get("feedback"), index=index, spec=state.get("spec"),
                                      section=section, unlocks=state.get("unlocks") or [], request=ctx.request,
                                      knowledge=know, graph=agent_knowledge.has_codegraph(mcp_specs, tools_allow), item=item,
@@ -243,7 +245,7 @@ class AgentMixin:
                                tools_allow=tools_allow, key=models.key_for(model["provider"], ctx.keys), workdir=tmp,
                                keys=dict(ctx.keys), section=section, session=session, resume=resuming,
                                on_session=(lambda sid: mem.set_session(key, sid)) if mem else None, thread=ctx.thread_id,
-                               knowledge=know, item=item)
+                               knowledge=know, item=item, asked_at=asked_at)
             # 0.18.64 the exact prompt this call got, kept with the job (api events, GET /jobs/{id}/prompt, the MCP tool
             # keel_agent_prompt): a field report could not tell whether a retry's prompt still had the reject note.
             # A record, not a live view: the api stores it and sends it to no screen.

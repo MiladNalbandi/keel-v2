@@ -6,7 +6,7 @@
 import { BudgetPage } from "./Budget";
 import { ConnectionsPage } from "./Connections";
 import { AccessTab } from "./settings/Access";
-import { SettingsFrame, useSettingsTabs } from "./settings/frame";
+import { SettingsFrame, SettingsShell, useSettingsTabs } from "./settings/frame";
 import { GeneralTab } from "./settings/General";
 import { ModelsTab } from "./settings/Models";
 import { PluginsTab } from "./settings/PluginsTab";
@@ -21,6 +21,17 @@ export { BUDGET_ROWS } from "./Budget";
 export { show } from "./settings/rows";
 
 export function SettingsPage({ pid }: { pid: string }) {
+  const route = useRoute();
+  const [tab] = settingsTabOf(route);
+  // 0.35 the frame (head place, menu) stays while the tab changes: only the panel is drawn again
+  return (
+    <SettingsShell tab={tab}>
+      <SettingsTab pid={pid} />
+    </SettingsShell>
+  );
+}
+
+function SettingsTab({ pid }: { pid: string }) {
   const route = useRoute();
   const [tab, rest] = settingsTabOf(route);
   const tabs = useSettingsTabs();

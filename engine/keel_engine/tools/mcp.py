@@ -154,29 +154,67 @@ def servers_for(specs: list[dict], allow: list[str] | None) -> list[dict]:
     return [by_name[n] for n in wanted if n in by_name]
 
 
-async def langchain_tools(specs: list[dict], allow: list[str] | None) -> tuple[list, object | None]:
-    """LangChain tools for the allowed MCP tools, named mcp__<server>__<tool>."""
+# 0.35 a server's tool list is kept for a while: listing starts the server's process (keel's own, the code graph's, one per
+# plugin), which cost every agent call and KeelBot turn seconds. The tools themselves hold no session (the adapter opens a
+# new one for each call), so a kept list is as good as a new one. The key is the server's whole start (command, args,
+# env, folder): a new token or another project lists again.
+LIST_TTL = 300.0
+_LISTED: dict[str, tuple[float, list]] = {}
+
+
+def _list_key(conn: dict) -> str:
+    import hashlib
+    import json
+
+    return hashlib.sha256(json.dumps(conn, sort_keys=True, default=str).encode()).hexdigest()
+
+
+async def langchain_tools(specs: list[dict], allow: list[str] | None,
+                          timing: dict | None = None) -> tuple[list, object | None]:
+    """LangChain tools for the allowed MCP tools, named mcp__<server>__<tool>. 0.35 the servers start side by side (not
+    one after another), a list from the last LIST_TTL seconds is used again, and `timing` gets each server's seconds
+    (0 for a kept list)."""
     servers = servers_for(specs, allow)
     if not servers:
         return [], None
+    import time
+
     from langchain_mcp_adapters.client import MultiServerMCPClient
 
     wanted = parse_allow(allow)
     conns = {s["name"]: {"command": s["command"], "args": list(s.get("args") or []), "transport": "stdio",
                          "env": _server_env(s), **({"cwd": s["cwd"]} if s.get("cwd") else {})} for s in servers}
     client = MultiServerMCPClient(conns)
-    out = []
-    for s in servers:
+
+    async def listed(name: str) -> list:
+        key = _list_key(conns[name])
+        now = time.monotonic()
+        kept = _LISTED.get(key)
+        if kept and now - kept[0] < LIST_TTL:
+            if timing is not None:
+                timing[name] = 0.0
+            return kept[1]
+        t0 = time.monotonic()
         try:
-            tools = await asyncio.wait_for(client.get_tools(server_name=s["name"]), timeout=LIST_TIMEOUT)
+            tools = await asyncio.wait_for(client.get_tools(server_name=name), timeout=LIST_TIMEOUT)
         except Exception as exc:
-            log.warning("MCP server %s gave no tools: %s", s["name"], _first_error(exc))
-            continue
+            log.warning("MCP server %s gave no tools: %s", name, _first_error(exc))
+            tools = None
+        if timing is not None:
+            timing[name] = time.monotonic() - t0
+        if tools is None:
+            return []
+        _LISTED[key] = (time.monotonic(), list(tools))
+        return tools
+
+    got = await asyncio.gather(*(listed(s["name"]) for s in servers))
+    out = []
+    for s, tools in zip(servers, got):
         names = wanted.get(s["name"])
         for t in tools:
             if names is None or t.name in names:
-                t.name = f"mcp__{s['name']}__{t.name}"
-                out.append(t)
+                # a copy: the kept list keeps the server's own names
+                out.append(t.model_copy(update={"name": f"mcp__{s['name']}__{t.name}"}))
     return out, client
 
 

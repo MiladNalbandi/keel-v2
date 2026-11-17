@@ -42,13 +42,13 @@ CORE_COMMANDS = [
 
 
 def test_one_version_and_name_everywhere():
-    assert MANIFEST["version"] == keel_plugin_keelbot.VERSION == keel_plugin_keelbot.ADDON["version"] == "1.0.0"
+    assert MANIFEST["version"] == keel_plugin_keelbot.VERSION == keel_plugin_keelbot.ADDON["version"] == "1.1.0"
     assert MANIFEST["name"] == keel_plugin_keelbot.ADDON["name"] == keel_plugin_keelbot.PART["name"] == "keelbot"
     assert MANIFEST["requires"] == {"sdk": 1} and MANIFEST["per_project"] is False
     assert MANIFEST["parts"]["engine"] == {"path": "engine", "package": keel_plugin_keelbot.__name__}
     assert MANIFEST["parts"]["content"] == "content" and keel_plugin_keelbot.CONTENT == PLUGIN / "content"
     m = manifests.parse((PLUGIN / "keel-plugin.yml").read_text())   # the resolver reads it as it is
-    assert m.name == "keelbot" and m.version == "1.0.0" and m.web == {"entry": "web/index.js", "css": ["web/style.css"]}
+    assert m.name == "keelbot" and m.version == "1.1.0" and m.web == {"entry": "web/index.js", "css": ["web/style.css"]}
     assert m.api == {"jars": ["api/keel-plugin-keelbot.jar"], "lib": None} and m.content == "content"
 
 

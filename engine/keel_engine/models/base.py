@@ -46,6 +46,8 @@ class AgentRequest:
     thread: str = ""                 # the thread this call belongs to
     knowledge: dict | None = None    # {sections, code_graph, memory, strict} (runtime/agent_knowledge.py)
     history: list[tuple[str, str]] = field(default_factory=list)   # earlier turns [(user|assistant, text)]: KeelBot, api mode
+    # 0.35 time.monotonic() when the person's request (or the step) began: the harness's "start:" line counts from it
+    asked_at: float | None = None
 
 
 @dataclass

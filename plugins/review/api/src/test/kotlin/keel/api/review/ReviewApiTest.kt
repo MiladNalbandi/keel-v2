@@ -456,6 +456,7 @@ class ReviewApiTest : ApiTest() {
             assertThat(sessions.map { it["role"].asText() }).containsExactly("find-a")       // one reviewer
             val sid = sessions[0]["sid"].asText()
             assertThat(turnText(sid)).contains("reviewer A").contains("Read the diff only")           // quick
+                .contains("never ask one")                                             // 0.35 no question stops a review
                 .contains("breaks of this project's own rules").contains("keel-review-findings")
             finish(pid, sid, "```keel-review-findings\n{\"read\": [\"src/Prefs.kt\"], \"findings\": [{\"title\": \"page size is never saved\", " +
                 "\"severity\": \"blocking\", \"category\": \"correctness\", \"path\": \"src/Prefs.kt\", \"line\": 4, \"why\": \"cache only\", \"fix\": \"save it\"}]}\n```")

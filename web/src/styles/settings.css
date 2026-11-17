@@ -183,6 +183,15 @@
 .ss-warn-text {
   color: var(--warn);
 }
+/* a warning is a sentence: its words and code stay on one line, not one flex row each */
+.ss-cardp.ss-warn-text {
+  display: block;
+  line-height: 1.55;
+}
+/* 0.35 a tab's content inside the Settings shell: its cards stay the content column's own children */
+.ss-tab {
+  display: contents;
+}
 .ss-sec {
   display: flex;
   flex-direction: column;
