@@ -1,12 +1,13 @@
 // "Start a flow" drawer: pick the project and workflow, say what to build, and see the estimate before it starts.
 
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, errorParts, type CapsLeft, type Estimate, type FolderActivity, type FlowWhere, type OnCap, type RunMode, type StartCheck, type TaskOwner, type Workflow } from "../api";
+import { api, ApiError, errorParts, type CapsLeft, type Estimate, type FolderActivity, type FlowWhere, type OnCap, type RulesMode, type RunMode, type StartCheck, type TaskOwner, type Workflow } from "../api";
 import { kfmt, parseTokens, usd } from "../format";
 import { go, useApp } from "../state";
 import { settingsHash } from "../routes";
 import { BaseQuestion } from "./BaseBranch";
 import { RunModePicker } from "./RunMode";
+import { RulesModePicker } from "./RulesMode";
 import { Drawer, ErrorBox } from "./ui";
 import { WorkspaceDoctor } from "./WorkspaceDoctor";
 import { SIZE_FLOWS, suggestFlow } from "../flowSize";
@@ -45,6 +46,9 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   const [capSaved, setCapSaved] = useState(false);
   const [onCap, setOnCap] = useState<OnCap>("pause");
   const [runMode, setRunMode] = useState<RunMode>("manual");
+  // 0.40 keel's rules for this flow: the project's default (Normal unless Settings says Safety only)
+  const [rulesMode, setRulesMode] = useState<RulesMode>("normal");
+  const rulesPicked = useRef(false);
   const [modeDefault, setModeDefault] = useState<RunMode>("manual");
   // 0.18.28 the person picked a mode: the project's settings, arriving later, never put the default back over it
   const modePicked = useRef(false);
@@ -143,6 +147,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       const m = s.effective.run_mode ?? "manual";
       if (!modePicked.current) setRunMode(m);
       setModeDefault(m);
+      if (!rulesPicked.current) setRulesMode(s.effective.rules_mode ?? "normal");
     }, () => undefined);
     // v0.4.2: the project's caps can make this flow's cap smaller (the smallest one left binds) or refuse the start
     setCapsLeft(null);
@@ -235,6 +240,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         // 0.18.28 always the mode shown: a flow ran in auto while the form showed important (the settings, arriving
         // after the pick, put the project's mode back; and an omitted mode followed whatever the project said by then)
         run_mode: runMode,
+        rules_mode: rulesMode,
         // the lint flow reads its scope from the flow's data (docs/CONTRACT.md, v0.4.1); a flow from a spec its path
         ...(wid === "lint" ? { options: { scope: lintScope } }
           : spec || session ? { options: { ...(spec ? { spec: spec.path } : {}), ...(session ?? {}) } } : {}),
@@ -465,6 +471,8 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       </div>
       <RunModePicker value={runMode} onChange={(m) => { modePicked.current = true; setRunMode(m); }}
         hint={`The project default is ${modeDefault} (Settings › Run mode). You can change it on the Flow page while the flow runs.`} />
+      <RulesModePicker value={rulesMode} onChange={(m) => { rulesPicked.current = true; setRulesMode(m); }}
+        hint="Normal is the default (Settings › Flow and gates › Rules). You can change it on the Flow page while the flow runs." />
       <div ref={errRef}>{err && <ErrorBox error={err} />}</div>
       {asking && proj && (
         <InitAsk name={proj.name || proj.id} busy={init.busy} onInit={() => void init.start()}

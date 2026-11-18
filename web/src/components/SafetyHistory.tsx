@@ -135,6 +135,7 @@ export function SafetyHistory({ pid, rule }: { pid: string; rule?: string }) {
                     <span className="sh-time mono">{clock(l.at, false)}</span>
                     <TierTag tier={l.tier} />
                     <Outcome l={l} />
+                    {l.rules === "safety-only" && <span className="tag warn" title="judged with keel's safety rules only">Safety only</span>}
                     <span className="sh-kind">{l.kind === "tool" ? (l.server ? `${l.server} · ${l.tool}` : l.tool) : KIND_WORDS[l.kind]}</span>
                     <span className="sh-text mono">{l.text}</span>
                   </button>
@@ -143,6 +144,7 @@ export function SafetyHistory({ pid, rule }: { pid: string; rule?: string }) {
                     <dl className="sh-detail">
                       {l.path && <><dt>File</dt><dd className="mono">{l.path}</dd></>}
                       {l.rule && <><dt>Rule</dt><dd className="mono">{l.rule}</dd></>}
+                      {l.rules && <><dt>Rules mode</dt><dd>{l.rules === "safety-only" ? "Safety only" : "Normal"}</dd></>}
                       {l.undo && <><dt>Can it be undone</dt><dd>{l.undo}</dd></>}
                       {l.action === "deny" && l.kind !== "approval" && <><dt>Sent back to the model</dt><dd>The reason above, as the tool's error: the agent is told to stop and ask, not to try another way.</dd></>}
                       {l.by && <><dt>Answered by</dt><dd>{l.by === "person" ? "you" : "keel"}</dd></>}

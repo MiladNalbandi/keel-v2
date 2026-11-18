@@ -12,6 +12,7 @@ import { BaseBranchPanel } from "../../components/BaseBranch";
 import { BellSettings } from "../../components/Notifications";
 import { Skeleton } from "../../components/page";
 import { RUN_MODES, runModeAbout } from "../../components/RunMode";
+import { RULES_MODES, rulesAbout } from "../../components/RulesMode";
 import { Fold, RadioCards, Seg, Switch, SwitchRow } from "../../components/settingsUi";
 import { useTheme } from "../../components/Shell";
 import { ErrorBox } from "../../components/ui";
@@ -64,6 +65,13 @@ export const GENERAL_SECTIONS: GeneralSection[] = [
         kind: { t: "select", opts: RUN_MODES.map(([k, l]) => [k, l]) },
         help: (v) =>
           `${runModeAbout(String(v ?? "manual"))} A running flow can change it on the Flow page.`,
+      },
+      {
+        key: "rules_mode",
+        label: "Rules (new flows)",
+        def: "normal",
+        kind: { t: "select", opts: RULES_MODES.map(([k, l]) => [k, l]) },
+        help: (v) => `${rulesAbout(String(v ?? "normal"))} A running flow can change it on the Flow page.`,
       },
       {
         key: "gates_mode",

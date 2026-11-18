@@ -203,6 +203,8 @@ export type ThreadState = {
   ladder?: LadderRung[];
   /** v0.4.1: how much keel decides by itself in this flow (changeable during a run). */
   run_mode?: RunMode;
+  /** 0.40: keel's rules for the agents in this flow (its own, else the project's). Missing from an older keel. */
+  rules_mode?: RulesMode;
   /** v0.3.1: the last 50 gate decisions as text; "auto-approved (mode …)" marks the run mode's own. */
   gate_log?: string[];
   /** 0.29 who does the harness flow's agent steps: "session" = the person's connected Claude Code / OpenCode */
@@ -238,6 +240,8 @@ export type ThreadSession = {
   runner: "session"; client: string | null; session: SessionPresence | null; connected: boolean; log: SessionTurn[];
   findings: SessionFinding[]; todos: SessionTodo[]; order?: SessionOrder; gone?: boolean; waiting_since?: string;
 };
+/** 0.40 keel's rules for the agents (engine rules.RULES_MODES): every rule, or only the safety rules. */
+export type RulesMode = "normal" | "safety-only";
 /** v0.4.1 run modes (engine runtime/run_mode.py). */
 export type RunMode = "manual" | "important" | "auto" | "readonly";
 /** v0.4.1: what one step really does (engine POST /steps/explain via POST /api/projects/{pid}/workflows/explain-step). */
@@ -971,6 +975,8 @@ export type Settings = {
   gates_mode: GatesMode;
   /** v0.4.1: the run mode a new flow starts with */
   run_mode?: RunMode;
+  /** 0.40: keel's rules for new flows (normal by default) */
+  rules_mode?: RulesMode;
   fix_attempts: number;
   coverage_min: number;
   default_model: Model;
@@ -1248,6 +1254,8 @@ export const api = {
   startFlow: (pid: string, body: {
     workflow_id: string; title: string; acs?: { id: string; layer: "API" | "WEB"; title: string }[]; cap_tokens?: number; on_cap?: OnCap;
     allow_fake?: boolean; allow_dirty?: boolean; request?: string; options?: Record<string, unknown>; run_mode?: RunMode; where?: FlowWhere;
+    /** 0.40 normal | safety-only for this flow (default: the project's) */
+    rules_mode?: RulesMode;
     /** B8 continue: stay on the branch the project folder is on (default: a new branch from the base branch) */
     branch?: "new" | "continue";
     /** 0.18.57 start although another flow or side agent works on the same ticket, branch or files */

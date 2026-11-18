@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorParts, type Job, type JobStep, type Step, type ThreadState, type Workflow } from "../../api";
 import { ResumeRow } from "../../components/ResumeRow";
 import { RunModeSwitch } from "../../components/RunMode";
+import { RulesChip, RulesSwitch } from "../../components/RulesMode";
 import {
   AcChips,
   Blocks,
@@ -160,6 +161,7 @@ export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, 
             return <span>branch <span className="mono fl-branch" title={b}>{b}</span></span>;
           })()}
           <CopyId id={thread.thread_id} />
+          <RulesChip mode={thread.rules_mode} />
           {chips.map((c) => <c.component key={c.id} pid={thread.project_id} thread={thread} readOnly={!!readOnly} />)}
         </div>
       </div>
@@ -179,6 +181,7 @@ export function FlowBar({ thread, workflow, estimate, started, onStart, onJump, 
         {onJump && live && <button className="btn" type="button" onClick={onJump} aria-label="Jump to current" aria-keyshortcuts={details ? "G" : undefined}>
           <span className="fl-long">Jump to current</span><span className="fl-short" aria-hidden="true">Jump</span>{details && <kbd aria-hidden="true">G</kbd>}</button>}
         {live && <RunModeSwitch compact pid={thread.project_id} threadId={thread.thread_id} mode={thread.run_mode} />}
+        {live && <RulesSwitch threadId={thread.thread_id} mode={thread.rules_mode} />}
         {live ? (
           <button className="btn" type="button" disabled={busy} onClick={() => setConfirmStop(true)}>Stop flow</button>
         ) : <button className="btn primary" type="button" onClick={onStart}>Start a flow</button>}

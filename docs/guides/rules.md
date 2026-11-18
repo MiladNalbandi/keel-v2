@@ -34,6 +34,50 @@ command the way a shell would, so a hidden command (base64, escapes, `eval`, `sh
 The agent gets the reason back and is told to stop and ask you, not to try another way. The rule is called
 `catastrophic`; you can switch it off for a project (keel's rules you can switch off).
 
+## Rules: Normal or Safety only
+
+A flow runs with **Normal** rules unless you choose otherwise: every rule on this page. When the phase rules or a rule
+pack keep blocking an agent and the flow does not move, choose **Safety only**:
+
+```text
+                     Normal                         Safety only
+ phase rules         on (tests first, then code)    off
+ rule packs          on                             off
+ read limits         on (big files, build output)   off
+ T3, can't be undone refused                        refused (cannot be switched off here)
+ secrets, keel keys  refused                        refused
+ rule files, git     refused                        refused
+ commits, tests,     keel's, as always              keel's, as always
+ your gates
+```
+
+Where to choose it:
+
+- **Settings › Flow and gates › Rules (new flows).** Normal is the default.
+- **Start a flow › Rules**, for this flow only.
+- **The Flow page:** the Rules switch while the flow runs. A **Safety only** chip in the header shows it.
+- **`.keel/config.yml`:** `rules: {mode: safety-only}` for the whole project.
+
+An agent cannot switch to Safety only by itself. From an MCP client, `keel_rules_mode` waits for your OK in the Inbox.
+The History shows the mode on each line.
+
+### When the same rule blocks an agent 3 times
+
+keel stops the step and asks you. It does not let the agent try again and again.
+
+```text
+ blocked ─► blocked ─► blocked (the same rule)
+                          │
+                          ▼
+           keel stops the step and asks you:
+             Allow it this once            the step runs again in Safety only, one time
+             Switch this flow to Safety only   from now on, this flow only
+             Stop the flow
+```
+
+When the rule is one that Safety only keeps (T3, a secret, keel's keys), you get **Try the step again** and **Stop the
+flow** only.
+
 ## History
 
 The tab **History** shows every tool call of this project's agents (flows and KeelBot), newest first, grouped by run:

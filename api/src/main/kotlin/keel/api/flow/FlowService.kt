@@ -63,6 +63,8 @@ data class ThreadSettings(
     /** v0.10.0: git:push and git:pr follow pushPr; git:branch the pattern. */
     @get:JsonIgnore val pushPr: String? = null,
     @get:JsonIgnore val branchPattern: String? = null,
+    /** 0.40 (#201) normal | safety-only; null: the project's .keel/config.yml `rules.mode` (normal when it says nothing). */
+    val rulesMode: String? = null,
 ) {
     /** Sent after the fields above: the contributed settings, then push_pr and branch_pattern (the order the engine always got). */
     @JsonAnyGetter
@@ -117,11 +119,20 @@ data class OtherProject(val id: String, val name: String, val root: String)
 data class AgentStart(val knowledge: Knowledge)
 
 /** Per-flow cap (and v0.4.1 run mode) from POST /flows; null fields fall back to the project's settings. */
-data class FlowCap(val capTokens: Int? = null, val onCap: String? = null, val runMode: String? = null) {
+data class FlowCap(val capTokens: Int? = null, val onCap: String? = null, val runMode: String? = null,
+                   val rulesMode: String? = null) {
     fun check() {
         if (capTokens != null && capTokens <= 0) throw BadRequest("cap_tokens must be above 0")
         if (onCap != null && onCap !in setOf("pause", "cheaper", "stop")) throw BadRequest("on_cap cannot be \"$onCap\"", "Pick one of: pause, cheaper, stop")
         checkRunMode(runMode)
+        checkRulesMode(rulesMode)
+    }
+}
+
+/** 0.40 (#201) a rules mode the engine knows, or a 400 that lists them. */
+fun checkRulesMode(mode: String?) {
+    if (mode != null && mode !in keel.api.settings.Settings.RULES_MODES) {
+        throw BadRequest("rules_mode cannot be \"$mode\"", "Pick one of: ${keel.api.settings.Settings.RULES_MODES.joinToString()}")
     }
 }
 
@@ -258,7 +269,9 @@ class FlowService(
             settings = ThreadSettings(s.gatesMode, cap?.runMode ?: s.runMode, limits.capTokens, limits.onCap, s.cheaperModel,
                 limits.capUsd, limits.onCapUsd, limits.stepCapTokens, limits.stepOnCap,
                 commitAuthor = s.commitAuthor.trim().ifBlank { null }, commitCoauthor = s.commitCoauthor,
-                contributed = contributedSettings(pid), pushPr = s.pushPr, branchPattern = s.branchPattern),
+                contributed = contributedSettings(pid), pushPr = s.pushPr, branchPattern = s.branchPattern,
+                // the flow's own choice, else the project's Safety only; Normal leaves it to .keel/config.yml
+                rulesMode = cap?.rulesMode ?: s.rulesMode.takeIf { it == "safety-only" }),
             mcp = mcp.specsFor(s.mcp), skills = skillText,
             agents = all.filter { it.enabled }.associate { it.id to AgentStart(it.knowledge) },
             capNote = notes.takeIf { it.isNotEmpty() }?.joinToString(" "),
@@ -928,6 +941,21 @@ class FlowService(
         if (mode.isBlank()) throw BadRequest("mode is missing", "Pick one of: ${keel.api.settings.Settings.RUN_MODES.joinToString()}")
         checkRunMode(mode)
         val state = engine.setMode(tid, mode, by)
+        save(tid, state)
+        threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
+        return state
+    }
+
+    /** 0.40 (#201) the flow's rules mode, from its next agent call. Safety only from an MCP client needs the person's OK:
+     *  keel2 mcp's keel_rules_mode asks in the Inbox first (mcp_confirm.OUT_OF_BAND); an agent's own MCP tool never may. */
+    fun setRules(tid: String, mode: String, by: String? = null, agent: Boolean = false): JsonNode {
+        if (mode.isBlank()) throw BadRequest("mode is missing", "Pick one of: ${keel.api.settings.Settings.RULES_MODES.joinToString()}")
+        checkRulesMode(mode)
+        if (agent && mode == "safety-only") {
+            throw BadRequest("An agent cannot switch a flow to Safety only.",
+                "The person switches it: the flow page, or keel_rules_mode from their own MCP client (it asks in the Inbox).")
+        }
+        val state = engine.setRules(tid, mode, by)
         save(tid, state)
         threadProject(tid)?.let { hub.publish(it, "project.changed", mapOf("id" to it)) }
         return state
