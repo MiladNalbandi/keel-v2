@@ -49,6 +49,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
   // 0.40 keel's rules for this flow: the project's default (Normal unless Settings says Safety only)
   const [rulesMode, setRulesMode] = useState<RulesMode>("normal");
   const rulesPicked = useRef(false);
+  const [rulesDefault, setRulesDefault] = useState<RulesMode>("normal");
   const [modeDefault, setModeDefault] = useState<RunMode>("manual");
   // 0.18.28 the person picked a mode: the project's settings, arriving later, never put the default back over it
   const modePicked = useRef(false);
@@ -148,6 +149,7 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
       if (!modePicked.current) setRunMode(m);
       setModeDefault(m);
       if (!rulesPicked.current) setRulesMode(s.effective.rules_mode ?? "normal");
+      setRulesDefault(s.effective.rules_mode ?? "normal");
     }, () => undefined);
     // v0.4.2: the project's caps can make this flow's cap smaller (the smallest one left binds) or refuse the start
     setCapsLeft(null);
@@ -240,7 +242,8 @@ export function StartFlowDrawer({ onClose, workflowId, projectId, title: title0,
         // 0.18.28 always the mode shown: a flow ran in auto while the form showed important (the settings, arriving
         // after the pick, put the project's mode back; and an omitted mode followed whatever the project said by then)
         run_mode: runMode,
-        rules_mode: rulesMode,
+        // 0.40 only when it matters: Safety only, or Normal over a project that defaults to Safety only
+        ...(rulesMode !== "normal" || rulesDefault !== "normal" ? { rules_mode: rulesMode } : {}),
         // the lint flow reads its scope from the flow's data (docs/CONTRACT.md, v0.4.1); a flow from a spec its path
         ...(wid === "lint" ? { options: { scope: lintScope } }
           : spec || session ? { options: { ...(spec ? { spec: spec.path } : {}), ...(session ?? {}) } } : {}),

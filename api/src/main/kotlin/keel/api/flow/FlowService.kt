@@ -64,6 +64,7 @@ data class ThreadSettings(
     @get:JsonIgnore val pushPr: String? = null,
     @get:JsonIgnore val branchPattern: String? = null,
     /** 0.40 (#201) normal | safety-only; null: the project's .keel/config.yml `rules.mode` (normal when it says nothing). */
+    @get:com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
     val rulesMode: String? = null,
 ) {
     /** Sent after the fields above: the contributed settings, then push_pr and branch_pattern (the order the engine always got). */

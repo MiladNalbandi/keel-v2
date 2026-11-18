@@ -182,7 +182,7 @@ class InboxApiTest : ApiTest() {
 
         // a new flow: Normal leaves it to the project's .keel/config.yml (null), so nothing turns rules off by default
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Ranks")).andExpect(status().isOk)
-        assertThat(engine.lastBody("/threads")!!["settings"]["rules_mode"].isNull).isTrue()
+        assertThat(engine.lastBody("/threads")!!["settings"].path("rules_mode").isMissingNode).isTrue()
         post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Ranks 2", "rules_mode" to "safety-only",
             "allow_dirty" to true)).andExpect(status().isOk)
         assertThat(engine.lastBody("/threads")!!["settings"]["rules_mode"].asText()).isEqualTo("safety-only")
