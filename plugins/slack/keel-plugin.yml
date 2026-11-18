@@ -4,7 +4,7 @@
 schema: 1
 name: slack
 title: Slack
-version: 0.2.0
+version: 0.2.1
 publisher: keel
 summary: Ask keel how a task or flow goes, answer a gate, make and assign a task from Slack. A read-only chat, starting flows and every gate are off until you turn them on. Only people you allow; keel connects out, so it needs no public address.
 requires:
@@ -16,6 +16,8 @@ parts:
   api: { jars: [api/keel-plugin-slack.jar] }
   web: { entry: web/index.js }
 per_project: false
+# 0.38 parked (#196): no new features; in every image, off until a person turns it on (Settings › Plugins)
+starts_off: true
 permissions:
   secrets: [slack]
   network: [from-connections]

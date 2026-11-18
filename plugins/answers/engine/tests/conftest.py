@@ -25,7 +25,7 @@ def env(tmp_path, monkeypatch):
     run = data / "plugins" / "run"
     run.mkdir(parents=True)
     (run / "resolved.json").write_text(json.dumps({"plugins": [
-        {"name": "answers", "version": "0.1.0", "source": "file", "dir": str(PLUGIN), "content": str(PLUGIN / "content")}]}))
+        {"name": "answers", "version": "0.1.1", "source": "file", "dir": str(PLUGIN), "content": str(PLUGIN / "content")}]}))
     monkeypatch.setenv("KEEL_DATA", str(data))
     monkeypatch.setenv("KEEL_FAKE", "1")
     monkeypatch.setenv("KEEL_API_URL", "off")

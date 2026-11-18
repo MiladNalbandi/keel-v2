@@ -4,7 +4,7 @@
 schema: 1
 name: desk
 title: Desk
-version: 0.1.0
+version: 0.1.1
 publisher: keel
 summary: Paste a support request - an agent sorts it, keel finds past cases, and you choose a fix flow, a task or a reply.
 requires:
@@ -17,6 +17,8 @@ parts:
   content: content
   migrations: migrations
 per_project: false
+# 0.38 parked (#196): no new features; in every image, off until a person turns it on (Settings › Plugins)
+starts_off: true
 permissions:
   workspace: read
   flows: start

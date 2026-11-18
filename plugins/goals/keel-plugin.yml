@@ -3,7 +3,7 @@
 schema: 1
 name: goals
 title: Goals
-version: 0.1.0
+version: 0.1.1
 publisher: keel
 summary: One goal with its limits - an agent splits it into steps, you approve the plan, and each step is a flow you start. Shows how far it is and what it cost.
 requires:
@@ -16,6 +16,8 @@ parts:
   content: content
   migrations: migrations
 per_project: false
+# 0.38 parked (#196): no new features; in every image, off until a person turns it on (Settings › Plugins)
+starts_off: true
 permissions:
   workspace: read
   flows: start

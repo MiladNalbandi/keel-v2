@@ -4,7 +4,7 @@
 schema: 1
 name: map
 title: Map
-version: 1.0.0
+version: 1.0.1
 publisher: keel
 summary: How the project is built, level by level - the system, its modules and endpoints, and the database diagram.
 requires:
@@ -14,3 +14,5 @@ parts:
   api: { jars: [api/keel-plugin-map.jar] }
   web: { entry: web/index.js }
 per_project: false
+# 0.38 parked (#196): no new features; in every image, off until a person turns it on (Settings › Plugins)
+starts_off: true

@@ -4,7 +4,7 @@
 schema: 1
 name: notify
 title: Notify
-version: 0.1.0
+version: 0.1.1
 publisher: keel
 summary: A chat or mail message when a flow waits for you in the Inbox. It sends only through a channel you add, and only short lines, never code.
 requires:
@@ -13,6 +13,8 @@ parts:
   api: { jars: [api/keel-plugin-notify.jar] }
   web: { entry: web/index.js }
 per_project: false
+# 0.38 parked (#196): no new features; in every image, off until a person turns it on (Settings › Plugins)
+starts_off: true
 permissions:
   secrets: [notify-chat, notify-mail]
   network: [from-connections]

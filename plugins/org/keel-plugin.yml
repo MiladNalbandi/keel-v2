@@ -6,7 +6,7 @@
 schema: 1
 name: org
 title: Org
-version: 0.2.0
+version: 0.2.1
 publisher: keel
 summary: Draw an org of agents - roles and links - and give a mission to any role. A lead plans, splits the work for its team, checks it and reports to you.
 requires:
@@ -17,6 +17,8 @@ parts:
   web: { entry: web/index.js, css: [web/style.css] }
   content: content
 per_project: false
+# 0.38 parked (#196): no new features; in every image, off until a person turns it on (Settings › Plugins)
+starts_off: true
 permissions:
   workspace: read
   flows: start

@@ -20,12 +20,12 @@ MANIFEST = yaml.safe_load((PLUGIN / "keel-plugin.yml").read_text())
 
 
 def test_one_version_and_name_everywhere():
-    assert MANIFEST["version"] == keel_plugin_map.VERSION == keel_plugin_map.ADDON["version"] == "1.0.0"
+    assert MANIFEST["version"] == keel_plugin_map.VERSION == keel_plugin_map.ADDON["version"] == "1.0.1"
     assert MANIFEST["name"] == keel_plugin_map.ADDON["name"] == keel_plugin_map.PART["name"] == "map"
     assert MANIFEST["requires"] == {"sdk": 1}
     assert MANIFEST["parts"]["engine"] == {"path": "engine", "package": keel_plugin_map.__name__}
     m = manifests.parse((PLUGIN / "keel-plugin.yml").read_text())   # the resolver reads it as it is
-    assert m.name == "map" and m.version == "1.0.0" and m.web == {"entry": "web/index.js", "css": []}
+    assert m.name == "map" and m.version == "1.0.1" and m.web == {"entry": "web/index.js", "css": []}
 
 
 def test_it_is_an_add_on_part_not_a_built_in():

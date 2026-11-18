@@ -19,7 +19,9 @@ async function shot(page: Page, name: string) {
   await page.setViewportSize({ width: 1280, height: 900 });
 }
 
-test.describe("J20 Task to the Org", () => {
+// 0.38 the Org plugin is parked (#196): off in every keel until a person turns it on, so this journey is skipped. Turn it
+// back on here when Org is no longer parked.
+test.describe.skip("J20 Task to the Org (Org is parked)", () => {
   test("J20 flows in groups, Hand to Org, the task follows the mission and its parts become tasks", async ({ page }, info) => {
     test.setTimeout(25 * 60_000);
     const errors = watchConsole(page);

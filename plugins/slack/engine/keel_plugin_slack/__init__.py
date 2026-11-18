@@ -14,7 +14,7 @@ keel loads it as an add-on (KEEL_PLUGIN_ADDONS=keel_plugin_slack). This module s
 from __future__ import annotations
 
 # the same version as ../../keel-plugin.yml (tests/test_slack_package.py checks it)
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 
 def _router():

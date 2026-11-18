@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 # the same version as ../../keel-plugin.yml (tests/test_goals_mcp.py checks it)
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 CONTENT = Path(__file__).resolve().parents[2] / "content"
 
 

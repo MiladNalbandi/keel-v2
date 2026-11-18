@@ -12,7 +12,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # the same version as ../../keel-plugin.yml (tests/test_map_part.py checks it)
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 
 def on_scan(root: str, pid: str) -> dict:
