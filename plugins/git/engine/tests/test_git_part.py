@@ -35,13 +35,13 @@ KEEL_WRITE = {"keel_git_commit", "keel_git_push", "keel_pr_create"}
 
 
 def test_one_version_and_name_everywhere():
-    assert MANIFEST["version"] == keel_plugin_git.VERSION == keel_plugin_git.ADDON["version"] == "1.0.0"
+    assert MANIFEST["version"] == keel_plugin_git.VERSION == keel_plugin_git.ADDON["version"] == "1.1.0"
     assert MANIFEST["name"] == keel_plugin_git.ADDON["name"] == keel_plugin_git.PART["name"] == "git"
     assert MANIFEST["requires"] == {"sdk": 1} and MANIFEST["per_project"] is True
     assert MANIFEST["parts"]["engine"] == {"path": "engine", "package": keel_plugin_git.__name__}
     assert MANIFEST["parts"]["content"] == "content" and keel_plugin_git.CONTENT == PLUGIN / "content"
     m = manifests.parse((PLUGIN / "keel-plugin.yml").read_text())   # the resolver reads it as it is
-    assert m.name == "git" and m.version == "1.0.0" and m.web == {"entry": "web/index.js", "css": []}
+    assert m.name == "git" and m.version == "1.1.0" and m.web == {"entry": "web/index.js", "css": []}
     assert m.api == {"jars": ["api/keel-plugin-git.jar"], "lib": None} and m.content == "content"
 
 

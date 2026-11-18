@@ -17,7 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 
 # the same version as ../../keel-plugin.yml (tests/test_ci_part.py checks it)
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 CONTENT = Path(__file__).resolve().parents[2] / "content"
 
 PARAMS = {
@@ -104,7 +104,9 @@ PART = {
     "params": PARAMS,
     "docs": DOCS,
     "read_tools": ("ci_runs", "ci_failure"),
-    "mcp": {"server": "keel-ci", "module": "keel_plugin_ci.server", "call": _call},
+    "mcp": {"server": "keel-ci", "module": "keel_plugin_ci.server", "call": _call,
+            "prompt": "The project's CI/CD runs: ci_runs lists them, ci_failure says why one failed (its failed steps and log).",
+            "prefer": {r"(^|[;&|(]\s*)gh\s+run\s+list\b": "ci_runs", r"(^|[;&|(]\s*)gh\s+run\s+(view|watch)\b": "ci_failure"}},
     "router": _router,
     "errors": _errors,
     "keelbot": {"prompt": KEELBOT, "actions": KEELBOT_ACTIONS},

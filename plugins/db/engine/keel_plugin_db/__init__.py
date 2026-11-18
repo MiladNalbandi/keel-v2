@@ -16,7 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 
 # the same version as ../../keel-plugin.yml (tests/test_db_part.py checks it)
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 CONTENT = Path(__file__).resolve().parents[2] / "content"
 
 PARAMS = {
@@ -131,7 +131,10 @@ PART = {
     "read_tools": ("db_connections", "db_schema", "db_query"),
     # keel 0.18.38: it asks the person itself (approvals) and only where the connection's Access allows a change
     "act_tools": ("db_change",),
-    "mcp": {"server": "keel-db", "module": "keel_plugin_db.server", "call": _call},
+    "mcp": {"server": "keel-db", "module": "keel_plugin_db.server", "call": _call,
+            "prompt": "The project's databases (Settings › Database): db_connections, db_schema and db_query read them under "
+                      "the connection's Access; db_change asks the person first.",
+            "prefer": {r"(^|[;&|(]\s*)(psql|mysql|mariadb|sqlite3|mongosh|redis-cli)\b": "db_query"}},
     "router": _router,
     "errors": _errors,
     "keelbot": {"prompt": KEELBOT, "actions": KEELBOT_ACTIONS},

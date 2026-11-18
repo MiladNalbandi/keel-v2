@@ -6,7 +6,7 @@
 schema: 1
 name: git
 title: Git
-version: 1.0.0
+version: 1.1.0
 publisher: keel
 summary: Branches, commits, pushes and pull requests for KeelBot and workflows, with keel's rules.
 requires:

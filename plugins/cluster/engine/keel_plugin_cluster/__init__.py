@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 # the same version as ../../keel-plugin.yml (tests/test_cluster.py checks it)
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 CONTENT = Path(__file__).resolve().parents[2] / "content"
 
 KEELBOT = ("Kubernetes clusters are linked to this project: cluster_find finds pods, deployments, services and nodes by name or IP "
@@ -48,7 +48,9 @@ PART = {
     "act_tools": ("cluster_exec", "cluster_change"),
     "mcp": {"server": "keel-cluster", "module": "keel_plugin_cluster.server", "call": _call,
             "prompt": "Kubernetes: cluster_find, cluster_logs and cluster_describe read it. cluster_exec and cluster_change wait for "
-                      "the person's OK."},
+                      "the person's OK.",
+            "prefer": {r"(^|[;&|(]\s*)kubectl\s+logs\b": "cluster_logs", r"(^|[;&|(]\s*)kubectl\s+describe\b": "cluster_describe",
+                       r"(^|[;&|(]\s*)kubectl\s+get\b": "cluster_find"}},
     "router": _router,
     "keelbot": {"prompt": KEELBOT, "actions": []},
 }

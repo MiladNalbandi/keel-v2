@@ -169,6 +169,51 @@ def _list_key(conn: dict) -> str:
     return hashlib.sha256(json.dumps(conn, sort_keys=True, default=str).encode()).hexdigest()
 
 
+# 0.37 (#190) a plugin's own server (keel-git, keel-db, keel-ci ...: extensions.server_specs "inproc") runs inside the
+# engine for keel's harness: its FastMCP tools are built once per engine, and a call runs the tool's function in a thread
+# with the agent call's key (partmcp.INPROC_KEY), which answers through extensions.call. Before, each agent call or
+# KeelBot turn started the server's Python only to list its tools (~0.6 s; the kept list never matched: the key is in
+# the env) and each tool call started it again (~0.6 s against ~0.01 s for `git status` in Bash).
+_INPROC: dict[str, tuple[object, list]] = {}
+
+
+class InprocTool:
+    """What the harness needs of an MCP tool (harness/tools.py _mcp_tool): name, description, schema, annotations, ainvoke."""
+
+    def __init__(self, server, tool, name: str, key: str):
+        self._server, self._tool, self._key = server, tool.name, key
+        self.name = name
+        self.description = tool.description or tool.name
+        self.args_schema = dict(tool.inputSchema or {"type": "object", "properties": {}})
+        ann = tool.annotations.model_dump(exclude_none=True) if getattr(tool, "annotations", None) else {}
+        self.metadata = {"annotations": ann}
+
+    async def ainvoke(self, args: dict) -> str:
+        from .. import partmcp
+
+        def run() -> str:
+            token = partmcp.INPROC_KEY.set(self._key)
+            try:
+                got = asyncio.run(self._server.call_tool(self._tool, dict(args or {})))
+            finally:
+                partmcp.INPROC_KEY.reset(token)
+            blocks = got[0] if isinstance(got, tuple) else got
+            return "\n".join(str(getattr(b, "text", "") or "") for b in blocks or [])
+
+        return await asyncio.to_thread(run)      # a tool may wait for the person (db_change): never on the engine's loop
+
+
+async def inproc_tools(spec: dict) -> list[InprocTool]:
+    import importlib
+
+    module = str(spec["inproc"]["module"])
+    if module not in _INPROC:
+        server = importlib.import_module(module).build()
+        _INPROC[module] = (server, list(await server.list_tools()))
+    server, listed = _INPROC[module]
+    return [InprocTool(server, t, t.name, str(spec["inproc"]["key"])) for t in listed]
+
+
 async def langchain_tools(specs: list[dict], allow: list[str] | None,
                           timing: dict | None = None) -> tuple[list, object | None]:
     """LangChain tools for the allowed MCP tools, named mcp__<server>__<tool>. 0.35 the servers start side by side (not
@@ -186,7 +231,19 @@ async def langchain_tools(specs: list[dict], allow: list[str] | None,
                          "env": _server_env(s), **({"cwd": s["cwd"]} if s.get("cwd") else {})} for s in servers}
     client = MultiServerMCPClient(conns)
 
+    inproc = {s["name"]: s for s in servers if s.get("inproc")}
+
     async def listed(name: str) -> list:
+        if name in inproc:
+            t0 = time.monotonic()
+            try:
+                tools = await inproc_tools(inproc[name])
+            except Exception as exc:  # noqa: BLE001 - a part that cannot build its server costs its tools, not the run
+                log.warning("keel's %s tools did not load: %s", name, exc)
+                tools = []
+            if timing is not None:
+                timing[name] = time.monotonic() - t0
+            return tools
         key = _list_key(conns[name])
         now = time.monotonic()
         kept = _LISTED.get(key)
@@ -213,8 +270,12 @@ async def langchain_tools(specs: list[dict], allow: list[str] | None,
         names = wanted.get(s["name"])
         for t in tools:
             if names is None or t.name in names:
-                # a copy: the kept list keeps the server's own names
-                out.append(t.model_copy(update={"name": f"mcp__{s['name']}__{t.name}"}))
+                if isinstance(t, InprocTool):
+                    t.name = f"mcp__{s['name']}__{t.name}"      # a new object each call already
+                else:   # a copy: the kept list keeps the server's own names
+                    out.append(t.model_copy(update={"name": f"mcp__{s['name']}__{t.name}"}))
+                    continue
+                out.append(t)
     return out, client
 
 

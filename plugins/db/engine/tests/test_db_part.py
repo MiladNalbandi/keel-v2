@@ -38,14 +38,14 @@ GIT_ENGINE = str(ROOT / "plugins" / "git" / "engine")
 
 
 def test_one_version_and_name_everywhere():
-    assert MANIFEST["version"] == keel_plugin_db.VERSION == keel_plugin_db.ADDON["version"] == "1.0.0"
+    assert MANIFEST["version"] == keel_plugin_db.VERSION == keel_plugin_db.ADDON["version"] == "1.0.1"
     assert MANIFEST["name"] == keel_plugin_db.ADDON["name"] == keel_plugin_db.PART["name"] == "db"
     assert MANIFEST["requires"] == {"sdk": 1} and MANIFEST["per_project"] is True
     assert MANIFEST["optional"] == {"map": ">=1.0.0"}             # its Query panel shows in the Map's diagram when Map is there
     assert MANIFEST["parts"]["engine"] == {"path": "engine", "package": keel_plugin_db.__name__}
     assert MANIFEST["parts"]["content"] == "content" and keel_plugin_db.CONTENT == PLUGIN / "content"
     m = manifests.parse((PLUGIN / "keel-plugin.yml").read_text())   # the resolver reads it as it is
-    assert m.name == "db" and m.version == "1.0.0" and m.per_project and m.plugins == {}
+    assert m.name == "db" and m.version == "1.0.1" and m.per_project and m.plugins == {}
     assert m.web == {"entry": "web/index.js", "css": []}
     assert m.api == {"jars": ["api/keel-plugin-db.jar"], "lib": None} and m.content == "content"
 

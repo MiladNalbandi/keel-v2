@@ -35,14 +35,14 @@ READ_TOOLS = {"ci_runs", "ci_failure"}
 
 
 def test_one_version_and_name_everywhere():
-    assert MANIFEST["version"] == keel_plugin_ci.VERSION == keel_plugin_ci.ADDON["version"] == "1.0.0"
+    assert MANIFEST["version"] == keel_plugin_ci.VERSION == keel_plugin_ci.ADDON["version"] == "1.0.1"
     assert MANIFEST["name"] == keel_plugin_ci.ADDON["name"] == keel_plugin_ci.PART["name"] == "ci"
     # its ci-fix flow pushes with git:push: it needs the Git plugin (plugins/git)
     assert MANIFEST["requires"] == {"sdk": 1, "plugins": {"git": ">=1.0.0"}} and MANIFEST["per_project"] is True
     assert MANIFEST["parts"]["engine"] == {"path": "engine", "package": keel_plugin_ci.__name__}
     assert MANIFEST["parts"]["content"] == "content" and keel_plugin_ci.CONTENT == PLUGIN / "content"
     m = manifests.parse((PLUGIN / "keel-plugin.yml").read_text())   # the resolver reads it as it is
-    assert m.name == "ci" and m.version == "1.0.0" and m.web == {"entry": "web/index.js", "css": []}
+    assert m.name == "ci" and m.version == "1.0.1" and m.web == {"entry": "web/index.js", "css": []}
     assert m.api == {"jars": ["api/keel-plugin-ci.jar"], "lib": None} and m.content == "content"
     assert m.plugins == {"git": ">=1.0.0"}
 

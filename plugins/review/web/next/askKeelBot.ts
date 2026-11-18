@@ -5,6 +5,9 @@
 //   comment box ── Ask KeelBot ──▶ POST helper/sessions (once per review, mode ask) ──▶ POST …/turn {text}
 //        ▲                                                                                   │
 //        └── answer shown under the box ◀── GET …/sessions/{sid} until an answer after turn n┘
+//
+// 0.37 (#192) the box shows the answer as it is written (helper.delta, onStart gives the turn's call id), and
+// helper.finished wakes the wait (wakeAsk), so the stored answer shows at once, not at the next poll.
 
 import { go, post, get, shareFocus, type HelperMessage, type HelperSession, type HelperTurnStarted } from "@keel/web-sdk";
 
@@ -53,6 +56,30 @@ export function askText(o: { where: string; code: string; question: string }): s
 
 export type AskResult = { sid: string; text: string; failed: boolean };
 
+// the wait of each running ask, by the turn's call id: wakeAsk ends it early (helper.finished arrived)
+const wakers = new Map<string, () => void>();
+const woken = new Set<string>(); // helper.finished before the wait began: the next wait ends at once
+
+/** The turn `callId` ended (helper.finished): read its answer now instead of at the next poll. */
+export function wakeAsk(callId: string) {
+  const w = wakers.get(callId);
+  if (w) w();
+  else woken.add(callId);
+}
+
+function nap(callId: string, ms: number): Promise<void> {
+  if (woken.delete(callId)) return Promise.resolve();
+  return new Promise((r) => {
+    const done = () => {
+      clearTimeout(t);
+      wakers.delete(callId);
+      r();
+    };
+    const t = setTimeout(done, ms);
+    wakers.set(callId, done);
+  });
+}
+
 /**
  * Ask in this review's chat and wait for the answer. `alive()` false stops the wait (the box closed); the answer
  * then still lands in the chat.
@@ -63,6 +90,7 @@ export async function askInReview(
   title: string,
   text: string,
   alive: () => boolean = () => true,
+  onStart?: (callId: string) => void,
 ): Promise<AskResult | null> {
   const base = `/projects/${e(pid)}/helper/sessions`;
   const fresh = async () => {
@@ -83,8 +111,20 @@ export async function askInReview(
     sid = await fresh();
     turn = await post<HelperTurnStarted>(`${base}/${e(sid)}/turn`, { text });
   }
+  onStart?.(turn.call_id);
+  const call = turn.call_id;
+  try {
+    return await waitAnswer(base, sid, turn, alive);
+  } finally {
+    woken.delete(call);
+    wakers.delete(call);
+  }
+}
+
+async function waitAnswer(base: string, sid: string, turn: HelperTurnStarted, alive: () => boolean): Promise<AskResult | null> {
   for (let i = 0; i < 400 && alive(); i++) {
-    await new Promise((r) => setTimeout(r, i < 4 ? 800 : 1500));
+    // short waits first; later helper.finished (wakeAsk) ends a wait, the 1.5 s is only the fallback
+    await nap(turn.call_id, i < 3 ? 400 : 1500);
     if (!alive()) return null;
     const s = await get<HelperSession>(`${base}/${e(sid)}`);
     const a = answerAfter(s.messages, turn.n);

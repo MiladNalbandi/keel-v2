@@ -11,10 +11,13 @@
 //   │ │ The check misses the coupon: …                      │    │
 //   │ │ [Use in my comment] [Open the chat]                 │    │
 //   │ └─────────────────────────────────────────────────────┘    │
+//
+// 0.37 (#192) the answer shows as KeelBot writes it (the live text of the turn), and the stored one as soon as the
+// turn ends (helper.finished wakes the wait).
 
 import { useEffect, useRef, useState } from "react";
-import { ErrorBox, Markdown } from "@keel/web-sdk";
-import { askInReview, askText, openChat, type AskResult } from "./askKeelBot";
+import { ErrorBox, Markdown, useApp } from "@keel/web-sdk";
+import { askInReview, askText, openChat, wakeAsk, type AskResult } from "./askKeelBot";
 
 export function CommentBox({
   pid,
@@ -54,6 +57,12 @@ export function CommentBox({
   const [wait, setWait] = useState<number | null>(null); // seconds waited, null when not waiting
   const [answer, setAnswer] = useState<AskResult | null>(null);
   const [askErr, setAskErr] = useState<{ message: string; hint?: string } | null>(null);
+  const [call, setCall] = useState<string | null>(null); // the running turn's call id
+  const { liveText, recent } = useApp();
+  // the live text goes when the whole message arrives: the last one stays until the stored answer is here
+  const lastLive = useRef<string | undefined>(undefined);
+  if (call && liveText[call]) lastLive.current = liveText[call];
+  const live = call ? lastLive.current : undefined;
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -66,6 +75,10 @@ export function CommentBox({
     const t = setTimeout(() => setWait((w) => (w == null ? w : w + 1)), 1000);
     return () => clearTimeout(t);
   }, [wait]);
+  // the turn ended: read its answer now, not at the next poll
+  useEffect(() => {
+    if (call && recent.some((ev) => ev.type === "helper.finished" && ev.call_id === call)) wakeAsk(call);
+  }, [call, recent]);
 
   const quote = (code ?? "").split("\n").slice(0, 8);
   const more = (code ?? "").split("\n").length - quote.length;
@@ -74,6 +87,7 @@ export function CommentBox({
     if (wait != null) return;
     setAskErr(null);
     setAnswer(null);
+    lastLive.current = undefined;
     setWait(0);
     try {
       const r = await askInReview(
@@ -82,6 +96,9 @@ export function CommentBox({
         chatTitle,
         askText({ where: askWhere, code: code ?? "", question }),
         () => alive.current,
+        (c) => {
+          if (alive.current) setCall(c);
+        },
       );
       if (!alive.current) return;
       if (r) setAnswer(r);
@@ -89,7 +106,10 @@ export function CommentBox({
     } catch (e) {
       if (alive.current) setAskErr(e instanceof Error ? e : { message: String(e) });
     } finally {
-      if (alive.current) setWait(null);
+      if (alive.current) {
+        setWait(null);
+        setCall(null);
+      }
     }
   };
 
@@ -181,8 +201,13 @@ export function CommentBox({
           </div>
           {wait != null && (
             <p className="rvn-dim" role="status">
-              {helper} reads the code… {wait > 0 ? `${wait} s` : ""}
+              {live ? `${helper} is writing…` : `${helper} reads the code…`} {wait > 0 ? `${wait} s` : ""}
             </p>
+          )}
+          {wait != null && live && (
+            <div className="rvn-cb-a" aria-label={`${helper}'s answer so far`} aria-busy="true">
+              <Markdown text={live} breaks answer />
+            </div>
           )}
           {askErr && <ErrorBox error={askErr} />}
           {answer && (
