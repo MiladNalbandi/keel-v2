@@ -31,13 +31,13 @@ GOLDEN = json.loads((Path(__file__).parent / "fake_answers_0151.json").read_text
 
 
 def test_one_version_and_name_everywhere():
-    assert MANIFEST["version"] == keel_plugin_review.VERSION == keel_plugin_review.ADDON["version"] == "1.1.0"
+    assert MANIFEST["version"] == keel_plugin_review.VERSION == keel_plugin_review.ADDON["version"] == "1.2.0"
     assert MANIFEST["name"] == keel_plugin_review.ADDON["name"] == "review"
     assert MANIFEST["requires"] == {"sdk": 1, "plugins": {"keelbot": ">=1.0.0"}} and MANIFEST["per_project"] is True
     assert MANIFEST["parts"]["engine"] == {"path": "engine", "package": keel_plugin_review.__name__}
     assert MANIFEST["parts"]["content"] == "content" and keel_plugin_review.CONTENT == PLUGIN / "content"
     m = manifests.parse((PLUGIN / "keel-plugin.yml").read_text())   # the resolver reads it as it is
-    assert m.name == "review" and m.version == "1.1.0" and m.web == {"entry": "web/index.js", "css": ["web/style.css"]}
+    assert m.name == "review" and m.version == "1.2.0" and m.web == {"entry": "web/index.js", "css": ["web/style.css"]}
     assert m.api == {"jars": ["api/keel-plugin-review.jar"], "lib": None} and m.content == "content"
 
 
