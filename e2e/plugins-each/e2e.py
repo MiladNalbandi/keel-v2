@@ -89,7 +89,11 @@ MCP_TOOLS = {
     "ci": ["keel_ci_runs", "keel_ci_failure", "keel_ci_rerun"],
     "db": ["keel_db_schema", "keel_db_query", "keel_db_change", "keel_db_connections"],
     "review": ["keel_review_prs", "keel_review_files", "keel_review_diff", "keel_review_findings", "keel_review_notes",
-               "keel_review_explain", "keel_review_comment", "keel_review_reply", "keel_review_resolve", "keel_review_submit"],
+               "keel_review_explain", "keel_review_comment", "keel_review_reply", "keel_review_resolve", "keel_review_submit",
+               "keel_review_threads", "keel_review_thread", "keel_review_conversation", "keel_review_file", "keel_review_symbol",
+               "keel_review_diagrams", "keel_review_draft", "keel_review_move_drafts", "keel_review_viewed", "keel_review_base",
+               "keel_review_check", "keel_review_button", "keel_review_finding", "keel_review_address", "keel_review_fix_finding",
+               "keel_review_checkout", "keel_review_merge"],
     "supervisor": ["keel_supervisor", "keel_supervisor_set"],
 }
 FIXTURE = {

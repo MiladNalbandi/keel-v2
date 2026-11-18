@@ -76,8 +76,22 @@ explain or find problems, **s** submit (keel asks first), **p** another pull req
 
 ## From an AI tool (MCP)
 
-- Read: `keel_review_prs`, `keel_review_files`, `keel_review_diff`, `keel_review_notes`.
-- With `--write`: `keel_review_comment`, `keel_review_explain`, `keel_review_findings`, `keel_review_reply`,
-  `keel_review_resolve`, `keel_review_submit`. The last three post to GitHub or GitLab, so your tool asks you first.
+Your AI tool can do everything the Review page does.
+
+- **Read:** `keel_review_prs` (open pull requests), `keel_review_files` (files, threads, your drafts),
+  `keel_review_diff`, `keel_review_notes` (keel's overview and findings, with their ids and your decisions),
+  `keel_review_threads` (every thread with what keel added on it), `keel_review_thread` (one thread in full: every
+  comment, keel's check point by point, its suggested reply, the "fixed?" check, button answers, the Address it flow),
+  `keel_review_conversation` (description, checks, commits, conversation), `keel_review_file` (a file at head or
+  base), `keel_review_symbol` (definition or usages), `keel_review_diagrams`.
+- **With `--write`, only in keel:** `keel_review_comment`, `keel_review_draft` (edit or delete a draft),
+  `keel_review_move_drafts`, `keel_review_viewed`, `keel_review_base`, `keel_review_explain`, `keel_review_findings`,
+  `keel_review_check` ("Is the reviewer right?" on one thread or all), `keel_review_button`, `keel_review_finding`
+  (dismiss, commented, open).
+- **With `--write`, your tool asks you first:** `keel_review_reply`, `keel_review_resolve`, `keel_review_submit` and
+  `keel_review_merge` post to GitHub or GitLab; `keel_review_address` and `keel_review_fix_finding` start a flow on
+  the branch (it never pushes); `keel_review_checkout` moves the project folder to the review's branch.
+
+Thread settings stay in the web app (Settings › Code Review threads).
 
 See [Connect an AI tool (MCP)](#/help/connect-an-ai-tool).
