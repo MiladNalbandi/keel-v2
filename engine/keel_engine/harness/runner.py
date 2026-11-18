@@ -36,7 +36,8 @@ from ..models.base import AgentRequest, AgentResult, Emit, ModelError
 from . import context, providers, steps, transcript
 from . import skills as skills_mod
 from .providers.base import MAX_TOKENS, PAUSE, REFUSAL, ProviderError, Request, Turn, Usage
-from .tools import ToolSet, cap, run_calls, sweep_outputs
+from .. import extensions
+from .tools import ToolSet, cap, deferrable, run_calls, sweep_outputs
 
 MAX_TURNS = int(os.environ.get("KEEL_HARNESS_MAX_TURNS") or 150)
 SUB_TURNS = 40                  # a Task helper
@@ -279,6 +280,12 @@ class HarnessRunner:
         t0 = time.monotonic()
         tools = await self._tools(req, session, provider, used, emit)
         self._timing["tools"] = time.monotonic() - t0
+        # 0.37 (#191) which of keel's plugin tools this call has and what each is for: a model that is not told uses Bash
+        later = set(tools.deferred) or ({n for n in tools.tools if deferrable(n)}
+                                         if getattr(provider, "native_deferral", False) else set())
+        guide = extensions.tools_guide(list(tools.tools), later)
+        if guide:
+            system = system.rstrip() + "\n\n" + guide
         web = "WebSearch" in self._web(req) and provider.name == "anthropic"
         effort = catalog.effort_for(req.model)
         window = self._window(req)

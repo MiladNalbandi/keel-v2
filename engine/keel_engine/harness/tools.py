@@ -52,7 +52,13 @@ BASE_MCP = frozenset({"mcp__codegraph__codegraph_search"})
 
 
 def deferrable(name: str) -> bool:
-    return name in DEFERRED or (name.startswith("mcp__") and name not in BASE_MCP)
+    if name in DEFERRED:
+        return True
+    if not name.startswith("mcp__") or name in BASE_MCP:
+        return False
+    from .. import extensions
+
+    return name not in extensions.base_tools()      # 0.37 (#191) a part's base tools (Git: git_status, git_diff ...)
 
 
 def _first_sentence(text: str, n: int = 110) -> str:
@@ -339,6 +345,7 @@ class ToolSet:
         from .shells import Shells
 
         self.box = box
+        self._hinted: set[str] = set()             # 0.37 the keel tools a Bash hint named already (_prefer_hint)
         self.read_at: dict[str, float] = {}        # project-relative path -> its mtime when the model read it
         self.tools: dict[str, Tool] = {}
         self.shells = Shells(box)
@@ -353,6 +360,22 @@ class ToolSet:
 
     def close(self) -> None:
         self.shells.close()
+
+    def _prefer_hint(self, command: str) -> str:
+        """0.37 (#191) a Bash command that one of this call's keel tools does (git diff: git_diff, gh pr view: pr_status
+        ...): one line naming it, once per tool in this call. Nothing when the call has no such tool."""
+        from .. import extensions
+
+        try:
+            prefer = extensions.bash_prefer()
+        except Exception:  # noqa: BLE001 - a hint, never a failed command
+            return ""
+        for pat, tool in prefer:
+            if tool in self.tools and tool not in self._hinted and pat.search(command or ""):
+                self._hinted.add(tool)
+                return (f"\n\n(keel: {tool} does this without the shell and knows the branch, its base and keel's rules; "
+                        "use it next time it fits.)")
+        return ""
 
     # -------------------------------------------------- read before write
 
@@ -504,7 +527,7 @@ class ToolSet:
             if a.get("run_in_background"):
                 return await asyncio.to_thread(self.shells.start, a["command"])
             timeout = max(1, min(int(a.get("timeout") or 120_000) // 1000, 600))
-            return cap(await asyncio.to_thread(self.shells.run, a["command"], timeout))
+            return cap(await asyncio.to_thread(self.shells.run, a["command"], timeout)) + self._prefer_hint(a["command"])
 
         async def bash_output(a: dict) -> str:
             return self.shells.output(a["shell_id"])

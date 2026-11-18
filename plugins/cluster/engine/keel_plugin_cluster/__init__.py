@@ -48,7 +48,9 @@ PART = {
     "act_tools": ("cluster_exec", "cluster_change"),
     "mcp": {"server": "keel-cluster", "module": "keel_plugin_cluster.server", "call": _call,
             "prompt": "Kubernetes: cluster_find, cluster_logs and cluster_describe read it. cluster_exec and cluster_change wait for "
-                      "the person's OK."},
+                      "the person's OK.",
+            "prefer": {r"(^|[;&|(]\s*)kubectl\s+logs\b": "cluster_logs", r"(^|[;&|(]\s*)kubectl\s+describe\b": "cluster_describe",
+                       r"(^|[;&|(]\s*)kubectl\s+get\b": "cluster_find"}},
     "router": _router,
     "keelbot": {"prompt": KEELBOT, "actions": []},
 }

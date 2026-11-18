@@ -121,7 +121,15 @@ PART = {
     "params": PARAMS,
     "docs": DOCS,
     "read_tools": ("git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branches", "pr_status"),
-    "mcp": {"server": "keel-git", "module": "keel_plugin_git.server", "call": _call},
+    # 0.37 (#191) base: always in the tool list; prefer: the Bash commands these tools do (a hint names the tool)
+    "mcp": {"server": "keel-git", "module": "keel_plugin_git.server", "call": _call,
+            "prompt": "git and the branch's pull request, read only. git_diff against_base shows the whole branch against "
+                      "its base; pr_status shows the PR's review, CI checks and review comments.",
+            "base": ("git_status", "git_diff", "git_log", "pr_status"),
+            "prefer": {r"(^|[;&|(]\s*)git\s+status\b": "git_status", r"(^|[;&|(]\s*)git\s+diff\b": "git_diff",
+                       r"(^|[;&|(]\s*)git\s+log\b": "git_log", r"(^|[;&|(]\s*)git\s+show\b": "git_show",
+                       r"(^|[;&|(]\s*)git\s+blame\b": "git_blame", r"(^|[;&|(]\s*)git\s+branch(\s+(-a|-r|-v|-vv|--list))*\s*($|[;&|])": "git_branches",
+                       r"(^|[;&|(]\s*)gh\s+pr\s+(view|checks|status)\b": "pr_status"}},
     "router": _router,
     "errors": _errors,
     "keelbot": {"prompt": KEELBOT, "actions": KEELBOT_ACTIONS},

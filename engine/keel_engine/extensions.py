@@ -18,7 +18,10 @@ built-in parts are named in one place, builtins.py (each module's PART dict); ad
     mcp           its MCP server for agents: {"server": "keel-db", "module": "keel_plugin_db.server", "args": [...],
                   "call": fn(call, tool, args) -> str} runs with one key per agent call (open_call below);
                   a server the part hands out itself (hook mcp_specs) has no module. "prompt": what an agent that has
-                  this server is told (runtime/agent_knowledge.py)
+                  this server is told (runtime/agent_knowledge.py; 0.37 keel's harness puts it in its "keel's tools"
+                  part, tools_guide). 0.37 "base": its tools that are always in the tool list (never deferred);
+                  "prefer": {regex on a Bash command: tool}: a Bash call that matches ends with a hint naming the tool.
+                  keel's harness runs a server with a module inside the engine (tools/mcp.py inproc_tools)
     router        a FastAPI router: its engine routes, mounted after keel's own
     open_paths    paths of its routes that need no internal token (X-Keel-Token): only for a route that checks a key of
                   its own (KeelBot's /helper/permissions/ask: the guard's hook asks there with the turn's ask key)
@@ -52,6 +55,7 @@ from __future__ import annotations
 import importlib
 import inspect
 import logging
+import re
 import secrets
 import sys
 import time
@@ -289,6 +293,53 @@ def server_prompt(server: str) -> str:
     return next((str(p.mcp.get("prompt") or "") for p in parts() if p.mcp.get("server") == server), "")
 
 
+def base_tools() -> frozenset[str]:
+    """0.37 (#191) the parts' tools that are always in an agent's tool list (mcp.base), as mcp__<server>__<tool>: the
+    ones an agent needs often enough that a LoadTools or tool-search turn would cost more than their few lines."""
+    return frozenset(f"mcp__{p.mcp['server']}__{t}" for p in parts() if p.mcp.get("server") for t in p.mcp.get("base") or ())
+
+
+def bash_prefer() -> list[tuple[re.Pattern, str]]:
+    """0.37 (#191) (a Bash command's pattern, the part's tool that does it as mcp__<server>__<tool>), from each part's
+    mcp.prefer: a Bash call that matches ends with a one-line hint to use the tool next time."""
+    out = []
+    for p in parts():
+        for pat, tool in (p.mcp.get("prefer") or {}).items() if p.mcp.get("server") else ():
+            out.append((re.compile(pat), f"mcp__{p.mcp['server']}__{tool}"))
+    return out
+
+
+def tools_guide(tool_names: list[str], deferred: set[str] | frozenset[str]) -> str:
+    """0.37 (#191) the system prompt's "keel's tools" part for the parts' servers this call has: what each is for (its
+    mcp.prompt) and which of its tools are in the list now; "" when the call has none of them."""
+    by_server: dict[str, list[str]] = {}
+    for n in tool_names:
+        if n.startswith("mcp__") and n.count("__") >= 2:
+            server, tool = n[5:].split("__", 1)
+            by_server.setdefault(server, []).append(tool)
+    lines = []
+    for p in parts():
+        server = p.mcp.get("server")
+        if not server or server not in by_server or server == "codegraph":
+            continue
+        tools = by_server[server]
+        ready = [t for t in tools if f"mcp__{server}__{t}" not in deferred]
+        later = [t for t in tools if t not in ready]
+        what = str(p.mcp.get("prompt") or p.get("title") or p.name).strip()
+        line = f"- {server} ({p.name}): {what}"
+        if ready:
+            line += f" In your tool list: {', '.join(ready)}."
+        if later:
+            line += f" Load when needed: {', '.join(later)}."
+        lines.append(line)
+    if not lines:
+        return ""
+    return ("## keel's tools for this project\n\n"
+            "These tools (named mcp__<server>__<tool>) know the project, its branch, its pull request and keel's rules, "
+            "and answer in short. Use them instead of the same thing in Bash (git, gh, kubectl, psql ...) whenever one "
+            "fits; use Bash for the rest.\n\n" + "\n".join(lines))
+
+
 _calls: dict[str, dict] = {}
 
 
@@ -337,8 +388,11 @@ def server_specs(names: list[str], key: str) -> list[dict]:
             env = {"KEEL_PLUGIN_URL": url, "KEEL_PLUGIN_KEY": key}
             if folder := _package_folder(p):
                 env["PYTHONPATH"] = folder
+            # 0.37 "inproc": keel's own harness runs the server inside the engine (tools/mcp.py); the command stays for
+            # anything that starts it as a process
             out.append({"name": p.mcp["server"], "command": sys.executable,
-                        "args": ["-P", "-m", p.mcp["module"], *[str(x) for x in p.mcp.get("args") or []]], "env": env})
+                        "args": ["-P", "-m", p.mcp["module"], *[str(x) for x in p.mcp.get("args") or []]], "env": env,
+                        "inproc": {"module": p.mcp["module"], "key": key}})
     return out
 
 
