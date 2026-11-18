@@ -7,7 +7,7 @@
 schema: 1
 name: db
 title: Database
-version: 1.0.0
+version: 1.0.1
 publisher: keel
 summary: Connect the project's databases - KeelBot and agents read them, workflows check the data, and you query them in Code and Map.
 requires:

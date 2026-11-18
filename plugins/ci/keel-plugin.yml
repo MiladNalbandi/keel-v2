@@ -7,7 +7,7 @@
 schema: 1
 name: ci
 title: CI/CD
-version: 1.0.0
+version: 1.0.1
 publisher: keel
 summary: Watch the project's pipelines, see why one failed, and fix it with a flow.
 requires:

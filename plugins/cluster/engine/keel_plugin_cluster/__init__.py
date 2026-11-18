@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 # the same version as ../../keel-plugin.yml (tests/test_cluster.py checks it)
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 CONTENT = Path(__file__).resolve().parents[2] / "content"
 
 KEELBOT = ("Kubernetes clusters are linked to this project: cluster_find finds pods, deployments, services and nodes by name or IP "

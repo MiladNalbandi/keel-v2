@@ -19,7 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 
 # the same version as ../../keel-plugin.yml (tests/test_git_part.py checks it)
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 CONTENT = Path(__file__).resolve().parents[2] / "content"
 
 PARAMS = {
