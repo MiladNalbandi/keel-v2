@@ -2,13 +2,13 @@
 // box (one ask-mode chat for the review), "Use in my comment" puts the answer in the comment, "Open the chat" goes on
 // in KeelBot with that chat. It runs inside keel's web on the demo data of ./nextDemo, like selection.test.tsx.
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../../../../web/src/App";
 import { SLOTS } from "../../../../web/src/sdk/slots";
 import { restorePlugins, withoutSlot } from "../../../../web/src/test/coreOnly";
-import { db, server } from "../../../../web/src/test/setup";
+import { db, FakeEventSource, server } from "../../../../web/src/test/setup";
 import { nextDemo } from "./nextDemo";
 import { answerAfter, askText } from "../next/askKeelBot";
 
@@ -109,6 +109,38 @@ describe("Review › Files: comment on selected lines, ask KeelBot from the comm
     await userEvent.click(within(box).getByRole("button", { name: "Open the chat" }));
     await waitFor(() => expect(location.hash).toBe("#/helper"));
     expect(localStorage.getItem("keel2.helper.p1.session") ?? localStorage.getItem(`keel2.helper.${chat.project}.session`)).toBe(chat.id);
+  });
+
+  it("the answer shows as KeelBot writes it, and the stored one as soon as the turn ends", async () => {
+    const { diff } = await openDiff();
+    await userEvent.click(within(diff).getByRole("button", { name: "Comment on line 20" }));
+    const box = await within(diff).findByRole("form", { name: "Comment on line 20" });
+    await userEvent.click(within(box).getByRole("button", { name: "Ask KeelBot" }));
+    await userEvent.type(within(box).getByRole("textbox", { name: "Your question to KeelBot" }), "Why?{Enter}");
+    await waitFor(() => expect(db.helper.sessions[0]?.messages?.length).toBe(1));
+    const chat = db.helper.sessions[0];
+    const call = `call-${chat.id}-1`;
+    const ev = (type: string, data: Record<string, unknown>) => act(() => FakeEventSource.emit(type, {
+      type, thread_id: chat.id, project_id: chat.project, call_id: call, step: "helper", at: new Date().toISOString(), data }));
+    ev("helper.delta", { n: 1, block: 0, text: "Because the **coupon**" });
+    const so = await within(box).findByLabelText("KeelBot's answer so far");
+    expect(so).toHaveTextContent("Because the coupon");
+    expect(so.querySelector("strong, b")).toHaveTextContent("coupon");
+    expect(within(box).getByRole("status")).toHaveTextContent("KeelBot is writing");
+    expect(within(box).queryByLabelText("KeelBot's answer")).toBeNull();
+    // the whole message arrived (the live text goes): what was written stays until the stored answer is here
+    ev("helper.step", { n: 1, kind: "answer", text: "Because the **coupon** is not refundable." });
+    expect(within(box).getByLabelText("KeelBot's answer so far")).toHaveTextContent("Because the coupon");
+    // let the short first waits pass: now only helper.finished (or the 1.5 s fallback) ends the wait
+    await new Promise((r) => setTimeout(r, 1400));
+    answer(chat.id, "Because the **coupon** is not refundable.");
+    const t0 = Date.now();
+    ev("helper.finished", { status: "done" });
+    const a = await within(box).findByLabelText("KeelBot's answer", {}, { timeout: 4000 });
+    expect(Date.now() - t0).toBeLessThan(700);
+    expect(a).toHaveTextContent("Because the coupon is not refundable.");
+    expect(within(box).queryByLabelText("KeelBot's answer so far")).toBeNull();
+    expect(within(box).queryByRole("status")).toBeNull();
   });
 
   it("without KeelBot the box has no Ask", async () => {
