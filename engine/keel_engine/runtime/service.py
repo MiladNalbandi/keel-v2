@@ -1026,7 +1026,8 @@ class Engine:
             last = {"provider": m.get("provider"), "mode": m.get("mode")}
         unlocks = merge_unlocks(list(v.get("unlocks") or []), ctx.api_unlocks)
         out = await asyncio.to_thread(rules_view.now, ctx.root, st.get("phase"), lane, unlocks, last.get("provider"),
-                                      last.get("mode"), (v.get("data") or {}).get("last_command_failure"))
+                                      last.get("mode"), (v.get("data") or {}).get("last_command_failure"),
+                                      (ctx.settings or {}).get("rules_mode"))
         return {**out, "thread_id": tid, "status": st.get("status"), "current": st.get("current")}
 
     async def document(self, tid: str) -> dict:

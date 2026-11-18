@@ -351,3 +351,13 @@ async def test_the_mcp_tool_is_write_level_and_never_on_an_agents_read_level_ser
 
     assert mcp_server.tool_level("keel_rules_mode") == "write" and mcp_confirm.out_of_band("keel_rules_mode")
     assert "keel_rules_mode" not in await tool_names(server(RulesApi(), level="read"))
+
+
+def test_rules_now_says_safety_only_and_lists_no_phase_limits(tmp_path):
+    from keel_engine.runtime import rules_view
+
+    normal = rules_view.now(str(tmp_path), "red")
+    assert normal["rules_mode"] == "normal" and normal["may_not"]
+    safe = rules_view.now(str(tmp_path), "red", rules_mode="safety-only")
+    assert safe["rules_mode"] == "safety-only" and safe["may_not"] == [] and safe["packs"] == []
+    assert {a["bucket"] for a in safe["always"]} >= {"protected-env", "keel-rules"}
