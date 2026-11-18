@@ -27,8 +27,16 @@ GIT_TIMEOUT = 120      # seconds: a stuck git (a lock, a hung network remote) mu
 #     the environment wins over any config)
 SECRET_HINTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 KEEP_ENV = {"KEEL_GIT_TOKEN_FILE", "KEEL_GIT_HOST"}
+# keel reads git's output itself (diff headers `+++ b/<file>`, paths), so the person's own diff settings must not change
+# its shape: diff.mnemonicPrefix (`+++ i/<file>`) or diff.noprefix hid every staged file from the secret scan and the
+# new-dependency check, and diff.relative / color.diff=always would too.
+PLAIN_DIFF = ("-c", "diff.mnemonicPrefix=false", "-c", "diff.noprefix=false", "-c", "diff.relative=false",
+              "-c", "color.diff=false")
 SAFE_ARGS = ("-c", "protocol.ext.allow=never", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false")
-SAFE_ARGS_HOOKS = ("-c", "protocol.ext.allow=never", "-c", "core.fsmonitor=false")      # git.hooks: on, a local command
+# the commands whose output keel parses as a diff get PLAIN_DIFF (only those: `git add` with more -c options and an
+# exclude pathspec was seen to stage nothing)
+DIFF_VERBS = {"diff", "show", "log", "format-patch", "range-diff", "stash", "blame", "whatchanged"}
+SAFE_ARGS_HOOKS = ("-c", "protocol.ext.allow=never", "-c", "core.fsmonitor=false")  # git.hooks: on, local
 # 0.21.3 agents run as their own user, in keel's group (tools/agent_user.py), and keel runs with umask 077: what keel's
 # git writes in .git (the index, objects, refs) stays readable and writable for the agent's own git
 SHARED_ARGS = ("-c", "core.sharedRepository=group")
@@ -89,6 +97,8 @@ def git(root: str, *args: str, check: bool = False, env: dict | None = None, tim
     if verb in NETWORK:
         run_env.setdefault("GIT_ALLOW_PROTOCOL", ALLOW_PROTOCOL)
     safe = SAFE_ARGS_HOOKS if verb in LOCAL_HOOK_VERBS and project_hooks(root) else SAFE_ARGS
+    if verb in DIFF_VERBS:
+        safe = (*safe, *PLAIN_DIFF)
     if agent_user.enabled():
         safe = (*safe, *SHARED_ARGS)
     kw: dict = {"encoding": "utf-8", "errors": "replace"} if text else {}
