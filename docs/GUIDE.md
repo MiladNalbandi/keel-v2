@@ -1197,10 +1197,9 @@ pages you use.
   findings under their lines; `]` `[` go to the next file, `}` `{` to the next change. Keys: **c** a line comment (a
   draft), **r** reply, **x** resolve, **v** viewed, **e** / **f** ask keel to explain the change or find problems, **o** /
   **F** read them, **s** submit (approve, request changes or comment: keel asks first), **p** another pull request,
-  **?** all keys. `/review prs` lists the open pull requests. `keel2 mcp` has the same: `keel_review_prs`,
-  `keel_review_files`, `keel_review_diff`, `keel_review_notes`, and with `--write` `keel_review_comment`,
-  `keel_review_explain`, `keel_review_findings`, `keel_review_reply`, `keel_review_resolve`, `keel_review_submit` (the
-  last three post to GitHub or GitLab, so your client asks you first). Any plugin can add a mode like this:
+  **?** all keys. `/review prs` lists the open pull requests. `keel2 mcp` has all of it and more (0.39: every
+  read and action of the Review page, including what keel added on each thread): see
+  [Review a pull request › From an AI tool](guides/review-a-pull-request.md#from-an-ai-tool-mcp). Any plugin can add a mode like this:
   [docs/plugins/25-tui-plugins.md](plugins/25-tui-plugins.md).
 
 ## Quality

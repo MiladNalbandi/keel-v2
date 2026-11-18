@@ -2190,6 +2190,17 @@ Everything the person can do in keel's terminal app an MCP client can do for the
   `keel_review_submit {event: APPROVE | REQUEST_CHANGES | COMMENT, body}`. Each first opens the review with
   `GET …/review/open` and refuses when the plugin is off for the project. Levels: GET is read; every POST is write
   (`McpLevelGuard`'s default).
+- **0.39 (#198) the rest of the Review page:** read `keel_review_threads {pr, open_only}` and `keel_review_thread
+  {thread_id, pr}` (the view's threads with `GET …/review/ai`: `judges`, `fixed`, `addressed`, `buttons`, `config.buttons`),
+  `keel_review_conversation`, `keel_review_file {path, side, start_line, end_line}` (`GET …/file`, ≤ 400 lines),
+  `keel_review_symbol {symbol, kind}` (`GET …/definition | usages`), `keel_review_diagrams {which}`; write, keel only:
+  `keel_review_draft {draft_id, body | delete}` (`PUT | DELETE …/drafts/{id}`), `keel_review_move_drafts` (`POST
+  …/drafts/move`), `keel_review_viewed`, `keel_review_base` (`PUT …/base`), `keel_review_check {thread_id?, again,
+  harder}` (`POST …/threads/{id}/judge`, or `…/threads/judge` for all), `keel_review_button {thread_id, button}`,
+  `keel_review_finding {finding_id, decision, why}` (`POST …/ai/findings/{id}`); write, asking first:
+  `keel_review_address`, `keel_review_fix_finding` (`POST …/ai/findings/{id}/fix`), `keel_review_checkout`,
+  `keel_review_merge {method, delete_branch}`. `ReviewMcpRoutes` names each route at write; the thread settings stay
+  admin.
 
 ## 0.18.6: skills from everywhere, the skills marketplace, the plugin workflow
 
