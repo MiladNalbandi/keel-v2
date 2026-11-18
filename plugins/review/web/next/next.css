@@ -1605,3 +1605,60 @@ a.rvn-btn {
     display: none;
   }
 }
+
+/* 0.36 the comment box: what it is on, the code, and Ask KeelBot inside it */
+.rvn-cb-h {
+  color: var(--dim);
+  font: 500 12px var(--f-body);
+}
+.rvn-cb-q {
+  margin: 0;
+  padding: 6px 10px;
+  max-height: 10.5em;
+  overflow: auto;
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: var(--panel-2, var(--panel));
+  color: var(--fg);
+  font: 12px/1.5 var(--f-mono);
+  white-space: pre;
+}
+.rvn-cb-ask {
+  margin-left: auto;
+}
+.rvn-cb-bot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.rvn-cb-askrow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+.rvn-cb-in {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+}
+.rvn-cb-a {
+  max-height: 22em;
+  overflow: auto;
+  font-size: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rvn-cb-a.failed {
+  color: var(--bad);
+}
+@media (max-width: 640px) {
+  .rvn-compose {
+    margin-left: 8px;
+    margin-right: 8px;
+  }
+}

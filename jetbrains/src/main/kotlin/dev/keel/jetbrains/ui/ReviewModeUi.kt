@@ -236,7 +236,10 @@ class CommentOnChangeAction : AnAction("Comment on This Change"), DumbAware {
             return dev.keel.jetbrains.core.ReviewComments.add(project, path, last, "RIGHT", where, first.takeIf { it < last }, sel.selectedText)
         }
         ReviewModeMarks.of(project).rangeAtCaret(editor, file)?.let { (p, r) -> return ReviewModeMarks.of(project).commentOn(p, r) }
-        dev.keel.jetbrains.core.ReviewComments.add(project, path, editor.caretModel.logicalPosition.line + 1, "RIGHT")
+        val row = editor.caretModel.logicalPosition.line
+        val doc = editor.document
+        val lineText = if (row < doc.lineCount) doc.getText(com.intellij.openapi.util.TextRange(doc.getLineStartOffset(row), doc.getLineEndOffset(row))) else null
+        dev.keel.jetbrains.core.ReviewComments.add(project, path, row + 1, "RIGHT", code = lineText)
     }
 }
 

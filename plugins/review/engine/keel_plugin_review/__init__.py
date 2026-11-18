@@ -20,7 +20,7 @@ from pathlib import Path
 from .fake import answer as fake_answer
 
 # the same version as ../../keel-plugin.yml (tests/test_review_part.py checks it)
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 CONTENT = Path(__file__).resolve().parents[2] / "content"
 
 def _keel_mcp(server, api, guard, write: bool) -> None:
