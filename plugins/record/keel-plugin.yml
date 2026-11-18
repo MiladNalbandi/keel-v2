@@ -4,7 +4,7 @@
 schema: 1
 name: record
 title: Record
-version: 0.1.0
+version: 0.1.1
 publisher: keel
 summary: One page and one export per flow - who asked, what ran, how each gate was answered, the commits and the cost.
 requires:
@@ -13,5 +13,7 @@ parts:
   api: { jars: [api/keel-plugin-record.jar] }
   web: { entry: web/index.js }
 per_project: false
+# 0.38 parked (#196): no new features; in every image, off until a person turns it on (Settings › Plugins)
+starts_off: true
 permissions:
   pages: true

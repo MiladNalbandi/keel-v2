@@ -111,15 +111,15 @@ keel is a small **core**. Everything else is a **plugin** that you turn on or of
 
 ```
  keel core     flows, workflows, agents, gates, Inbox, budget, connections
-   + Code      with Git, Code Review, Database and CI/CD inside
-   + KeelBot   + Map   + Graph   + Wiki   + Tasks (with Jira)
-   + Supervisor   + keel Product (beta)
+   + Code      with Git, Code Review, Database, CI/CD and Cluster inside
+   + KeelBot   + Graph   + Wiki   + Tasks (with Jira and GitHub Issues)
+ parked        Org · Goals · Answers · Desk · Map · Record · Slack · Notify · Library · Links · Supervisor · keel Product
 ```
 
-**Settings › Plugins** and **Add features** show them. All plugins come with keel and are on, except **keel Product**
-(beta): it is in every keel (the Docker image, the native install and the keel app) but off until you turn it on in
-**Add features** (its card has On · Off; keel restarts once to load it). Turn one off, or add one from the
-**Marketplace**, and keel restarts in about 30 seconds. `keel2 start --core` starts keel with no plugin inside.
+**Settings › Plugins** and **Add features** show them. The core plugins come with keel and are on. The **parked** ones
+([docs/parked.md](docs/parked.md)) are in every keel too, but off until you turn them on, and they get no new features:
+keel focuses on running coding agents on any model and making what they did easy to read. Turn one on or off, or add
+one from the **Marketplace**, and keel restarts in about 30 seconds. `keel2 start --core` starts keel with no plugin inside.
 
 ## Code Review
 
@@ -136,7 +136,7 @@ keel is a small **core**. Everything else is a **plugin** that you turn on or of
 
 ## Supervisor
 
-A plugin (off by default) that watches a project's flows like a careful colleague:
+Parked ([docs/parked.md](docs/parked.md)). A plugin (off by default) that watches a project's flows like a careful colleague:
 
 ```
  flow waits at a gate ──► Supervisor reads the spec, the code, the rules and your earlier answers
@@ -190,7 +190,7 @@ It runs on a strong model, never raises a budget cap, and you can turn it on kee
   <img src="docs/keel-android.gif" alt="keel's Android app (demo data): the inbox, approving a spec, the flow, a pull request's threads and files, a file's diff with a review thread, and a KeelBot chat with its model picker" width="300">
 </p>
 
-The Android app ([android/](android/README.md)) answers keel's questions, follows flows, reviews pull request threads and
+Parked: it keeps working, with no new features. The Android app ([android/](android/README.md)) answers keel's questions, follows flows, reviews pull request threads and
 chats with KeelBot. Start keel with `keel2 start --wifi` (your Wi-Fi), or share it with `keel2 share tailscale` (https
 on your tailnet) or `keel2 share tunnel` (a public https address). Then pair the app in **Settings › Access › Pair a
 phone**: scan the QR code. It talks to keel directly; nothing goes through a server of ours.
@@ -207,7 +207,7 @@ or a pairing code like the phone.
 
 ## In VS Code
 
-The keel extension ([vscode/](vscode/README.md), VS Code 1.90+) has the same features as the JetBrains plugin: your
+Parked: it keeps working, with no new features (the JetBrains plugin gets them). The keel extension ([vscode/](vscode/README.md), VS Code 1.90+) has the same features as the JetBrains plugin: your
 flows with their live activity (the running agents, their edits, commands and tests), the questions they wait at (a
 notification and "◆ keel: 1 question" in the status bar), review threads on the pull request's changed lines in the
 normal editors, Start a flow, and KeelBot (Ctrl+Alt+K on a selection). Build it with

@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 # the same version as ../../keel-plugin.yml (tests/test_org.py checks it)
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 CONTENT = Path(__file__).resolve().parents[2] / "content"
 
 

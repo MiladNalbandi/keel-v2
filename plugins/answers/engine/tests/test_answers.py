@@ -205,7 +205,7 @@ def packed(tmp_path):
 
 
 def test_the_package_holds_content_only(packed):
-    with tarfile.open(packed / "answers-0.1.0.kplug") as t:
+    with tarfile.open(packed / "answers-0.1.1.kplug") as t:
         names = t.getnames()
     assert "content/workflows/answers-questionnaire.yaml" in names and "keel-plugin.yml" in names and "files.sha256" in names
     assert not [n for n in names if n.startswith(("engine", "api", "web"))]

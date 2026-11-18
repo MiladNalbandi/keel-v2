@@ -4,7 +4,7 @@
 schema: 1
 name: answers
 title: Answers
-version: 0.1.0
+version: 0.1.1
 publisher: keel
 summary: Drafts answers to a customer's or auditor's questions from your code and docs, each with its source. You approve every answer before it goes in the document.
 requires:
@@ -13,5 +13,7 @@ requires:
 parts:
   content: content
 per_project: false
+# 0.38 parked (#196): no new features; in every image, off until a person turns it on (Settings › Plugins)
+starts_off: true
 permissions:
   workspace: read
