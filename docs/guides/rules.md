@@ -34,6 +34,18 @@ command the way a shell would, so a hidden command (base64, escapes, `eval`, `sh
 The agent gets the reason back and is told to stop and ask you, not to try another way. The rule is called
 `catastrophic`; you can switch it off for a project (keel's rules you can switch off).
 
+## Rules: Normal or Safety only
+
+Flows run with **Normal** rules by default. When phase rules or a rule pack keep blocking an agent, choose **Safety
+only**: phase rules, rule packs and read limits are off; T3, secrets, keel's keys, rule files, git settings, keel's
+commits and your gates stay. Choose it in Settings › Flow and gates › Rules, in Start a flow, with the Rules switch on
+the Flow page (a **Safety only** chip shows it), or with `rules: {mode: safety-only}` in `.keel/config.yml`. An agent
+cannot switch it on by itself: from MCP, `keel_rules_mode` waits for your OK in the Inbox.
+
+When the same rule blocks an agent 3 times in one step, keel stops the step and asks you: **Allow it this once** (the
+step runs again in Safety only), **Switch this flow to Safety only**, or **Stop the flow**. For a rule Safety only keeps
+(T3, a secret), you get **Try the step again** or **Stop the flow**.
+
 ## History
 
 The tab **History** shows every tool call of this project's agents (flows and KeelBot), newest first, grouped by run:

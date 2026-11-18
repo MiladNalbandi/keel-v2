@@ -172,4 +172,33 @@ class InboxApiTest : ApiTest() {
         post("/api/threads/t-stub-1/mode", mapOf<String, Any>()).andExpect(status().isBadRequest)
         put("/api/projects/$pid/settings", mapOf("run_mode" to null)).andExpect(status().isOk)
     }
+
+    @Test
+    fun `rules are normal by default, Safety only comes from settings or the start, and an agent cannot switch to it`() {
+        val (pid, _) = newProject("inbox-rules")
+        assertThat(get("/api/settings/general").json()["rules_mode"].asText()).isEqualTo("normal")
+        assertThat(get("/api/projects/$pid/settings").json()["effective"]["rules_mode"].asText()).isEqualTo("normal")
+        put("/api/projects/$pid/settings", mapOf("rules_mode" to "free")).andExpect(status().isBadRequest)
+
+        // a new flow: Normal leaves it to the project's .keel/config.yml (null), so nothing turns rules off by default
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Ranks")).andExpect(status().isOk)
+        assertThat(engine.lastBody("/threads")!!["settings"].path("rules_mode").isMissingNode).isTrue()
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Ranks 2", "rules_mode" to "safety-only",
+            "allow_dirty" to true)).andExpect(status().isOk)
+        assertThat(engine.lastBody("/threads")!!["settings"]["rules_mode"].asText()).isEqualTo("safety-only")
+        put("/api/projects/$pid/settings", mapOf("rules_mode" to "safety-only")).andExpect(status().isOk)
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "Ranks 3", "allow_dirty" to true)).andExpect(status().isOk)
+        assertThat(engine.lastBody("/threads")!!["settings"]["rules_mode"].asText()).isEqualTo("safety-only")
+        post("/api/projects/$pid/flows", mapOf("workflow_id" to "feature", "title" to "x", "rules_mode" to "none")).andExpect(status().isBadRequest)
+
+        val state = post("/api/threads/t-stub-1/rules", mapOf("mode" to "safety-only")).andExpect(status().isOk).json()
+        assertThat(state["rules_mode"].asText()).isEqualTo("safety-only")
+        assertThat(engine.lastBody("/threads/t-stub-1/rules")!!["by"].asText()).isEqualTo("the dashboard")
+        // an agent's own MCP tool never switches a flow to Safety only; back to normal it may
+        post("/api/threads/t-stub-1/rules", mapOf("mode" to "safety-only"), mapOf("X-Keel-Mcp-Kind" to "agent"))
+            .andExpect(status().isBadRequest)
+        post("/api/threads/t-stub-1/rules", mapOf("mode" to "normal"), mapOf("X-Keel-Mcp-Kind" to "agent")).andExpect(status().isOk)
+        post("/api/threads/t-stub-1/rules", mapOf("mode" to "loose")).andExpect(status().isBadRequest)
+        put("/api/projects/$pid/settings", mapOf("rules_mode" to null)).andExpect(status().isOk)
+    }
 }

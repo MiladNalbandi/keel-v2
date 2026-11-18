@@ -51,6 +51,8 @@ export type Fired = { reason: string; rule?: string | null; count: number; phase
 export type RulesNow = {
   thread_id: string; phase: string; meaning: string; lane?: string | null; status?: string; current?: string | null;
   may: NowBucket[]; may_not: NowBucket[]; always: NowBucket[];
+  /** 0.40 the flow's rules mode: in safety-only no phase rule or rule pack applies. Missing from an older keel. */
+  rules_mode?: "normal" | "safety-only";
   packs: { pack: string; name: string; rule: string; kind: string; reason: string }[];
   unlocks: { path: string; phase: string; reason?: string | null }[];
   shell: string[];

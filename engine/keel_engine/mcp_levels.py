@@ -15,7 +15,9 @@ CONFIRM = {"keel_delete_run", "keel_stop_flow", "keel_pause", "keel_stop_flows",
            "keel_skill_create", "keel_skill_import", "keel_skill_attach", "keel_skill_market_install",
            "keel_start_options",
            # turning the whole test suite before push off (turning it on asks nothing: the tool passes confirm itself)
-           "keel_release_check"}
+           "keel_release_check",
+           # 0.40 Safety only (turning back to normal asks nothing: the tool passes confirm itself)
+           "keel_rules_mode"}
 CONFIRM_ACTIONS = {"open_pr", "pr"}        # keel_run_action actions that publish something: the person is asked first
 
 
@@ -89,7 +91,7 @@ TOOLS: dict[str, tuple[str, ...]] = {
     "write": ("keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc",
               # 0.18.5 what keel TUI does: stop flows (asks first), a run mode, go on with a stopped flow, start an
               # agent, ask KeelBot, keep or undo its changes (asks first)
-              "keel_stop_flow", "keel_stop_flows", "keel_run_mode", "keel_resume_flow", "keel_agent_start",
+              "keel_stop_flow", "keel_stop_flows", "keel_run_mode", "keel_rules_mode", "keel_resume_flow", "keel_agent_start",
               "keel_keelbot_ask", "keel_keelbot_keep", "keel_keelbot_undo",
               # 0.18.5 save a new one (each asks the person first)
               "keel_workflow_create", "keel_rule_create", "keel_agent_create",

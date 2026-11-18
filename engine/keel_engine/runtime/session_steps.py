@@ -179,7 +179,7 @@ async def _finish(comp, i, step, state, kind, key, snap, meta, report: dict, ext
     # keel's checks after the step: the diff guard (puts back what the phase does not allow), the project's edit tools
     findings = list(data.get("session_findings") or [])
     phase = state.get("phase") or step.phase or "none"
-    refused = await asyncio.to_thread(guard.guard_diff, ctx.root, phase, snap, None, None, state.get("unlocks") or [],
+    refused = await asyncio.to_thread(guard.guard_diff, ctx.root, phase, snap, comp._rules_cfg(ctx.root, step.id), None, state.get("unlocks") or [],
                                       comp._readonly())
     for r in refused:
         ctx.emit("guard.refused", step=step.id, data={"tool": "diff-guard", "phase": phase, "source": "session", **r})

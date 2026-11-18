@@ -87,6 +87,9 @@ class StubEngine private constructor(private val server: HttpServer) {
     /** Run modes set per thread (POST /threads/{id}/mode), shown as run_mode in the thread state. */
     val modes = java.util.concurrent.ConcurrentHashMap<String, String>()
 
+    /** 0.40 rules modes set per thread (POST /threads/{id}/rules), shown as rules_mode in the thread state. */
+    val rulesModes = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     /** Thread ids the next POST /threads answer, in order (empty: "t-stub-1"). */
     val nextThreadIds = java.util.concurrent.ConcurrentLinkedQueue<String>()
 
@@ -153,6 +156,7 @@ class StubEngine private constructor(private val server: HttpServer) {
         "blockers" to listOf(mapOf("gate" to "coverage", "why" to "Coverage is 61%", "fix" to "Add tests for Score.kt")),
         "ladder" to listOf(mapOf("n" to 1, "name" to "build", "cmd" to "./gradlew build", "status" to "pass")),
         "run_mode" to (modes[id] ?: "manual"),
+        "rules_mode" to (rulesModes[id] ?: "normal"),
     ) + overrides[id].orEmpty()
 
     private fun route(method: String, path: String, body: JsonNode?, query: String? = null): Pair<Int, Any?> = when {
@@ -376,6 +380,12 @@ class StubEngine private constructor(private val server: HttpServer) {
             val mode = body?.get("mode")?.asText() ?: ""
             if (mode !in setOf("manual", "important", "auto", "readonly")) 400 to mapOf("error" to "\"$mode\" is not a run mode.")
             else { modes[id] = mode; 200 to state(id) }
+        }
+        path.endsWith("/rules") && method == "POST" -> {
+            val id = path.split('/')[2]
+            val mode = body?.get("mode")?.asText() ?: ""
+            if (mode !in setOf("normal", "safety-only")) 400 to mapOf("error" to "\"$mode\" is not a rules mode.")
+            else { rulesModes[id] = mode; 200 to state(id) }
         }
         path.endsWith("/resume") -> {
             val id = path.split('/')[2]

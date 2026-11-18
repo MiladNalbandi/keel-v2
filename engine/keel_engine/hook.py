@@ -320,10 +320,14 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
         return refused
     root, phase = ctx["root"], ctx.get("phase") or "none"
     lane, unlocks = ctx.get("lane"), list(ctx.get("unlocks") or [])
-    cfg = rules.load_config(root)
+    # 0.40 (#201) the flow's rules mode (Normal or Safety only) wins over the project's
+    cfg = rules.with_mode(rules.load_config(root), ctx.get("rules_mode"))
+    so = rules.safety_only(cfg)
 
     def knowledge(text: str) -> str | None:
         # strict per-agent knowledge (5c): a section the agent was not given is not read, by Read or by a shell command
+        if so:
+            return None
         v = rules.check_knowledge(text, ctx.get("agent") or "", ctx.get("knowledge_allowed"), bool(ctx.get("knowledge_strict")))
         return None if v.ok else v.reason
 
@@ -367,9 +371,9 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
     if keyed and tool != "Bash" and rules.keel_key_file(_locate(root, keyed)[1]):
         return "This is keel's own key folder: agents never read, search or change it."
     # keel 0.18.58 keel's own installed code: no agent reads it to get around a rule (rules.keel_engine_file)
-    if keyed and tool != "Bash" and rules.keel_engine_file(_locate(root, keyed)[1], root):
+    if not so and keyed and tool != "Bash" and rules.keel_engine_file(_locate(root, keyed)[1], root):
         return rules.ENGINE_REFUSAL
-    if tool == "Bash" and rules.keel_engine_words(str(ti.get("command") or ""), root):
+    if not so and tool == "Bash" and rules.keel_engine_words(str(ti.get("command") or ""), root):
         return rules.ENGINE_REFUSAL
     # keel 0.18.64 the other projects registered in this keel (runtime/other_projects.py): read only, their secrets
     # stay out. `others` is absent when the run was not told (KeelBot): then nothing changes here.
@@ -449,7 +453,7 @@ def decide(tool: str, ti: dict, ctx: dict) -> str | None:
 def catastrophic(tool: str, ti: dict, cfg: dict, cwd: str | None) -> str | None:
     """keel-gate's T3 (keel_engine/safety): a call whose worst outcome cannot be undone, read the way a shell would read
     it (base64, escapes, eval, sh -c ...). Checked after keel's own rules; the project may switch the rule off."""
-    if rules.is_off(cfg, "catastrophic"):
+    if rules.is_off(cfg, "catastrophic"):      # never off in Safety only (rules.SAFETY_KEEP)
         return None
     from . import safety   # here, not at the top: only shell commands and edits need it
 

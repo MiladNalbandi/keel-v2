@@ -29,6 +29,10 @@ export function RulesNowBody({ n }: { n: Now }) {
   return (
     <div className="rn grid" data-testid="rules-now">
       <p className="rn-phase"><b>Phase {n.phase}.</b> {n.meaning}{n.lane ? ` This is the ${n.lane} lane.` : ""}</p>
+      {n.rules_mode === "safety-only" && (
+        <p className="rn-phase" data-testid="rn-safety-only"><span className="tag warn">Safety only</span> This flow keeps only keel's
+          safety rules: no phase rule or rule pack blocks the agents. Anything that cannot be undone is still refused, and secrets stay out.</p>
+      )}
       {prot && (
         <p className={`rn-engine rn-${n.engine.protection}`}>
           <span className="rn-ico" aria-hidden="true">{prot[0]}</span> <b>{n.engine.provider}</b>: {prot[1]}.

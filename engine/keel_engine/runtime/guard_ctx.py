@@ -209,6 +209,12 @@ def read_tools() -> dict[str, list[str]]:
     return {server: sorted(tools) for server, tools in extensions.read_tools().items()}
 
 
+def rules_mode_of(tb) -> str:
+    from .. import rules
+
+    return rules.rules_mode(getattr(tb, "cfg", None))
+
+
 def context_for(req) -> dict:
     """The context of one AgentRequest (its ToolBox carries the lane and the unlocks)."""
     tb = req.toolbox
@@ -222,6 +228,8 @@ def context_for(req) -> dict:
             "readonly": bool(getattr(tb, "readonly", False)), "ask": getattr(tb, "ask", None),
             **({"shell_readonly": True} if getattr(tb, "shell_readonly", False) else {}),
             "confine": bool(getattr(tb, "confine", False)), "read_tools": read_tools(),
+            # 0.40 (#201) the flow's rules mode (Normal or Safety only): the hook loads the project's config with it
+            "rules_mode": rules_mode_of(tb),
             "push_blockers": list(getattr(tb, "push_blockers", None) or []),
             # keel 0.18.64 the other projects (a flow's agents only: KeelBot's ToolBox is not told, others is None)
             **({"others": list(tb.others), "others_off": bool(getattr(tb, "others_off", False)),

@@ -47,7 +47,7 @@ class McpRouteLevelsApiTest : ApiTest() {
         // engine keel_engine/mcp_*.py: the write tools' routes stay write, the read tools' POSTs read
         val write = listOf(
             "POST /api/projects/p/flows", "POST /api/projects/p/doctor/workspace/exclude", "POST /api/threads/t/stop",
-            "POST /api/threads/t/resume", "POST /api/threads/t/mode", "POST /api/threads/t/models", "POST /api/threads/t/rewind",
+            "POST /api/threads/t/resume", "POST /api/threads/t/mode", "POST /api/threads/t/rules", "POST /api/threads/t/models", "POST /api/threads/t/rewind",
             "POST /api/threads/t/sync", "PUT /api/threads/t/document", "POST /api/inbox/t/act", "POST /api/projects/p/docs/history/restore",
             "POST /api/projects/p/keel-state/close", "POST /api/projects/p/plugins/ask", "POST /api/projects/p/agents",
             "PUT /api/projects/p/agents/a", "POST /api/projects/p/workflows/import", "POST /api/projects/p/rules/packs",

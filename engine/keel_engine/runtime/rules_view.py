@@ -482,9 +482,12 @@ def dry_run(text: str, calls: list[dict]) -> dict:
 # ------------------------------------------------------------------ the Flow page: rules now
 
 def now(root: str, phase: str | None, lane: str | None = None, unlocks: list[dict] | None = None,
-        provider: str | None = None, mode: str | None = None, last_failure: dict | None = None) -> dict:
-    """What agents may and may not change in this phase, in words, with the rules that add to it."""
-    cfg = rules.load_config(root)
+        provider: str | None = None, mode: str | None = None, last_failure: dict | None = None,
+        rules_mode: str | None = None) -> dict:
+    """What agents may and may not change in this phase, in words, with the rules that add to it. 0.40 (#201) in Safety
+    only no phase rule or rule pack applies: everything but the always-on files may change."""
+    cfg = rules.with_mode(rules.load_config(root), rules_mode)
+    so = rules.safety_only(cfg)
     phase = phase or "none"
     flow = phase != "none"
     row = rules.MATRIX.get(phase, rules.CLOSED) if flow else {"*": "allow"}
@@ -497,15 +500,17 @@ def now(root: str, phase: str | None, lane: str | None = None, unlocks: list[dic
             rule = "new-only"
         if lane and phase in rules.LANE_SCOPED_PHASES and rules.LANE_OF.get(b) and rules.LANE_OF[b] != lane:
             rule = "deny"
+        if so:
+            rule = "allow"
         item = {"bucket": b, "what": what, "rule": rule, "words": explain.MAY.get(rule, explain.MAY["deny"])[1]}
         (may_not if rule == "deny" else may).append(item)
     always = [{"bucket": "protected-env", "what": ".env files (secrets)", "words": "never read or changed"},
               {"bucket": "keel-rules", "what": ".keel/config.yml, .keel/rules/ and .keel/stacks/",
                "words": "never changed by an agent"}]
-    if not rules.is_off(cfg, "generated"):
+    if not so and not rules.is_off(cfg, "generated"):
         always.append({"bucket": "generated", "what": "generated code", "words": "changed through its source only"})
     active = [{"pack": p["id"], "name": p["title"], "rule": r["id"], "kind": r["kind"], "reason": r["reason"]}
-              for p in cfg.get("packs") or [] if f"pack/{p['id']}" not in set((cfg.get("rules") or {}).get("off") or [])
+              for p in ([] if so else cfg.get("packs") or []) if f"pack/{p['id']}" not in set((cfg.get("rules") or {}).get("off") or [])
               for r in p["rules"] if packs_mod.phase_ok(r.get("phases"), phase) and (not r.get("lanes") or lane in r["lanes"])]
     prot = "before" if provider else None
     return {"phase": phase, "meaning": explain.PHASE_MEANING.get(phase, "No flow phase: only keel's always-on rules apply.")
@@ -517,4 +522,4 @@ def now(root: str, phase: str | None, lane: str | None = None, unlocks: list[dic
                       and not rules.is_off(cfg, b["id"])],
             "engine": {"provider": provider, "protection": prot,
                        "words": next((e["words"] for e in engines() if e["protection"] == prot), None) if prot else None},
-            "last_command_failure": last_failure}
+            "last_command_failure": last_failure, "rules_mode": rules.rules_mode(cfg)}

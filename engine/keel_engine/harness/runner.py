@@ -401,6 +401,11 @@ class HarnessRunner:
                 if turns_since_todo >= TODO_EVERY:
                     turns_since_todo = 0
             session.add("user", results)
+            if getattr(req.toolbox, "loop", None):
+                # 0.40 (#201) the loop guard: the same rule blocked the agent 3 times; the step asks the person
+                answer = "keel stopped this step: the same rule blocked the agent 3 times. " + (turn.text() or "")
+                emit("text", "keel stopped this step: the same rule blocked the agent 3 times. It asks you what to do.")
+                break
         else:
             err = ModelError(f"The agent used all {limit} turns of this step; its session is kept, so it can continue.",
                              usage=_usage_dict(model, req.key, used))

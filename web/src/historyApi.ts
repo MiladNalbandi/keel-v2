@@ -11,6 +11,8 @@ export type HistoryLine = {
   /** approval lines: the person's answer (once | always | deny), or none when nobody answered */
   answer?: string | null; status?: string; by?: string | null;
   hash?: string; prev?: string;
+  /** 0.40 the rules mode the call was judged in (normal | safety-only); missing on older lines */
+  rules?: "normal" | "safety-only" | null;
 };
 export type HistoryCounts = { total: number; action: Record<string, number>; tier: Record<string, number>; rule: Record<string, number> };
 export type HistoryPage = { items: HistoryLine[]; more: boolean; next: number | null; counts: HistoryCounts };

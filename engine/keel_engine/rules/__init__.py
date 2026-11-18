@@ -304,11 +304,49 @@ CAN_OFF = {b["id"] for b in BUILTINS if b["can_off"]}
 OPT_IN = {b["id"] for b in BUILTINS if b.get("opt_in")}
 
 
+# 0.40 (#201) the rules mode: "normal" (every rule, the default) or "safety-only": keel's blocking rules (the phase
+# matrix, rule packs, read limits, the MCP allowlist, the dependency and push gates ...) are off for the agents; only
+# the rules that keep things safe stay (SAFETY_KEEP), and keel-gate's T3 (`catastrophic`) cannot be switched off.
+# The project's default is `rules.mode` in .keel/config.yml; a flow may choose its own at start (the guard context's
+# `rules_mode`, with_mode).
+NORMAL = "normal"
+SAFETY_ONLY = "safety-only"
+RULES_MODES = (NORMAL, SAFETY_ONLY)
+SAFETY_KEEP = {"env-files", "keel-rules-files", "git-settings", "docker-host", "keel-keys", "migrations-immutable",
+               "force-push", "catastrophic", "no-verify", "commit-in-flow", "history-rewrite", "secrets-at-write",
+               "disabled-tests"}
+
+
+def normalize_mode(mode) -> str:
+    """"safety-only" (also safety_only, "Safety only", safety), else "normal"."""
+    m = re.sub(r"[\s_]+", "-", str(mode or "").strip().lower())
+    return SAFETY_ONLY if m in ("safety-only", "safety") else NORMAL
+
+
+def rules_mode(cfg: dict | None) -> str:
+    """The rules mode of a config: `rules.mode` (normal when absent)."""
+    return normalize_mode(((cfg or {}).get("rules") or {}).get("mode"))
+
+
+def safety_only(cfg: dict | None) -> bool:
+    return rules_mode(cfg) == SAFETY_ONLY
+
+
+def with_mode(cfg: dict, mode: str | None) -> dict:
+    """The config with this flow's rules mode (None or "": the project's own stays)."""
+    if not mode:
+        return cfg
+    return {**cfg, "rules": {**(cfg.get("rules") or {}), "mode": normalize_mode(mode)}}
+
+
 def is_off(cfg: dict | None, rule_id: str) -> bool:
     """Is a built-in rule (or `pack/<id>`) switched off in the project's `rules.off`? A never-off rule never is. An
-    opt-in rule (OPT_IN) is off unless `rules.on` names it (and `rules.off` does not)."""
+    opt-in rule (OPT_IN) is off unless `rules.on` names it (and `rules.off` does not). In Safety only every rule but
+    SAFETY_KEEP is off, and those are on (`catastrophic` too, whatever rules.off says)."""
     r = (cfg or {}).get("rules") or {}
     off = r.get("off") or []
+    if rule_id not in OPT_IN and safety_only(cfg):
+        return rule_id not in SAFETY_KEEP
     if rule_id in BUILTIN_IDS and rule_id not in CAN_OFF:
         return False
     if rule_id in OPT_IN:
@@ -591,13 +629,17 @@ def check_edit(phase: str, path: str, cfg: dict | None = None, *, exists: bool =
         return Verdict(True, bucket, note="setup may write the env file")
     if bucket == "keel-rules" and phase == "setup" and RULE_FILES[0].search(rel):
         return Verdict(True, bucket, note="setup writes .keel/config.yml")
-    if bucket in ALWAYS_DENY:
+    so = safety_only(cfg)
+    if bucket in ALWAYS_DENY and not (so and bucket == "generated"):
         return Verdict(False, bucket, f"{rel} {ALWAYS_DENY[bucket]}")
     if bucket == "migration" and exists:
         if migration_on_base(cfg.get("root"), rel):
             return Verdict(False, bucket, f"{rel} is a migration on the base branch and is immutable. Add a new "
                                           "migration file instead.")
         exists = False  # this branch added it: for the phase rules ("new-only") it is still a new file
+    if so:
+        # 0.40 (#201) Safety only: no phase matrix, lanes, rule packs or generated-file rule
+        return Verdict(True, bucket, note="safety only")
     if unlocked(unlocks, rel, phase):
         return Verdict(True, bucket, note="unlocked")
     v = pack_verdict(cfg, "edit", phase, rel, lane)
@@ -632,6 +674,8 @@ def check_read(path: str, cfg: dict | None = None, *, full: str | Path | None = 
     rel = _rel(path, cfg.get("root"))
     if bucket == "protected-env":
         return Verdict(False, bucket, f"Reading {rel} is blocked so secrets stay out of the conversation.")
+    if safety_only(cfg):
+        return Verdict(True, bucket, note="safety only")      # 0.40 (#201) no build-output, pack or big-file rule
     if match_glob(rel, cfg["guards"]["read_block"]) and not is_off(cfg, "read-build-output"):
         return Verdict(False, bucket, f"{rel} is build output; reading it wastes context. Read the source instead.")
     v = pack_verdict(cfg, "read", phase, rel)
@@ -1233,7 +1277,7 @@ def check_bash(phase: str, command: str, cfg: dict | None = None, *, root: str |
     v = pack_verdict(cfg, "bash", phase, cmd)
     if v:
         return v
-    v = compose_in_worktree(cmd, root)
+    v = None if safety_only(cfg) else compose_in_worktree(cmd, root)
     if v:
         return v
     v = push_gate(cfg, cmd, push_blockers)

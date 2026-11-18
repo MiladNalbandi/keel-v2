@@ -2190,6 +2190,18 @@ Everything the person can do in keel's terminal app an MCP client can do for the
   `keel_review_submit {event: APPROVE | REQUEST_CHANGES | COMMENT, body}`. Each first opens the review with
   `GET …/review/open` and refuses when the plugin is off for the project. Levels: GET is read; every POST is write
   (`McpLevelGuard`'s default).
+- **0.40 (#201) Rules: Normal | Safety only, and the loop guard:** `rules.mode` in `.keel/config.yml` (`normal` default
+  | `safety-only`), the project setting `rules_mode` (Settings › Flow and gates), the flow's `settings.rules_mode` at start
+  (`POST /projects/{pid}/flows {rules_mode}`) and `POST /threads/{tid}/rules {mode, by}` during a run (event
+  `thread.rules {mode, from, by}`, a `mode_log` line); the thread state's `rules_mode`. Safety only: `rules.is_off` is true
+  for every rule but `rules.SAFETY_KEEP` (`catastrophic` among them, never off); no phase matrix, rule pack, read limit,
+  knowledge or engine-file rule. The guard context carries `rules_mode`; `agent.started` and each harness step carry
+  `rules`; the safety history line has `rules`. The loop guard: the 3rd refusal of the same rule in one agent run ends
+  the step (`guard.loop {tool, path, command, reason, count, lifted, t3, agent}`, `data.rules_loop`); the step's next run
+  asks (kind fix, type `rules-loop`): `allow` (`data.rules_once`: this run in Safety only), `safety` (the flow's
+  `rules_mode`), `stop`; for a rule Safety only keeps, `retry` and `stop`. MCP: `keel_rules_mode {mode, thread_id}` (write;
+  `safety-only` needs the person's approval in the Inbox, `mcp_confirm.OUT_OF_BAND`); the api refuses `safety-only` from an
+  agent's own MCP tool (`X-Keel-Mcp-Kind: agent`).
 - **0.39 (#198) the rest of the Review page:** read `keel_review_threads {pr, open_only}` and `keel_review_thread
   {thread_id, pr}` (the view's threads with `GET …/review/ai`: `judges`, `fixed`, `addressed`, `buttons`, `config.buttons`),
   `keel_review_conversation`, `keel_review_file {path, side, start_line, end_line}` (`GET …/file`, ≤ 400 lines),

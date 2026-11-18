@@ -38,6 +38,13 @@ def tool_step(emit: Emit, box, call: dict, out: str, ms: int, writes_before: int
     """One tool call as a step. A refusal by keel's rules is a guard step; a file change carries its diff."""
     name, args = call["name"], call.get("input") or {}
     path = args.get("file_path") or args.get("path")
+    cfg = getattr(box, "cfg", None)
+    if cfg is not None:
+        # 0.40 (#201) the rules mode the call was judged in: the safety history writes it on each line
+        from .. import rules
+
+        mode, plain = rules.rules_mode(cfg), emit
+        emit = lambda kind, text="", **extra: plain(kind, text, rules=mode, **extra)  # noqa: E731
     if out.startswith("REFUSED"):
         emit("guard", out, tool=name, path=path, ok=False, ms=ms,
              command=str(args["command"])[:500] if args.get("command") else None)

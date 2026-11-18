@@ -26,6 +26,12 @@ RUN_MODES = {
     "readonly": "stops at every gate; agents may read but not edit, write or commit",
 }
 OPEN = ("running", "waiting")
+# 0.40 (#201) the rules modes (engine rules.RULES_MODES)
+RULES_MODES = {
+    "normal": "every keel rule: phase rules, rule packs, read limits and the safety rules",
+    "safety-only": "only the safety rules: anything that cannot be undone is refused, secrets and keel's keys stay out; "
+                   "phase rules and rule packs are off",
+}
 
 
 _q = q
@@ -102,6 +108,30 @@ def run_mode(api: KeelApi, mode: str | None = None, project: str | None = None, 
     api.post(f"/threads/{_q(thread['thread_id'])}/mode", {"mode": mode})
     return (f'"{thread.get("title")}" (thread {thread["thread_id"]}) runs in {mode} mode from its next gate on: it '
             f'{RUN_MODES[mode]}.')
+
+
+def rules_mode(api: KeelApi, mode: str | None = None, project: str | None = None, thread_id: str | None = None) -> str:
+    """0.40 (#201) a flow's rules mode (no `mode`: what it is now, and the two)."""
+    p = _project(api, project)
+    if thread_id:
+        thread = (api.get(f"/projects/{p['id']}/flows/{_q(thread_id)}") or {}).get("thread")
+    else:
+        thread, _ = _flow(api, p["id"])
+    if not thread:
+        return "no flow on this project."
+    now = thread.get("rules_mode") or "normal"
+    if not mode:
+        return f'"{thread.get("title")}" runs with rules: {now}.\n' + "\n".join(
+            f"  {m}{' (now)' if m == now else ''}: {about}" for m, about in RULES_MODES.items())
+    if mode not in RULES_MODES:
+        raise ApiError(f"a rules mode is one of {', '.join(RULES_MODES)}.")
+    if thread.get("status") not in OPEN:
+        return f'"{thread.get("title")}" is {thread.get("status")}: a rules mode is for a running or waiting flow.'
+    if mode == now:
+        return f'"{thread.get("title")}" runs with rules: {mode} already.'
+    api.post(f"/threads/{_q(thread['thread_id'])}/rules", {"mode": mode})
+    return (f'"{thread.get("title")}" (thread {thread["thread_id"]}) runs with rules: {mode} from its next agent call '
+            f'({RULES_MODES[mode]}).')
 
 
 def resume_flow(api: KeelApi, project: str | None = None, thread_id: str | None = None) -> str:

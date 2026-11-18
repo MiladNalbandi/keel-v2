@@ -38,7 +38,7 @@ class CoreSettingsSections(private val mapper: ObjectMapper) {
 
     @Bean
     fun flowSettings(): SettingsSection =
-        section("flow", "Flow and gates", 10, "run_mode", "gates_mode", "fix_attempts", "coverage_min")
+        section("flow", "Flow and gates", 10, "run_mode", "rules_mode", "gates_mode", "fix_attempts", "coverage_min")
 
     @Bean
     fun modelSettings(): SettingsSection =

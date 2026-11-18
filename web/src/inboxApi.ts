@@ -1,7 +1,7 @@
 // v0.4.1 api calls: the inbox (everything waiting, across projects), notification clean-up and run modes
 // (docs/CONTRACT.md, "v0.4.1: inbox, notifications, run modes").
 
-import { del, get, post, type ChoiceInfo, type ClarifyQuestion, type RunMode, type ThreadState } from "./api";
+import { del, get, post, type ChoiceInfo, type ClarifyQuestion, type RulesMode, type RunMode, type ThreadState } from "./api";
 
 /** One thing that waits for a person (GET /api/inbox). */
 export type InboxItem = {
@@ -83,6 +83,8 @@ export const inboxApi = {
   act: (tid: string, a: InboxAnswer) => post<ThreadState>(`/inbox/${e(tid)}/act`, a),
   /** From the next gate on. */
   setMode: (tid: string, mode: RunMode) => post<ThreadState>(`/threads/${e(tid)}/mode`, { mode }),
+  /** 0.40 the flow's rules mode, from its next agent call. */
+  setRules: (tid: string, mode: RulesMode) => post<ThreadState>(`/threads/${e(tid)}/rules`, { mode }),
   deleteNote: (id: string) => del<{ ok: boolean }>(`/notifications/${e(id)}`),
   clearNotes: () => del<{ ok: boolean; count: number }>("/notifications"),
   /** v0.16.0 approvals: waiting ones oldest first; no status = every status, newest first. */

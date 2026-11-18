@@ -213,6 +213,7 @@ class Engine:
                             other_projects=list(body.get("other_projects") or []),
                             memory=memory_mod.AgentMemory(self.conn, tid))
         ctx.spawn = lambda workflow_id, seed, link, tid=tid: self.start_child(tid, workflow_id, seed, link)
+        ctx.set_rules = lambda mode, by, tid=tid: self._store_rules_mode(tid, mode, by)   # 0.40 (#201) the loop guard
         ctx.synced_base = body.get("synced_base")      # 0.18.64 keel_branch_sync moved where the branch's work starts
         async with self.conn.execute("select path, phase, by, reason, at from thread_unlocks where thread_id = ? order by rowid",
                                      (tid,)) as cur:
@@ -656,6 +657,9 @@ class Engine:
             "blockers": list(v.get("blockers") or []),
             "unlocks": [{"path": u.get("path"), "phase": u.get("phase")} for u in merge_unlocks(list(v.get("unlocks") or []), ctx_now.api_unlocks)],
             "run_mode": run_mode.normalize((ctx_now.settings or {}).get("run_mode")),
+            # 0.40 (#201) the flow's rules mode (its own, else the project's): the Flow page's "Safety only" chip
+            "rules_mode": rules.normalize_mode((ctx_now.settings or {}).get("rules_mode")
+                                               or rules.rules_mode(await asyncio.to_thread(rules.load_config, row["root"]))),
             # 0.18.57 the branch or ref the flow's file:line citations are about (the Code page opens them there)
             "source_ref": await asyncio.to_thread(source_ref.flow_source_ref, row["root"], v.get("data")),
         }
@@ -917,6 +921,35 @@ class Engine:
             ctx.emit("thread.mode", data={"mode": mode, "from": before, "by": who})
         return await self.state(tid)
 
+    async def _store_rules_mode(self, tid: str, mode: str, by: str | None = None) -> str:
+        """Stores the flow's rules mode with its settings (used from its next agent call); the gate log and the event
+        say who changed it. Returns the mode before."""
+        mode = rules.normalize_mode(mode)
+        row = await self._row(tid)
+        body = json.loads(row["body"])
+        ctx = await self._context(tid)
+        before = rules.normalize_mode((body.get("settings") or {}).get("rules_mode")
+                                      or rules.rules_mode(await asyncio.to_thread(rules.load_config, ctx.root)))
+        settings = {**(body.get("settings") or {}), "rules_mode": mode}
+        who = (by or "").strip()[:80] or "someone (an older client did not say)"
+        if before != mode:
+            settings["mode_log"] = [*list(settings.get("mode_log") or []), f"rules {before} → {mode} by {who} at {_now()}"]
+        body["settings"] = settings
+        await self.conn.execute("update keel_threads set body = ?, updated_at = ? where thread_id = ?", (json.dumps(body), _now(), tid))
+        await self.conn.commit()
+        ctx.settings = {**(ctx.settings or {}), "rules_mode": mode, "mode_log": settings.get("mode_log") or []}
+        if before != mode:
+            ctx.emit("thread.rules", data={"mode": mode, "from": before, "by": who})
+        return before
+
+    async def set_rules_mode(self, tid: str, mode: str, by: str | None = None) -> dict:
+        """0.40 (#201) the flow's rules mode: normal | safety-only (rules.RULES_MODES)."""
+        if mode not in rules.RULES_MODES:
+            raise EngineError(400, f'"{mode}" is not a rules mode.', "Pick one of: " + ", ".join(rules.RULES_MODES))
+        await self._row(tid)
+        await self._store_rules_mode(tid, mode, by)
+        return await self.state(tid)
+
     async def finish_by_hand(self, tid: str, done: list[str] | None, message: str = "", by: str = "") -> dict:
         """0.18.74 a stopped flow that the person finished themselves (a field report: a stopped flow could not be "finished
         by hand"): the folder's changes are committed through keel's secret scan (keel's engine files left out), the
@@ -993,7 +1026,8 @@ class Engine:
             last = {"provider": m.get("provider"), "mode": m.get("mode")}
         unlocks = merge_unlocks(list(v.get("unlocks") or []), ctx.api_unlocks)
         out = await asyncio.to_thread(rules_view.now, ctx.root, st.get("phase"), lane, unlocks, last.get("provider"),
-                                      last.get("mode"), (v.get("data") or {}).get("last_command_failure"))
+                                      last.get("mode"), (v.get("data") or {}).get("last_command_failure"),
+                                      (ctx.settings or {}).get("rules_mode"))
         return {**out, "thread_id": tid, "status": st.get("status"), "current": st.get("current")}
 
     async def document(self, tid: str) -> dict:

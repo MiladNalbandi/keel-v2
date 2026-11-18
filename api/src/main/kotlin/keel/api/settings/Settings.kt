@@ -47,6 +47,9 @@ data class Settings(
     val gatesMode: String = "every-ac",
     /** v0.4.1: how much keel decides by itself (manual | important | auto | readonly); a flow may pick another at start. */
     val runMode: String = "manual",
+    /** 0.40 (#201) keel's rules for the agents: normal (every rule) or safety-only (keel-gate's safety rules only: anything
+     *  that cannot be undone is refused, secrets stay out). Off by default; a flow may pick another at start. */
+    val rulesMode: String = "normal",
     val fixAttempts: Int = 3,
     val coverageMin: Int = 80,
     val defaultModel: Model = Model(),
@@ -78,8 +81,10 @@ data class Settings(
 ) {
     companion object {
         val RUN_MODES = setOf("manual", "important", "auto", "readonly")
+        /** 0.40 (#201) the engine's rules.RULES_MODES. */
+        val RULES_MODES = setOf("normal", "safety-only")
         val KEYS = listOf(
-            "gates_mode", "run_mode", "fix_attempts", "coverage_min", "default_model", "implementer_model",
+            "gates_mode", "run_mode", "rules_mode", "fix_attempts", "coverage_min", "default_model", "implementer_model",
             "reviewer_model", "cheaper_model", "local_only", "cap_tokens", "on_cap", "branch_pattern", "web_lane_worktree",
             "push_pr", "commit_author", "commit_coauthor", "ci_on_failure", "notify", "env_names", "mcp", "repo_skills", "keel_mode",
         )
@@ -90,6 +95,7 @@ data class Settings(
         val CHOICES = mapOf(
             "gates_mode" to setOf("every-ac", "end-of-lane", "end"),
             "run_mode" to RUN_MODES,
+            "rules_mode" to RULES_MODES,
             "on_cap" to setOf("pause", "cheaper", "stop"),
             "notify" to setOf("all", "needs_you", "none"),
             "push_pr" to setOf("ask", "auto", "never"),

@@ -28,6 +28,8 @@ data class StartFlow(
     val options: Map<String, Any?>? = null,
     /** v0.4.1: manual | important | auto | readonly for this flow (default: the project's run_mode setting). */
     val runMode: String? = null,
+    /** 0.40 (#201) normal | safety-only for this flow (default: the project's rules_mode setting). */
+    val rulesMode: String? = null,
     /** v0.7.x: folder | worktree | auto (default: the project folder when it is free, else a worktree of its own). */
     val where: String? = null,
     /** B8: new (its own branch from the base branch, also when the folder is on another branch) | continue (stay on the
@@ -72,7 +74,7 @@ class FlowController(private val flows: FlowService) {
 
     @PostMapping("/projects/{pid}/flows")
     fun start(@PathVariable pid: String, @RequestBody body: StartFlow): JsonNode =
-        flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap, body.runMode), body.allowFake, body.allowDirty,
+        flows.start(pid, body.workflowId, body.title, body.acs, FlowCap(body.capTokens, body.onCap, body.runMode, body.rulesMode), body.allowFake, body.allowDirty,
             body.request, clientOptions(body.options), body.where, branch = when (body.branch) { "continue", "new" -> body.branch; else -> DEFAULT_BRANCH },
             force = body.force, base = body.base)
 
@@ -138,6 +140,11 @@ class FlowController(private val flows: FlowService) {
     @PostMapping("/threads/{tid}/mode")
     fun mode(@PathVariable tid: String, @RequestBody body: ModeBody, request: jakarta.servlet.http.HttpServletRequest): JsonNode =
         flows.setMode(tid, body.mode, whoChanged(request))
+
+    /** 0.40 (#201) the flow's rules mode (normal | safety-only) from its next agent call. */
+    @PostMapping("/threads/{tid}/rules")
+    fun rules(@PathVariable tid: String, @RequestBody body: ModeBody, request: jakarta.servlet.http.HttpServletRequest): JsonNode =
+        flows.setRules(tid, body.mode, whoChanged(request), agent = request.getHeader("X-Keel-Mcp-Kind") == "agent")
 
     /** 0.18.64 the flow's models: the default, each agent's, each agent step's model now, the person's picks. */
     @GetMapping("/threads/{tid}/models")
