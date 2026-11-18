@@ -4,18 +4,19 @@
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
-import { note, signIn, useFakeModel, watchConsole, expectNoConsoleErrors } from "../lib/keel";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+import { api, note, projectNamed, signIn, useFakeModel, watchConsole, expectNoConsoleErrors } from "../lib/keel";
 
 const OUT = process.env.KEEL_E2E_OUT || "report";
 const SHOP = process.env.KEEL_E2E_SHOP || "";
 const git = (...a: string[]) =>
   execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@localhost", "-c", "commit.gpgsign=false", ...a], { cwd: SHOP, encoding: "utf8" });
 
-async function shot(page: Page, name: string) {
+async function shot(page: Page, name: string, focus?: Locator) {
   for (const [w, h, tag] of [[1280, 900, "desktop"], [390, 844, "phone"]] as const) {
     await page.setViewportSize({ width: w, height: h });
     await page.waitForTimeout(400);
+    if (focus) await focus.evaluate((el) => el.scrollIntoView({ block: "center" }));
     await page.screenshot({ path: `${OUT}/${name}-${tag}.png`, fullPage: false });
   }
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -45,6 +46,9 @@ test.describe("J24 Review comment box asks KeelBot", () => {
     const errors = watchConsole(page);
     await useFakeModel();
     await signIn(page);
+    // a fresh keel has Code Review off for the project
+    const shop = await projectNamed("shop");
+    await api("PUT", `/projects/${shop.id}/plugins/review`, { enabled: true, scope: "project" }, [200, 204]);
     await page.goto("/#/review");
     await page.getByRole("button", { name: "Review this branch" }).click({ timeout: 30_000 });
     await page.getByRole("tab", { name: /^Files/ }).click({ timeout: 30_000 });
@@ -62,7 +66,7 @@ test.describe("J24 Review comment box asks KeelBot", () => {
     await page.mouse.up();
     const bar = page.getByRole("toolbar", { name: "Selected code" });
     await expect(bar.getByRole("button", { name: "Comment" })).toBeVisible();
-    await shot(page, "j24-selection-bar");
+    await shot(page, "j24-selection-bar", row(/def discount/));
     await bar.getByRole("button", { name: "Comment" }).click();
 
     const box = diff.getByRole("form", { name: "Comment on lines 3–5" });
@@ -78,13 +82,14 @@ test.describe("J24 Review comment box asks KeelBot", () => {
     const said = (await answer.innerText()).trim();
     note(info, `KeelBot (fake model) answered: ${said.slice(0, 160)}`);
     expect(said.length).toBeGreaterThan(0);
-    await shot(page, "j24-answer-in-box");
+    await shot(page, "j24-answer-in-box", answer);
+    await box.screenshot({ path: `${OUT}/j24-box.png` });
     await box.getByRole("button", { name: "Use in my comment" }).click();
     const comment = box.getByRole("textbox", { name: "Your comment on lines 3–5" });
     await expect(comment).toHaveValue(/^Is this safe\?\n\n\S/);
     await box.getByRole("button", { name: "Add to my review" }).click();
     await expect(diff.locator(".rvn-mark.pending")).toHaveCount(1, { timeout: 15_000 });
-    await shot(page, "j24-pending");
+    await shot(page, "j24-pending", diff.locator(".rvn-mark.pending"));
 
     await expectNoConsoleErrors(errors);
   });

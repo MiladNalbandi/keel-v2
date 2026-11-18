@@ -151,7 +151,8 @@ export function CommentBox({
               className="rvn-ta rvn-cb-in"
               autoFocus
               aria-label={`Your question to ${helper}`}
-              placeholder={`Ask about ${label}… (empty: explain it and find problems)`}
+              placeholder="Your question (optional)"
+              title={`Ask ${helper} about ${label}. Left empty, it explains the code and looks for problems.`}
               value={question}
               disabled={wait != null}
               onChange={(e) => setQuestion(e.target.value)}
