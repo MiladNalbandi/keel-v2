@@ -24,7 +24,8 @@
 #                               it names a flow): show it, or close = archive it to .keel/archive/ (never deleted)
 #   keel2 status                is keel running, for which project, on which port, which edition (core or full)
 #   keel2 tui                   keel in the terminal (keel TUI): KeelBot, slash commands, the live flow, agents and the
-#                               inbox. Plain `keel2` opens it too, in a terminal while keel runs (KEEL_TUI_DEFAULT=0: help)
+#                               inbox. Plain `keel2` opens it too, in a terminal while keel runs (KEEL_TUI_DEFAULT=0: help).
+#                               Parked: it keeps working, new features land in the web app and the IDE plugins
 #   keel2 open [--print|--dev]  open the dashboard in the browser, signed in (--print: only print the one-time link;
 #                               --dev: for the web's dev server on :5173)
 #   keel2 auth reset            a new sign-in key: every browser signs in again (keel restarts)

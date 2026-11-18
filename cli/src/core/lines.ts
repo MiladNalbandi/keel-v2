@@ -11,7 +11,7 @@ import { renderMarkdown } from "./markdown";
 import { LOGO } from "./logo";
 import * as fmt from "./format";
 import { PLAIN as PLAIN_LOOK, type Paint, type Role } from "./theme";
-import { VERSION } from "./version";
+import { PARKED, VERSION } from "./version";
 import { toolLines } from "./tools";
 
 /** A notice's colour: what waits for you amber, a failure red, a finished flow green, the rest the accent. */
@@ -145,6 +145,7 @@ export function startLines(s: Snapshot, width: number, p: Paint): string[] {
     p.accent("╭" + "─".repeat(w - 2) + "╮"), ...body.map(row), p.accent("╰" + "─".repeat(w - 2) + "╯"),
     p.dim("  Ask KeelBot anything · ") + k("/help") + p.dim(" · ") + k("PgUp") + p.dim("/") + k("PgDn") + p.dim(" or the wheel scroll · ")
       + k("Ctrl+F") + p.dim(" flow · ") + k("Ctrl+A") + p.dim(" agents · ") + k("Ctrl+N") + p.dim(" inbox"),
+    p.dim(`  ${PARKED}`),
     "",
   ];
 }

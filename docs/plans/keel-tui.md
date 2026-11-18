@@ -1,5 +1,7 @@
 # keel TUI: keel v2 in the terminal
 
+> **Parked (0.37.1):** keel TUI keeps working and gets its fixes, but no new features: they land in the web app (and keel desktop) and the IDE plugins (#194). To decide in early January 2027: keep it as it is, cut it down to KeelBot chat, or remove it.
+
 keel's own terminal app, the Claude Code way: open it and see keel's logo, the version and which keel you talk to;
 KeelBot is the main view; slash commands do what the dashboard does; panels show the flow, the agents and the inbox;
 what happens in the dashboard shows in the terminal, and what you do in the terminal shows in the dashboard.
