@@ -136,3 +136,22 @@ fun askWhatChanged(path: String, r: ChangeRange, pr: Int?): String = buildString
     r.newLines.forEach { append('+').append(it).append('\n') }
     append("```\n")
 }
+
+/**
+ * 0.36 The text KeelBot gets when you ask from a review comment's box: where the lines are, the lines, and your
+ * question (the same words as the web's Review › Files). An empty question asks it to explain the code and find problems.
+ */
+fun commentAskText(where: String, code: String?, question: String, pr: Int?): String = buildString {
+    append("I am writing a review comment on @").append(where)
+    if (pr != null) append(" in PR #").append(pr)
+    append(".\n")
+    val c = code?.trimEnd().orEmpty()
+    if (c.isNotBlank()) append("\n```\n").append(c).append("\n```\n")
+    append('\n')
+    val q = question.trim()
+    if (q.isNotEmpty()) append("My question: ").append(q)
+    else append("Explain what this code does and say if anything here is wrong or risky (bugs, missed cases). Keep it short, so it can go in my comment.")
+}
+
+/** 0.36 The comment after "Use in my comment": the answer under what you wrote, or the answer alone. */
+fun withAnswer(comment: String, answer: String): String = if (comment.isBlank()) answer.trim() else comment.trimEnd() + "\n\n" + answer.trim()

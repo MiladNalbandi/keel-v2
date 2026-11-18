@@ -118,4 +118,16 @@ class ReviewModeLogicTest {
         assertEquals("KeelBot stopped", answerAfter(msgs + HelperMessage(4, "note", "KeelBot stopped"), 3)?.text)
         assertTrue(HelperMessage(5, "helper").isAnswer && !HelperMessage(6, "user").isAnswer)
     }
+
+    @Test
+    fun `the comment box asks KeelBot about its lines, and Use in my comment adds the answer`() {
+        val q = commentAskText("src/Prefs.kt:2–6", "    fun pageSize() = 20\n", " Can this be cached? ", 7)
+        assertTrue(q.startsWith("I am writing a review comment on @src/Prefs.kt:2–6 in PR #7.\n\n```\n    fun pageSize() = 20\n```\n"))
+        assertTrue(q.endsWith("My question: Can this be cached?"))
+        val d = commentAskText("src/Prefs.kt:4", null, "", null)
+        assertEquals("I am writing a review comment on @src/Prefs.kt:4.\n\n", d.substringBefore("Explain"))
+        assertTrue(d.contains("Explain what this code does"))
+        assertEquals("Yes.", withAnswer("  ", " Yes. "))
+        assertEquals("Hmm.\n\nYes.", withAnswer("Hmm.\n", "Yes."))
+    }
 }

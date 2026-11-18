@@ -4,7 +4,7 @@ import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.Messages
+import dev.keel.jetbrains.ui.CommentDialog
 import dev.keel.jetbrains.ui.KeelNotifier
 import dev.keel.jetbrains.ui.KeelToolWindow
 import dev.keel.jetbrains.ui.ReviewPanel
@@ -17,9 +17,14 @@ object ReviewComments {
             KeelNotifier.error(project, "No pull request is open", "Open the PR in keel's Review tab first, then comment on its lines.")
             return
         }
-        val quote = code?.lines()?.take(8)?.joinToString("\n") { "  │ $it" }?.let { "\n\n$it\n" }.orEmpty()
-        val text = Messages.showMultilineInputDialog(project, "A comment on $where.$quote\nIt stays pending (only you see it) until you press Submit review.", "Comment", "", null, null)
-            ?.trim()?.ifEmpty { null } ?: return
+        // 0.36 the comment box can ask KeelBot about these lines (the PR's review chat, core/ReviewAsk)
+        val pid = KeelProjectService.of(project).pid!!
+        val pr = session.key?.substringAfter("pr:", "")?.toIntOrNull()
+        val chatKey = ReviewAsk.chatKey(pid, pr ?: session.key)
+        CommentDialog.open(project, where, code, chatKey, pr) { text -> keep(project, session, path, line, side, where, startLine, text) }
+    }
+
+    private fun keep(project: Project, session: ReviewSession, path: String, line: Int, side: String, where: String, startLine: Int?, text: String) {
         session.call({ api, pid, key -> api.addDraft(pid, key, path, line, side, text, startLine) }) { r ->
             r.onSuccess {
                 val n = NotificationGroupManager.getInstance().getNotificationGroup("keel")

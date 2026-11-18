@@ -80,11 +80,11 @@ describe("the Review page: the bar over selected lines", () => {
     await waitFor(() => expect(location.hash).toBe(`#/repo?search=${encodeURIComponent("already = sum(r.amount for r in order.refunds)")}`));
   });
 
-  it("without KeelBot the bar offers Search only", async () => {
+  it("without KeelBot the bar offers Comment and Search only", async () => {
     withoutSlot(SLOTS.assistant);
     const diff = await openDiff();
     select(row(diff, /already = sum/), row(diff, /return order\.paid_total/));
     const bar = await screen.findByRole("toolbar", { name: "Selected code" });
-    expect(within(bar).getAllByRole("button").map((b) => b.textContent)).toEqual(["Search"]);
+    expect(within(bar).getAllByRole("button").map((b) => b.textContent)).toEqual(["Comment", "Search"]);
   });
 });

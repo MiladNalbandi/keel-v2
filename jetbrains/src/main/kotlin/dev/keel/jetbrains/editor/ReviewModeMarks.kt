@@ -31,12 +31,12 @@ import com.intellij.util.ui.JBUI
 import dev.keel.jetbrains.api.ChangeKind
 import dev.keel.jetbrains.api.ChangeRange
 import dev.keel.jetbrains.api.PrFileStatus
-import dev.keel.jetbrains.api.answerAfter
 import dev.keel.jetbrains.api.askWhatChanged
 import dev.keel.jetbrains.api.placeThreads
 import dev.keel.jetbrains.api.rangeAt
 import dev.keel.jetbrains.core.KeelConnection
 import dev.keel.jetbrains.core.KeelProjectService
+import dev.keel.jetbrains.core.ReviewAsk
 import dev.keel.jetbrains.core.ReviewMode
 import dev.keel.jetbrains.core.ReviewSession
 import dev.keel.jetbrains.ui.KeelBotPanel
@@ -44,8 +44,6 @@ import dev.keel.jetbrains.ui.KeelNotifier
 import dev.keel.jetbrains.ui.KeelToolWindow
 import dev.keel.jetbrains.ui.KeelUi
 import dev.keel.jetbrains.ui.KeelUi.full
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Point
@@ -133,7 +131,8 @@ class ReviewModeMarks(private val project: Project) : Disposable {
 
     fun commentOn(path: String, r: ChangeRange) {
         val (line, side) = if (r.kind == ChangeKind.DELETED) r.oldEnd.coerceAtLeast(1) to "LEFT" else r.end to "RIGHT"
-        dev.keel.jetbrains.core.ReviewComments.add(project, path, line, side, "$path, ${r.label}")
+        val code = (r.oldLines.map { "-$it" } + r.newLines.map { "+$it" }).joinToString("\n")
+        dev.keel.jetbrains.core.ReviewComments.add(project, path, line, side, "$path, ${r.label}", code = code.ifBlank { null })
     }
 
     /** The old text of a block, with Ask / Comment / Show old. */
@@ -273,39 +272,8 @@ class ReviewModeMarks(private val project: Project) : Disposable {
                 inlays.relayout(card)
             }
             val ask = askWhatChanged(path, r, mode.number)
-            svc.scope.launch {
-                try {
-                    val api = KeelConnection.get().ensure()
-                    // 0.35 one KeelBot chat for this PR's cards: a new chat for each card paid for a new session (and
-                    // its start) every time; a card asked while an answer runs waits in the chat's queue
-                    val chatKey = "$pid#${mode.number ?: path}"
-                    var chatId = reviewChats[chatKey]
-                    val turn = chatId?.let { runCatching { api.send(pid, it, ask) }.getOrNull() } ?: run {
-                        val chat = api.newChat(pid, "ask")
-                        chatId = chat.id
-                        reviewChats[chatKey] = chat.id
-                        api.send(pid, chat.id, ask)
-                    }
-                    val cid = chatId!!
-                    sid = cid
-                    repeat(240) {
-                        delay(1_500)
-                        val partial = svc.live.liveText.value[turn.callId]
-                        val s = api.chat(pid, cid)
-                        val answer = answerAfter(s.messages, turn.n)
-                        val done = answer != null
-                        edt {
-                            when {
-                                done -> show(answer?.text?.ifBlank { null } ?: s.error ?: "KeelBot gave no answer.")
-                                !partial.isNullOrBlank() -> show(partial)
-                            }
-                        }
-                        if (done) return@launch
-                    }
-                } catch (e: Exception) {
-                    edt { show(KeelProjectService.say(e)) }
-                }
-            }
+            // 0.35 one KeelBot chat for this PR's cards (0.36: shared with the comment box, core/ReviewAsk)
+            ReviewAsk.ask(project, ReviewAsk.chatKey(pid, mode.number ?: path), ask, onChat = { sid = it }) { s, _ -> show(s) }
         }
     }
 
@@ -357,8 +325,6 @@ class ReviewModeMarks(private val project: Project) : Disposable {
     }
 
     companion object {
-        /** 0.35 the KeelBot chat of each PR's review cards ("<project>#<PR>"), for the IDE's life. */
-        private val reviewChats = java.util.concurrent.ConcurrentHashMap<String, String>()
         val MARK: Key<ChangeRange> = Key.create("keel.review.mark")
         private const val OUTER = "keel.review.outer"
         val MODIFIED = com.intellij.ui.JBColor(java.awt.Color(0x2F6FDB), java.awt.Color(0x5C9DFF))

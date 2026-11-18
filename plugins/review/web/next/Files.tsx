@@ -35,8 +35,10 @@ import { same, threadPill } from "./model";
 import { Tag } from "./ui";
 import { fileChanges, peekAfter, sideBySide } from "../wholeFile";
 import { ChangeGutter, ChangeKey, ChangePeek } from "../WholeFileMarks";
+import { CommentBox } from "./CommentBox";
 
 type Side = "RIGHT" | "LEFT";
+type At = { line: number; side: Side; startLine?: number; code?: string };
 const isText = (v: unknown): v is string => typeof v === "string";
 type Show = "diff" | "file";
 type Layout = "one" | "split";
@@ -194,15 +196,22 @@ function FileDiff({
     () => (d.data ? parseDiff(d.data.diff).rows : []),
     [d.data],
   );
-  const [at, setAt] = useState<{ line: number; side: Side } | null>(null);
+  // the comment being written: its line (the last one of a selection), the first line of a selection, and the code
+  // it is on (KeelBot gets it when you ask from the box)
+  const [at, setAt] = useState<At | null>(null);
   const [text, setText] = useState("");
   const viewed = view.viewed.includes(path);
+  const code = useRef<HTMLDivElement>(null);
+  const assistant = useSlot<AssistantItem>(SLOTS.assistant)[0] ?? null;
+  const where = view.kind === "pr" ? `${prWord(view.host)} ${prLabel(view.host, view.number)}` : `branch ${view.branch}`;
+  const sha = view.head_sha.slice(0, 12);
   const add = async () => {
     if (!at || !text.trim()) return;
     const ok = await R.addDraft(pid, reviewKey, text.trim(), {
       path,
       line: at.line,
       side: at.side,
+      ...(at.startLine != null ? { startLine: at.startLine, startSide: at.side } : {}),
     });
     if (ok) {
       setAt(null);
@@ -277,7 +286,9 @@ function FileDiff({
         type="button"
         aria-label={`Comment on line ${ln[0]}${ln[1] === "LEFT" ? " (old)" : ""}`}
         onClick={() => {
-          setAt({ line: ln[0], side: ln[1] });
+          const n = `${ln[1] === "LEFT" ? "-" : ""}${ln[0]}`;
+          const row = code.current?.querySelector(`.rvn-dl-w[data-rvn-n="${n}"] .rvn-dl-t`);
+          setAt({ line: ln[0], side: ln[1], code: row?.textContent ?? "" });
           setText("");
         }}
       >
@@ -350,57 +361,40 @@ function FileDiff({
           </div>
         ))}
         {composing && (
-          <form
-            className="rvn-compose"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void add();
-            }}
-          >
-            <textarea
-              className="rvn-ta"
-              rows={2}
-              autoFocus
-              aria-label={`Your comment on line ${at!.line}`}
-              placeholder="Your comment on this line (pending until you submit)"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setAt(null);
-                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                  e.preventDefault();
-                  void add();
-                }
-              }}
-            />
-            <div className="rvn-row">
-              <button
-                type="submit"
-                className="rvn-btn primary"
-                disabled={!text.trim() || running.includes("draft")}
-              >
-                Add to my review
-              </button>
-              <button
-                type="button"
-                className="rvn-btn"
-                onClick={() => setAt(null)}
-              >
-                Cancel
-              </button>
-            </div>
-            {err && <ErrorBox error={err} />}
-          </form>
+          <CommentBox
+            key={`${at!.side}${at!.startLine ?? ""}-${at!.line}`}
+            pid={pid}
+            reviewKey={reviewKey}
+            label={at!.startLine != null ? `lines ${at!.startLine}–${at!.line}` : `line ${at!.line}`}
+            code={at!.code}
+            askWhere={`${at!.startLine != null ? "the lines" : "line"} ${path}:${at!.startLine != null ? `${at!.startLine}-` : ""}${at!.line}${at!.side === "LEFT" ? " (old file)" : ""} in ${where} (commit ${sha}; read it with git show ${sha}:${path})`}
+            chatTitle={`Review · ${where}`}
+            helper={assistant?.title ?? null}
+            text={text}
+            setText={setText}
+            busy={running.includes("draft")}
+            err={err}
+            onSubmit={() => void add()}
+            onCancel={() => setAt(null)}
+          />
         )}
       </>
     );
   };
 
-  // 0.18.63 the bar over selected lines: Search the project for them, ask KeelBot about them, or have it review them
-  const code = useRef<HTMLDivElement>(null);
-  const assistant = useSlot<AssistantItem>(SLOTS.assistant)[0] ?? null;
+  // 0.18.63 the bar over selected lines: Search the project for them, ask KeelBot about them, or have it review them;
+  // 0.36 Comment: a pending comment on the selected lines (its box can ask KeelBot too)
   const actions = useMemo<SelectionAction[]>(() => {
     const out: SelectionAction[] = [{
+      id: "comment", label: "Comment", title: "A comment on the selected lines (pending until you submit); its box can ask KeelBot too",
+      run: () => {
+        const s = pickedLines(code.current, path);
+        if (!s?.span) return;
+        setAt({ line: s.span.line, side: s.span.side, startLine: s.span.start, code: s.text });
+        setText("");
+        window.getSelection()?.removeAllRanges();
+      },
+    }, {
       id: "search", label: "Search", title: "Search the project for the selected text (Code › Search)",
       run: () => {
         const t = searchTextOf(pickedLines(code.current, path)?.first ?? "");
@@ -409,8 +403,6 @@ function FileDiff({
     }];
     const helper = assistant?.title;
     if (!helper) return out;
-    const where = view.kind === "pr" ? `${prWord(view.host)} ${prLabel(view.host, view.number)}` : `branch ${view.branch}`;
-    const sha = view.head_sha.slice(0, 12);
     const hand = (text: string) => {
       askAssistant(text);
       go("helper");
@@ -432,7 +424,7 @@ function FileDiff({
         },
       },
     ];
-  }, [view, path, assistant]);
+  }, [view, path, assistant, where, sha]);
 
   return (
     <section className="rvn-diff" aria-label={`Changes of ${path}`}>
@@ -641,7 +633,10 @@ function FileDiff({
 }
 
 /** The diff lines the selection covers, as KeelBot gets them: "+"/"−" marks kept, and where they are ("path:12-18"). */
-export function pickedLines(root: HTMLElement | null, path: string): { where: string; text: string; first: string } | null {
+export function pickedLines(
+  root: HTMLElement | null,
+  path: string,
+): { where: string; text: string; first: string; span: { start?: number; line: number; side: Side } | null } | null {
   const sel = window.getSelection();
   if (!root || !sel || sel.isCollapsed || !sel.anchorNode || !sel.focusNode) return null;
   const rowOf = (n: Node) => (n instanceof Element ? n : n.parentElement)?.closest<HTMLElement>(".rvn-dl-w") ?? null;
@@ -671,5 +666,11 @@ export function pickedLines(root: HTMLElement | null, path: string): { where: st
   const span = (xs: number[]) => (xs.length ? (xs[0] === xs[xs.length - 1] ? `${xs[0]}` : `${xs[0]}-${xs[xs.length - 1]}`) : "");
   const where = news.length ? `${path}:${span(news)}` : olds.length ? `${path} (old file) :${span(olds)}` : path;
   const first = rows.length === 1 ? text : codeOf(rows[0])?.textContent ?? "";
-  return { where: rows.length > 1 ? `the lines ${where}` : `line ${where}`, text: text.slice(0, 8000), first };
+  // the lines a comment on the selection is on: the new side when it has new lines, else the old side
+  const nums = news.length ? news : olds;
+  const side: Side = news.length ? "RIGHT" : "LEFT";
+  const lo = nums.length ? Math.min(...nums) : null;
+  const hi = nums.length ? Math.max(...nums) : null;
+  const range = lo != null && hi != null ? { ...(lo < hi ? { start: lo } : {}), line: hi, side } : null;
+  return { where: rows.length > 1 ? `the lines ${where}` : `line ${where}`, text: text.slice(0, 8000), first, span: range };
 }
