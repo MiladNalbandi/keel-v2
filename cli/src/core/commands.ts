@@ -4,6 +4,7 @@
 
 import { setCommand } from "./transport";
 import { PLAIN, type Paint } from "./theme";
+import { PARKED } from "./version";
 import { COMMANDS_BY_NAME, TABLE, errorReply, fail, P, text, type Command, type Ctx, type Impl, type Reply } from "./commands/base";
 import { FLOW_IMPLS } from "./commands/flow";
 import { SKILLS_IMPLS } from "./commands/skills";
@@ -58,7 +59,7 @@ export function helpText(c: Paint = PLAIN): string {
   const w = Math.max(...[...COMMANDS, ...pluginCmds].map((x) => (x.name + (x.args ? " " + x.args : "")).length));
   const cut = Math.min(w, 34);
   const groups = TABLE.groups ?? [...new Set(COMMANDS.map((x) => x.group ?? ""))];
-  const out = [`Type a question for ${c.accent("KeelBot")}, or a command:`];
+  const out = [c.dim(PARKED), "", `Type a question for ${c.accent("KeelBot")}, or a command:`];
   for (const g of groups) {
     const cmds = [...COMMANDS, ...pluginCmds].filter((x) => (x.group ?? "") === g);
     if (!cmds.length) continue;

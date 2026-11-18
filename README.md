@@ -30,7 +30,7 @@
 
 <p align="center">
   <img src="docs/keel-tui.gif" alt="keel's terminal app: keel's name and logins on top, a flow started from the prompt, its agents at work, the flow rail at a gate, KeelBot answering as it writes, and a diagram of the flow" width="900">
-  <br><sub><code>keel2</code>, keel's terminal app — recorded from a real run on keel's test model, not drawn.</sub>
+  <br><sub><code>keel2</code>, keel's terminal app — recorded from a real run on keel's test model, not drawn. Parked since 0.37.1: it keeps working, new features land in the web app and the IDE plugins.</sub>
 </p>
 
 <p align="center">
@@ -170,7 +170,7 @@ It runs on a strong model, never raises a budget cap, and you can turn it on kee
 | Command | What it does |
 |---|---|
 | `keel2 start [folder]` | start keel |
-| `keel2` | keel in your terminal: KeelBot, flows, gates, live agents and diagrams, with `/` commands, on a full screen that scrolls (also `keel2 tui`; `--inline` without the full screen) |
+| `keel2` | keel in your terminal: KeelBot, flows, gates, live agents and diagrams, with `/` commands, on a full screen that scrolls (also `keel2 tui`; `--inline` without the full screen). Parked: maintained, no new features |
 | `keel2 stop` | stop keel |
 | `keel2 add <folder> [<folder> …]` | add more projects (each a git repo, or a folder of repos) |
 | `keel2 folders` | which project folders keel has |

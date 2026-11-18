@@ -1,5 +1,7 @@
 # 25 · A plugin in keel TUI (`contributes.tui`)
 
+> **Parked (0.37.1):** keel TUI keeps working and gets its fixes, but no new features: they land in the web app (and keel desktop) and the IDE plugins (#194). A new plugin does not need a `contributes.tui` part; the existing ones stay and keep working.
+
 keel 0.18.3. A plugin can add **commands**, one **panel** and (0.18.6) **modes** to keel TUI (keel's terminal app, `keel2 tui`). They are
 written as data in the plugin's `keel-plugin.yml`, under `contributes.tui`. keel TUI never runs a plugin's code: each
 command calls the plugin's own api routes and shows the answer the way the manifest says.
