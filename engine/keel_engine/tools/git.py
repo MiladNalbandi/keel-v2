@@ -27,8 +27,14 @@ GIT_TIMEOUT = 120      # seconds: a stuck git (a lock, a hung network remote) mu
 #     the environment wins over any config)
 SECRET_HINTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 KEEP_ENV = {"KEEL_GIT_TOKEN_FILE", "KEEL_GIT_HOST"}
-SAFE_ARGS = ("-c", "protocol.ext.allow=never", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false")
-SAFE_ARGS_HOOKS = ("-c", "protocol.ext.allow=never", "-c", "core.fsmonitor=false")      # git.hooks: on, a local command
+# keel reads git's output itself (diff headers `+++ b/<file>`, paths), so the person's own diff settings must not change
+# its shape: diff.mnemonicPrefix (`+++ i/<file>`) or diff.noprefix hid every staged file from the secret scan and the
+# new-dependency check, and diff.relative / color.diff=always would too.
+PLAIN_DIFF = ("-c", "diff.mnemonicPrefix=false", "-c", "diff.noprefix=false", "-c", "diff.relative=false",
+              "-c", "color.diff=false")
+SAFE_ARGS = ("-c", "protocol.ext.allow=never", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false",
+             *PLAIN_DIFF)
+SAFE_ARGS_HOOKS = ("-c", "protocol.ext.allow=never", "-c", "core.fsmonitor=false", *PLAIN_DIFF)  # git.hooks: on, local
 # 0.21.3 agents run as their own user, in keel's group (tools/agent_user.py), and keel runs with umask 077: what keel's
 # git writes in .git (the index, objects, refs) stays readable and writable for the agent's own git
 SHARED_ARGS = ("-c", "core.sharedRepository=group")

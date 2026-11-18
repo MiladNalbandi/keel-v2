@@ -5,6 +5,7 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
 
 from conftest import decide, start, to_loop, wait
 from keel_engine import rules
@@ -263,6 +264,23 @@ def test_secret_scan_on_staged_diff(repo):
     assert commit(ai(repo, "green")).ok
     assert checks.scan_secrets('password = "changeme-please-now"') == []
     assert checks.scan_secrets('password = "Zq8#mL2!vR9@xT4w"')  # keel:allow-secret (fixture)
+
+
+@pytest.mark.parametrize("setting", ["diff.mnemonicPrefix", "diff.noprefix", "diff.relative", "color.diff"])
+def test_the_persons_diff_settings_never_hide_a_staged_secret_or_dependency(repo, setting):
+    """A repo (or the person's global config, or an agent's `git config`) that changes the diff's shape: `+++ i/<file>`,
+    `+++ <file>`, colour codes. keel's own git calls override it, so the scan still sees every added line."""
+    git(repo, "config", setting, "always" if setting == "color.diff" else "true")
+    write(repo, "src/scores/cfg.py", 'TOKEN = "ghp_' + "a" * 36 + '"\n')
+    r = commit(ai(repo, "green"))
+    assert not r.ok and "GitHub token" in r.note, r
+    write(repo, "src/scores/cfg.py", "TOKEN = None\n")
+    write(repo, "pyproject.toml", '[project]\nname = "demo"\n')
+    assert commit(ai(repo, "green")).ok
+    with open(Path(repo) / "pyproject.toml", "a") as f:
+        f.write('httpx = ">=0.27"\n')
+    r = commit(ai(repo, "green"))
+    assert not r.ok and r.ask and r.ask["type"] == "deps" and r.ask["deps"] == ["httpx"], r
 
 
 def test_manifest_additions_parse():
