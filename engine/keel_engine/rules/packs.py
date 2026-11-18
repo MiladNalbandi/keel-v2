@@ -275,7 +275,10 @@ def matches(rule: dict, target: str) -> bool:
 def pack_verdict(cfg: dict | None, kind: str, phase: str | None, target: str, lane: str | None = None,
                  packs: list[dict] | None = None) -> Verdict | None:
     """The first pack rule of this kind that refuses `target` (a path, a command or an MCP tool name), else None."""
-    off = set(((cfg or {}).get("rules") or {}).get("off") or [])
+    r = (cfg or {}).get("rules") or {}
+    if str(r.get("mode") or "").strip().lower().replace("_", "-").replace(" ", "-") in ("safety-only", "safety"):
+        return None     # 0.40 (#201) Safety only: no rule pack refuses
+    off = set(r.get("off") or [])
     for p in (cfg or {}).get("packs") or [] if packs is None else packs:
         if f"pack/{p['id']}" in off:
             continue

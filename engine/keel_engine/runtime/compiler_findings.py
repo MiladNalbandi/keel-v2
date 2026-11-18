@@ -158,7 +158,7 @@ class FindingsMixin:
         state = {**state, **extra, "phase": route, "feedback": feedback, "data": data}
         before = await asyncio.to_thread(guard.snapshot, ctx.root)
         res, model, _tb = await self._run_agent(state, fix, agent, 0)
-        refused = await asyncio.to_thread(guard.guard_diff, ctx.root, route, before, None, None, state.get("unlocks") or [],
+        refused = await asyncio.to_thread(guard.guard_diff, ctx.root, route, before, self._rules_cfg(ctx.root), None, state.get("unlocks") or [],
                                           self._readonly())
         for r in refused:
             ctx.emit("guard.refused", step=fix.id, data={"tool": "diff-guard", "phase": route, **r})

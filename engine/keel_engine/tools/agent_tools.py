@@ -225,6 +225,9 @@ class ToolBox:
         # other-projects is off for this project
         self.others: list[dict] | None = None
         self.others_off = False
+        # 0.40 (#201) the loop guard (runtime/rules_loop.py): a flow's agent blocked by the same rule 3 times stops; None
+        # for KeelBot (a person is in its chat)
+        self.loop_guard = None
 
     def add_unlocks(self, new: list[dict]):
         """An unlock granted while this agent runs (the engine calls this for every running agent of the thread)."""
@@ -240,7 +243,19 @@ class ToolBox:
             return None
         return full, rel
 
+    @property
+    def loop(self) -> dict | None:
+        """The rules loop of this run (the third refusal of the same kind), or None."""
+        return self.loop_guard.loop if self.loop_guard is not None else None
+
     def _refuse(self, tool: str, path: str, reason: str, command: str | None = None) -> str:
+        if self.loop_guard is not None and self.loop_guard.add(tool, path, reason, command):
+            from ..runtime import rules_loop
+
+            self.loop_guard.loop["lifted"] = rules_loop.lifted(self.loop_guard.loop, self.phase, self.cfg, self.root)
+            stop = "\n\n" + rules_loop.STOP.format(n=self.loop_guard.loop["count"])
+        else:
+            stop = ""
         if command is not None:
             try:
                 self.on_refuse(tool, path, reason, command)
@@ -248,7 +263,7 @@ class ToolBox:
                 self.on_refuse(tool, path, reason)
         else:
             self.on_refuse(tool, path, reason)
-        return f"REFUSED: {reason}"
+        return f"REFUSED: {reason}{stop}"
 
     def _outside(self, tool: str, path: str) -> str:
         if self.others is None:
@@ -290,7 +305,7 @@ class ToolBox:
             return self._read_other(path, offset, limit)
         full, rel = r
         v = rules.check_read(rel, self.cfg, full=full, ranged=offset is not None or limit is not None, phase=self.phase)
-        if v.ok and self.knowledge:
+        if v.ok and self.knowledge and not rules.safety_only(self.cfg):
             v = rules.check_knowledge(rel, self.agent, self.knowledge.get("sections"), bool(self.knowledge.get("strict")))
         if not v.ok:
             return self._refuse("read_file", rel, v.reason)
@@ -480,7 +495,7 @@ class ToolBox:
         ctx = {"root": self.root, "phase": self.phase, "_cwd": self.root}
 
         def knowledge(r: str) -> str | None:
-            if not self.knowledge:
+            if not self.knowledge or rules.safety_only(self.cfg):
                 return None
             v = rules.check_knowledge(r, self.agent, self.knowledge.get("sections"), bool(self.knowledge.get("strict")))
             return None if v.ok else v.reason

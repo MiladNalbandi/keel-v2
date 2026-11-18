@@ -40,6 +40,9 @@ def line_of(ev: dict, agent: str = "") -> dict | None:
     t, d = ev.get("type"), ev.get("data") or {}
     base = {"at": ev.get("at"), "thread": ev.get("thread_id"), "step": ev.get("step") or "", "agent": agent}
     if t in STEPS:
+        # 0.40 (#201) the rules mode the call was judged in (normal | safety-only); absent on older events
+        base["rules"] = (ev.get("data") or {}).get("rules") or None
+    if t in STEPS:
         kind = str(d.get("kind") or "")
         if kind not in KINDS:
             return None

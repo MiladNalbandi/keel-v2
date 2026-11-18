@@ -7,7 +7,7 @@ import tempfile
 import time
 import uuid
 
-from . import agent_knowledge, blockers as push_gates, clarify, session_steps, flow_actions, guard_ctx, markers, memory as memory_mod, other_projects, prompts, security_actions, spec_check, stacks, test_scope, tools as tool_runner
+from . import agent_knowledge, blockers as push_gates, clarify, session_steps, flow_actions, guard_ctx, markers, memory as memory_mod, other_projects, prompts, rules_loop, security_actions, spec_check, stacks, test_scope, tools as tool_runner
 from .. import addons, agent_names, extensions, models, rules
 from ..flowdoctor import repair as doctor
 from ..models import catalog
@@ -17,6 +17,7 @@ from ..tools import git, guard, mcp
 from ..tools.agent_tools import ToolBox
 from ..workflows.model import Step
 from .actions import ActionResult
+from .gate_state import deep_gates
 from .findings import REVIEWERS, blocking, key as finding_key, nonblocking, same as same_finding, unique
 from .state import FlowState
 from langgraph.errors import GraphBubbleUp
@@ -30,6 +31,53 @@ READ_TOOLS = re.compile(r"^(read_file|read|grep|glob|ls|list_files|search|webfet
 
 
 class AgentMixin:
+    _rules_once = ""            # 0.40 (#201) the step that runs in Safety only this one time ("Allow it this once")
+
+    def _rules_mode(self, step_id: str = "") -> str | None:
+        """The flow's rules mode: Safety only for a step allowed once, else the flow's own (Start a flow, the loop
+        guard, Settings), else None (the project's `rules.mode`, normal by default)."""
+        if step_id and self._rules_once == step_id:
+            return rules.SAFETY_ONLY
+        return (self.ctx.settings or {}).get("rules_mode") or None
+
+    def _rules_cfg(self, root: str, step_id: str = "") -> dict:
+        return rules.with_mode(rules.load_config(root), self._rules_mode(step_id))
+
+    async def _rules_loop_answer(self, step: Step, state: FlowState):
+        """0.40 (#201) the loop guard's question (runtime/rules_loop.py), asked when the step runs after a loop stopped
+        it. Returns (update, goto) or None when no loop waits for this step."""
+        data = dict(state.get("data") or {})
+        lp = data.get("rules_loop")
+        if not isinstance(lp, dict) or lp.get("step") != step.id:
+            return None
+        q = rules_loop.question(step.id, step.name, str(lp.get("agent") or step.agent or ""), lp)
+        answer, extra = self._ask(state, q, gate="failure")
+        names = q["choices"]
+        choice = str((answer.get("payload") or {}).get("choice") or (names[0] if answer.get("decision") == "approve" else "stop"))
+        choice = choice if choice in names else "stop"
+        why = (answer.get("why") or "").strip()
+        data.pop("rules_loop", None)
+        gates = deep_gates(state)
+        gates["log"].append(f"rules-loop {choice}" + (f": {why}" if why else ""))
+        self.ctx.emit("gate.decided", step=step.id, data={"gate": q["title"], "decision": choice, "why": why})
+        base = {**extra, "gates": gates, "data": data}
+        if choice == "stop":
+            note = f"{step.name}: stopped after the same rule blocked it {lp.get('count') or rules_loop.BLOCKS} times"
+            return {**base, **self._booked(state), "status": "stopped", "error": note[:500], "note": note}, END
+        if choice == "safety":
+            setter = getattr(self.ctx, "set_rules", None)
+            if setter is not None:
+                await setter(rules.SAFETY_ONLY, answer.get("by") or "you (the loop guard's question)")
+            else:
+                self.ctx.settings = {**(self.ctx.settings or {}), "rules_mode": rules.SAFETY_ONLY}
+            return {**base, "note": f"{step.name}: this flow runs in Safety only now; trying again"}, step.id
+        if choice == "allow":
+            data["rules_once"] = step.id
+            return {**base, "data": data, "note": f"{step.name}: allowed once (Safety only for this run); trying again"}, step.id
+        fb = ("keel's rules refused this the same way 3 times: " + str(lp.get("reason") or "")[:600]
+              + "\nThat rule stays. Do the task another way that it allows, or say BLOCKED with why."
+              + (f"\nThe person says: {why}" if why else ""))
+        return {**base, "feedback": fb, "note": f"{step.name}: trying again another way"}, step.id
 
     async def _run_agent(self, state: FlowState, step: Step, agent: str, index: int, section: str | None = None,
                          item: dict | None = None) -> tuple[AgentResult, dict, ToolBox]:
@@ -42,7 +90,7 @@ class AgentMixin:
         # repo of a product); otherwise in the thread's folder.
         item_root = bool(step.root == "item" and item and item.get("root"))
         root = str(item["root"]) if item_root else ctx.root
-        cfg = rules.load_config(root)
+        cfg = self._rules_cfg(root, step.id)      # 0.40 (#201) with the flow's rules mode
         # What this agent may use: its knowledge sections, the code graph, its memory (agent_knowledge.py).
         know = agent_knowledge.for_agent(agent, ctx.agents)
         # The parts' own servers join the MCP servers (keel_engine/extensions.py mcp_specs: the code graph's once the
@@ -77,6 +125,7 @@ class AgentMixin:
                           unlocks=state.get("unlocks") or [], agent=agent, knowledge=know,
                           readonly=self._readonly() or item_root)
         toolbox.refused_paths = refused_paths
+        toolbox.loop_guard = rules_loop.Counter()     # 0.40 (#201) the same rule 3 times stops the step
         # keel 0.18.64 the other projects registered in this keel: read only (runtime/other_projects.py)
         toolbox.others_off = other_projects.is_off(cfg)
         toolbox.others = await asyncio.to_thread(other_projects.usable, ctx.other_projects, root, ctx.project_id, cfg)
@@ -90,7 +139,8 @@ class AgentMixin:
         asked_at = time.monotonic()      # 0.35 the harness's "start:" line counts from here
         ctx.emit("agent.started", step=step.id, call_id=call_id, data={
             "agent": agent, "provider": model["provider"], "model": model.get("model"), "mode": model.get("mode"),
-            "effort": catalog.effort_for(model), "phase": phase, "ac": (ac or {}).get("id"), "index": index, **({"item": item["id"]} if item else {})})
+            "effort": catalog.effort_for(model), "phase": phase, "ac": (ac or {}).get("id"), "index": index,
+            "rules": rules.rules_mode(cfg), **({"item": item["id"]} if item else {})})
         counter = {"n": 0}
 
         # Agent memory: the same step again (restart, try again, send-back) continues this agent's own session.
@@ -414,11 +464,25 @@ class AgentMixin:
         first = doctor.answer_first(self, step, state, "fix")
         if first:
             return first
+        looped = await self._rules_loop_answer(step, state)
+        if looped:
+            return looped
         if session_steps.applies(step, state):
             # 0.29 a connected session (the person's own Claude Code / OpenCode) does this harness step: a work order,
             # no model call (runtime/session_steps.py)
             return await session_steps.run(self, i, step, state)
-        return await self._agent_step_now(i, step, state)
+        once = (state.get("data") or {}).get("rules_once")
+        if not once:
+            return await self._agent_step_now(i, step, state)
+        # "Allow it this once": this run of the step in Safety only; then the flow's own mode again
+        self._rules_once = once if once == step.id else ""
+        try:
+            upd, goto = await self._agent_step_now(i, step, state)
+        finally:
+            self._rules_once = ""
+        data = dict(upd.get("data") or state.get("data") or {})
+        data.pop("rules_once", None)
+        return {**upd, "data": data}, goto
 
     async def _agent_step_now(self, i: int, step: Step, state: FlowState):
         """The agent step on keel's own harness (every flow; a connected session's step when the person chose it)."""
@@ -568,7 +632,7 @@ class AgentMixin:
             if isinstance(o, ActionResult):
                 upd.update(o.update)
 
-        refused = await asyncio.to_thread(guard.guard_diff, ctx.root, state["phase"], before, None,
+        refused = await asyncio.to_thread(guard.guard_diff, ctx.root, state["phase"], before, self._rules_cfg(ctx.root, step.id),
                                           rules.ac_lane(ac) if ac else None, state.get("unlocks") or [], self._readonly())
         for r in refused:
             ctx.emit("guard.refused", step=step.id, data={"tool": "diff-guard", "phase": state["phase"], **r})
@@ -627,6 +691,15 @@ class AgentMixin:
                 if r.get("command"):
                     data["command"] = r["command"]
                 ctx.emit("guard.refused", step=step.id, data=data)
+        loop = next((dict(tb.loop, agent=tb.agent) for _res, _m, tb in agent_results if getattr(tb, "loop", None)), None)
+        if loop:
+            # 0.40 (#201) the loop guard: the same rule blocked an agent 3 times, so the step stopped; its next run asks
+            data = dict(upd.get("data") or state.get("data") or {})
+            data["rules_loop"] = {**loop, "step": step.id}
+            ctx.emit("guard.loop", step=step.id, data={k: loop.get(k) for k in
+                                                       ("tool", "path", "command", "reason", "count", "lifted", "t3", "agent")})
+            upd["note"] += " · keel stopped the step: the same rule blocked it 3 times"
+            return {**upd, "data": data}, step.id
         if agent_results:
             agent_results = await self._marker_reask(state, step, agent_results, calls, section_of, item_of)
             upd["last_answer"] = (agent_results[-1][0].text or "")[:8000]

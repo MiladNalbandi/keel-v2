@@ -95,6 +95,9 @@ class Settings(BaseModel):
     # v0.4.1 run modes (runtime/run_mode.py): manual stops at every gate, important approves clean AC gates, auto approves
     # every gate keel can decide (the safety stops still stop), readonly lets no agent edit or commit
     run_mode: Literal["manual", "important", "auto", "readonly"] = "manual"
+    # 0.40 (#201) the flow's rules mode: normal (every keel rule) or safety-only (keel-gate's safety rules only); None:
+    # the project's `rules.mode` in .keel/config.yml (normal when it says nothing)
+    rules_mode: Literal["normal", "safety-only"] | None = None
     # who keel's commits are by and whether they name KeelBot (runtime/actions.py commit_args): "Name <email>" (default:
     # the project's git name, else KeelBot), and the Co-Authored-By: KeelBot line (default on)
     commit_author: str | None = None
@@ -264,6 +267,11 @@ class FinishByHand(BaseModel):
 class ModeBody(BaseModel):
     mode: Literal["manual", "important", "auto", "readonly"]
     by: str | None = None          # 0.18.74 who changed it (the api: the dashboard, an MCP client by name, ...)
+
+
+class RulesBody(BaseModel):
+    mode: Literal["normal", "safety-only"]
+    by: str | None = None          # who changed it (the api: the dashboard, the Inbox answer to an MCP request ...)
 
 
 class ModelsBody(BaseModel):
@@ -613,6 +621,12 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
     async def post_mode(tid: str, body: ModeBody, request: Request):
         """The run mode from the next pause on (manual | important | auto | readonly)."""
         return await engine(request).set_mode(tid, body.mode, body.by)
+
+    @app.post("/threads/{tid}/rules")
+    async def post_rules(tid: str, body: RulesBody, request: Request):
+        """0.40 (#201) the flow's rules mode (normal | safety-only) from its next agent call. The api lets only a person
+        switch to Safety only (an MCP client's request waits for the person's OK in the Inbox)."""
+        return await engine(request).set_rules_mode(tid, body.mode, body.by)
 
     @app.get("/threads/{tid}/models")
     async def get_models(tid: str, request: Request):

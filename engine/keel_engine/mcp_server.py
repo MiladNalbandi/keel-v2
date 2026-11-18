@@ -1038,6 +1038,17 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         return await act(ctx, "keel_run_mode", f"run in {mode} mode", tui.run_mode, api, mode, project, thread_id)
 
     @reg(rw)
+    async def keel_rules_mode(mode: Literal["normal", "safety-only"] | None = None, thread_id: str | None = None,
+                              project: str | None = None, ctx: Context | None = None) -> str:
+        """0.40 A flow's rules, from its next agent call: normal (every keel rule) or safety-only (only the safety rules:
+        anything that cannot be undone is refused, secrets stay out; phase rules and rule packs are off). Safety only
+        waits for the person's OK in keel's Inbox. No `mode`: what it is now."""
+        if not mode:
+            return guard(tui.rules_mode, api, None, project, thread_id)
+        return await act(ctx, "keel_rules_mode", f"run this flow with rules: {mode}", tui.rules_mode, api, mode, project,
+                         thread_id, confirm=mode == "safety-only")
+
+    @reg(rw)
     async def keel_resume_flow(thread_id: str | None = None, project: str | None = None, ctx: Context | None = None) -> str:
         """Go on with a stopped or failed flow from its last saved step (the dashboard's Resume). A waiting flow is answered
         with keel_approve_gate instead."""
