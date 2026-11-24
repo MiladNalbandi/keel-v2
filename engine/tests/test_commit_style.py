@@ -130,3 +130,33 @@ def test_init_commits_its_own_files_and_leaves_a_fixs_changes_for_the_person(tmp
     assert git(root, "show", "--name-only", "--format=", "HEAD").stdout.split() == ["docs/RUNNING.md"]
     assert "deps.lock" in git(root, "status", "--porcelain").stdout
 
+
+
+# #237 an agent connected over MCP asks keel how commits look here (keel_commit_style -> the read action commit_style)
+
+def test_an_agent_gets_the_configured_template_first(tmp_path):
+    import asyncio
+    root = project(tmp_path, config='version: 4\ngit:\n  commit_template: "{ticket}: {type}: {subject}"\n')
+    r = asyncio.run(va.commit_style_action(ActionInput(root=str(root), phase="", title="", ac=None, acs=[], fake=False, flow="")))
+    assert r.ok and r.note == "Commit style (git.commit_template in .keel/config.yml): {ticket}: {type}: {subject}"
+    assert "{ticket} the ticket key" in r.detail and "  chore: start" in r.detail
+
+
+def test_an_agent_gets_the_style_the_team_shares_also_without_a_ticket(tmp_path):
+    root = project(tmp_path)
+    for n, msg in enumerate(["feat(cart): totals", "fix(cart): rounding", "docs(readme): setup"]):
+        write(root, f"src/f{n}.php")
+        commit_all(root, msg)
+    note, detail = cs.for_agent(str(root), {})
+    assert note.startswith("Commit style (shared by most of the last 4 commits of the team): {type}({scope}): {subject}")
+    assert detail.splitlines()[1:3] == ["Recent subjects:", "  docs(readme): setup"]
+
+
+def test_no_fixed_style_still_shows_the_recent_subjects(tmp_path):
+    root = project(tmp_path)
+    for n, msg in enumerate(["Add the cart", "Totals round to cents"]):
+        write(root, f"src/f{n}.php")
+        commit_all(root, msg)
+    note, detail = cs.for_agent(str(root), {})
+    assert note.startswith("No fixed commit style")
+    assert detail.splitlines() == ["Recent subjects:", "  Totals round to cents", "  Add the cart", "  chore: start"]

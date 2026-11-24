@@ -41,11 +41,11 @@
 ## Why keel
 
 Your agent is good at code, but it does not know *your* project: how commits look here, which rules hold, what the
-architecture is, what another agent did an hour ago. keel is the place it asks.
+architecture is, which specs are already built. keel is the place it asks.
 
 ```
  your agent wants to commit
-        │  asks keel over MCP: "how do commits look in this project?"   (keel_knowledge, conventions)
+        │  asks keel over MCP: "how do commits look in this project?"   (keel_commit_style)
         ▼
  keel answers with the project's commit style
         │
@@ -58,7 +58,7 @@ What keel gives your agent:
 | | |
 |---|---|
 | **Project knowledge** | architecture, domain, data, integrations: what the project is and how its parts talk |
-| **Code and commit style** | how code is written here and how commits look |
+| **Code and commit style** | how code is written here (`keel_knowledge`) and how commits look (`keel_commit_style`) |
 | **Rules** | what may be changed and what is off limits (`keel_rules`); keel's own flows check them before each action |
 | **Wiki** | the specs and docs, with their build state |
 | **Graph** | what uses what: classes, functions, routes |

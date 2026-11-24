@@ -99,7 +99,7 @@ export function HomeIntro() {
         <ol>
           <li>Your agent wants to commit.</li>
           <li>
-            It asks keel over MCP how commits look in this project (<code className="mono">keel_knowledge</code>, conventions).
+            It asks keel over MCP how commits look in this project (<code className="mono">keel_commit_style</code>).
           </li>
           <li>It commits that way, like everyone on the project.</li>
         </ol>

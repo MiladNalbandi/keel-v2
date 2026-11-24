@@ -19,6 +19,7 @@ MARKET_TOOLS = ["keel_marketplace_search", "keel_plugin_info", "keel_plugins_ins
 READ_TOOLS = {"keel_status", "keel_read_gate", "keel_flow_doctor", "keel_projects", "keel_timeline", "keel_next", "keel_explain",
               "keel_dashboard",                                                                    # v0.15.8 dashboard
               "keel_flows", "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge",  # v0.16.0
+              "keel_commit_style",                                                         # #237
               "keel_search", "keel_read_file", "keel_actions", "keel_run_action", "keel_rules",   # v0.17.2 rules
               "keel_read_project_file",                                                    # 0.18.64 other projects
               # 0.18.5 what keel TUI shows
@@ -220,7 +221,7 @@ def test_the_marketplace_tools_come_after_every_tool_keel_listed_before_at_each_
 
     names = lambda level: [t.name for t in asyncio.run(mcp_server.build_server(level=level, api=object()).list_tools())]
     read = ["keel_status", "keel_read_gate", "keel_flow_doctor", "keel_projects", "keel_timeline", "keel_next", "keel_explain", "keel_rules", "keel_dashboard", "keel_flows",
-            "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_search", "keel_read_file",
+            "keel_inbox", "keel_live", "keel_budget", "keel_specs", "keel_knowledge", "keel_commit_style", "keel_search", "keel_read_file",
             "keel_spec_check", "keel_citations_check", "keel_read_project_file",          # 0.18.64 next to keel_read_file
             "keel_actions", "keel_run_action"]
     write = ["keel_approve_gate", "keel_resume", "keel_start_flow", "keel_answer", "keel_edit_gate", "keel_restore_doc", "keel_stop_flow"]
@@ -914,7 +915,7 @@ def test_read_actions_match_the_api():
 
     assert {n for n, lv in ACTION_LEVELS.items() if lv == "read"} == {
         "audit", "trace", "trace_strict", "arch", "arch_detect", "coverage_report", "lint_scope", "lint_report", "review_lenses",
-        "ci_report"}
+        "ci_report", "commit_style"}
     assert {n for n, lv in ACTION_LEVELS.items() if lv == "admin"} == {"arch_set", "open_pr"}
 
 

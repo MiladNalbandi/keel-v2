@@ -23,6 +23,8 @@ Two more trailers say why a commit looks the way it does, so the ship audit does
     render(tpl, type, scope, subject, ticket)        one subject line in that style
     conventional_type(ctype, buckets, files, ...)    {type}: test, refactor, fix, docs or feat from what changed
     ticket_from_branch(branch)                       SHOPS-1234 from feature/SHOPS-1234-euro-prices
+    for_agent(root, cfg)                             #237 what an agent asks over MCP (keel_commit_style): the style
+                                                     and a few recent subjects, so it commits like the team
 """
 
 from __future__ import annotations
@@ -183,3 +185,38 @@ def template(root: str, cfg: dict | None) -> tuple[str | None, str]:
     if not tpl or tpl == DEFAULT:
         return None, ""
     return tpl, "inferred"
+
+
+def team_style(subjects: list[str]) -> str | None:
+    """#237 the style most of these subjects share (at least half of them, and at least 3), ticket or not: what an
+    agent outside keel should write. (infer() takes only a ticket style: it is about keel's own subjects.)"""
+    styles = [s for s in (_style_of(x) for x in subjects) if s]
+    if len(styles) < 3:
+        return None
+    best, n = Counter(styles).most_common(1)[0]
+    return best if n * 2 >= len(subjects) else None
+
+
+def for_agent(root: str, cfg: dict | None, examples: int = 8) -> tuple[str, str]:
+    """#237 (note, detail) for an agent that wants to commit: the configured template, else the style the team's recent
+    commits share, else "no fixed style"; the detail says what the placeholders mean and lists recent subjects. Reads
+    git log only; changes nothing."""
+    try:
+        subjects = recent_subjects(root)
+    except Exception:            # noqa: BLE001 - no git or no history: the configured template still answers
+        subjects = []
+    tpl = configured(cfg)
+    if tpl:
+        note = f"Commit style (git.commit_template in .keel/config.yml): {tpl}"
+    else:
+        tpl = team_style(subjects)
+        note = (f"Commit style (shared by most of the last {len(subjects)} commits of the team): {tpl}" if tpl else
+                "No fixed commit style: .keel/config.yml has no git.commit_template and the recent commits share none. "
+                "Follow the recent subjects below.")
+    out = []
+    if tpl:
+        out.append("{ticket} the ticket key (e.g. SHOPS-1234, often in the branch name) · {type} feat, fix, test, "
+                   "refactor, docs, chore ... · {scope} what the change is about · {subject} what it does, short")
+    if subjects:
+        out += ["Recent subjects:"] + [f"  {x}" for x in subjects[:examples]]
+    return note, "\n".join(out)
