@@ -976,3 +976,19 @@ async def test_health_and_status_say_which_keel_and_which_folder(stub, monkeypat
     stub.projects = [{**PROJECTS[0], "host": "/home/ada/keel-projects/shop"}, PROJECTS[1]]
     text = await call(mcp_server.build_server(api=stub.api), "keel_status", {"project": "shop"})
     assert "folder /home/ada/keel-projects/shop (keel sees it as /workspace/shop)" in text.splitlines()[0]
+
+
+async def test_flow_doctor_reads_the_api_route_once_prefixed():
+    """keel_flow_doctor asked GET /api/api/flow-doctor/report (the client already adds /api) and always got a 404."""
+    seen = []
+
+    def route(req: httpx.Request) -> httpx.Response:
+        seen.append((req.url.path, req.url.params.get("days")))
+        if req.url.path == "/api/flow-doctor/report":
+            return httpx.Response(200, json={"markdown": "# Flow doctor\n2 crashes, 1 repaired."})
+        return httpx.Response(404, json={"error": "Not found"})
+
+    api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(route))
+    text = await call(mcp_server.build_server(api=api), "keel_flow_doctor", {"days": 3})
+    assert text == "# Flow doctor\n2 crashes, 1 repaired."
+    assert seen == [("/api/flow-doctor/report", "3")]

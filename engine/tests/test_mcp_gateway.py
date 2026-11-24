@@ -127,3 +127,45 @@ def test_harness_steps_get_the_connected_servers_through_keel(client, repo, monk
     assert keel["env"].get("KEEL_PROJECT") == "demo"                  # keel's server stays on this flow's project
 
 
+async def test_a_write_tool_runs_once_after_the_persons_ok_and_not_at_all_after_a_no(tmp_path, monkeypatch):
+    """The Inbox path end to end, in process: the read-only tool never asks; the write tool asks keel's api
+    (POST /projects/{pid}/plugins/ask, then GET /plugins/asks/{id}) and runs once on allow, never on deny."""
+    import httpx
+    from mcp.shared.memory import create_connected_server_and_client_session
+
+    from keel_engine import mcp_server
+
+    answer = {"decision": "allow", "why": ""}
+    asked: list[dict] = []
+
+    def route(req: httpx.Request) -> httpx.Response:
+        if req.method == "POST" and req.url.path == "/api/projects/shop/plugins/ask":
+            asked.append(json.loads(req.content))
+            return httpx.Response(200, json={"id": f"q{len(asked)}"})
+        if req.method == "GET" and req.url.path == f"/api/plugins/asks/q{len(asked)}":
+            return httpx.Response(200, json={"waiting": False, **answer})
+        return httpx.Response(404, json={"error": f"No route {req.url.path}"})
+
+    monkeypatch.setenv("KEEL_PROJECT", "shop")
+    monkeypatch.setenv(mcp_tools.GATEWAY_ENV, json.dumps([fake_server(tmp_path)]))
+    api = mcp_server.KeelApi("http://keel.test", transport=httpx.MockTransport(route))
+    srv = mcp_server.build_server(write=True, api=api)
+    marker = tmp_path / "tickets-created"
+    async with create_connected_server_and_client_session(srv._mcp_server) as s:
+        tools = {t.name: t for t in (await s.list_tools()).tools}
+        assert "asks the person in its Inbox" in tools["tickets__create"].description
+        assert "asks the person" not in tools["tickets__lookup"].description
+
+        res = await s.call_tool("tickets__lookup", {"ticket": "7"})
+        assert res.content[0].text == "ticket 7: open" and asked == []            # read-only: no question
+
+        res = await s.call_tool("tickets__create", {"title": "first"})
+        assert res.content[0].text == "created" and marker.read_text() == "first"
+        assert len(asked) == 1 and "tickets" in asked[0]["title"] and '"first"' in asked[0]["command"]
+
+        marker.unlink()
+        answer.update(decision="deny", why="not now")
+        res = await s.call_tool("tickets__create", {"title": "second"})
+        text = res.content[0].text
+        assert text.startswith("keel: not done") and "not now" in text
+        assert not marker.exists() and len(asked) == 2                            # denied: it never ran
