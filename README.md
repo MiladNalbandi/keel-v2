@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <b>AI agents write <i>tested</i> code for your project. You approve the important steps.</b><br>
-  Everything runs in one Docker container: a dashboard, a terminal app and an MCP server for your own AI tools.
+  <b>keel makes your coding agent smarter, more organized, and better at working with other agents.</b><br>
+  Your agent connects to keel over MCP and gets what it needs to know about your project. keel does not control or manage your agents.
 </p>
 
 <p align="center">
@@ -37,6 +37,48 @@
   <img src="docs/keel-v2.gif" alt="keel v2: the budget bar, a flow waiting at a gate, the inbox, Settings › Plugins (keel core and a plugin on for this project or all projects), the database diagram, the code graph, the Wiki with a spec and its build status, the repo, and a person approving the spec" width="900">
   <br><sub>The dashboard — recorded from a real keel v2 run (Claude Haiku on a small shop project), not drawn.</sub>
 </p>
+
+## Why keel
+
+Your agent is good at code, but it does not know *your* project: how commits look here, which rules hold, what the
+architecture is, what another agent did an hour ago. keel is the place it asks.
+
+```
+ your agent wants to commit
+        │  asks keel over MCP: "how do commits look in this project?"   (keel_knowledge, conventions)
+        ▼
+ keel answers with the project's commit style
+        │
+        ▼
+ your agent commits that way, like everyone on the project
+```
+
+What keel gives your agent:
+
+| | |
+|---|---|
+| **Project knowledge** | architecture, domain, data, integrations: what the project is and how its parts talk |
+| **Code and commit style** | how code is written here and how commits look |
+| **Rules** | what agents may change and what is off limits, checked before the action |
+| **Wiki** | the specs and docs, with their build state |
+| **Graph** | what uses what: classes, functions, routes |
+| **Shared context** | several agents on one keel see the same knowledge and each other's work, so less is done twice |
+
+**keel connects, it does not take over.** Your agent stays yours: Claude Code, Codex, OpenCode, Cursor or any MCP
+client. It asks keel what it needs and keeps working its own way. The more agents use one keel, the more they gain
+together.
+
+**Connect your agent** (after [Start](#start)): **Help › Start here, step 3** shows the one line for your tool, for
+example Claude Code:
+
+```bash
+claude mcp add keel-v2 -- "$(command -v keel2)" mcp --write
+```
+
+More: [the MCP levels and tools](docs/GUIDE.md#use-keel-from-claude-code-or-claude-desktop-mcp).
+
+keel can also run its own flows (spec, test, code, review) with you approving the important steps: see
+[How it works](#how-it-works).
 
 ## Start
 
@@ -118,7 +160,7 @@ keel is a small **core**. Everything else is a **plugin** that you turn on or of
 
 **Settings › Plugins** and **Add features** show them. The core plugins come with keel and are on. The **parked** ones
 ([docs/parked.md](docs/parked.md)) are in every keel too, but off until you turn them on, and they get no new features:
-keel focuses on running coding agents on any model and making what they did easy to read. Turn one on or off, or add
+keel focuses on giving coding agents on any model what they need to know, and making what they did easy to read. Turn one on or off, or add
 one from the **Marketplace**, and keel restarts in about 30 seconds. `keel2 start --core` starts keel with no plugin inside.
 
 ## Code Review
