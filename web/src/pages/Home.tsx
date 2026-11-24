@@ -9,6 +9,11 @@
 //   │                                         Ask ↩ │
 //   └───────────────────────────────────────────────┘
 //   Waiting for you (2) · Running now · Recent
+//
+// #233 above the box, keel's message at first sight: keel is what your agent connects to (MCP) so it gets smarter and
+// more organized and works better with other agents. It does not control or manage them. Six things keel gives the
+// agent, the commit-style example in three steps, and "Connect your agent" (Help › Start here, the MCP step). "Hide"
+// folds it to one line (saved in the browser); "What keel gives your agent" opens it again.
 
 import { useRef, useState } from "react";
 import { api, errorParts, type RunRow } from "../api";
@@ -29,6 +34,86 @@ const KIND: Record<string, string> = {
   permission: "May it run?",
   task: "Task",
 };
+
+const INTRO_KEY = "keel2.home.intro";
+
+const GIVES: { t: string; d: string }[] = [
+  { t: "Project knowledge", d: "architecture, domain, data and how the parts talk" },
+  { t: "Code and commit style", d: "how code is written here and how commits look" },
+  { t: "Rules", d: "what agents may change and what is off limits" },
+  { t: "Wiki", d: "the specs and docs, with their build state" },
+  { t: "Graph", d: "what uses what: classes, functions, routes" },
+  { t: "Shared context", d: "several agents on one keel see the same, so less work is done twice" },
+];
+
+function readIntro(): boolean {
+  try {
+    return localStorage.getItem(INTRO_KEY) !== "hidden";
+  } catch {
+    return true;
+  }
+}
+
+/** #233 what keel is, at first sight: what it gives your agent and how the agent connects. */
+export function HomeIntro() {
+  const [open, setOpen] = useState(readIntro);
+  const set = (v: boolean) => {
+    setOpen(v);
+    try {
+      if (v) localStorage.removeItem(INTRO_KEY);
+      else localStorage.setItem(INTRO_KEY, "hidden");
+    } catch {
+      /* private window */
+    }
+  };
+  if (!open)
+    return (
+      <p className="h2-intro-min">
+        <button type="button" className="h2-linkish" onClick={() => set(true)}>
+          What keel gives your agent ›
+        </button>
+      </p>
+    );
+  return (
+    <section className="h2-intro rise" aria-labelledby="h2-intro-h">
+      <div className="h2-intro-top">
+        <h2 id="h2-intro-h">Your agent connects to keel. It gets smarter, more organized, and works better with other agents.</h2>
+        <button type="button" className="btn ghost h2-hide" onClick={() => set(false)} aria-label="Hide what keel gives your agent">
+          Hide
+        </button>
+      </div>
+      <p className="h2-intro-sub">
+        keel does not take control of your agents or manage them. Your agent stays yours: it asks keel over MCP and gets what it needs to know about the
+        project. Several agents on one keel share it, so together they are even more efficient.
+      </p>
+      <ul className="h2-gives" aria-label="What keel gives your agent">
+        {GIVES.map((g) => (
+          <li key={g.t}>
+            <b>{g.t}</b>
+            <span>{g.d}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="h2-example" aria-label="Example: a commit">
+        <span className="h2-ex-h">Example</span>
+        <ol>
+          <li>Your agent wants to commit.</li>
+          <li>
+            It asks keel over MCP how commits look in this project (<code className="mono">keel_knowledge</code>, conventions).
+          </li>
+          <li>It commits that way, like everyone on the project.</li>
+        </ol>
+      </div>
+      <div className="h2-intro-acts">
+        <span className="h2-tip">Claude Code, Codex, OpenCode, Cursor: add keel's MCP server once.</span>
+        <span className="grow" />
+        <a className="btn primary" href={hashFor("help")}>
+          Connect your agent ›
+        </a>
+      </div>
+    </section>
+  );
+}
 
 export function HomePage({ pid }: PageProps) {
   const { project } = useApp();
@@ -91,6 +176,7 @@ export function HomePage({ pid }: PageProps) {
 
   return (
     <div className="home2">
+      <HomeIntro />
       <section className="h2-hero rise">
         <h1>{mode === "build" ? `What should keel build${project ? ` in ${project.name}` : ""}?` : `Ask keel about ${project?.name ?? "this project"}`}</h1>
         <div className={`h2-box${err ? " bad" : ""}`}>
