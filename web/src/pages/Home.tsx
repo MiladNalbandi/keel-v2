@@ -43,7 +43,7 @@ const GIVES: { t: string; d: string }[] = [
   { t: "Rules", d: "what agents may change and what is off limits" },
   { t: "Wiki", d: "the specs and docs, with their build state" },
   { t: "Graph", d: "what uses what: classes, functions, routes" },
-  { t: "Shared context", d: "several agents on one keel see the same, so less work is done twice" },
+  { t: "Shared context", d: "several agents on one keel see the same knowledge and flows, so less is done twice" },
 ];
 
 function readIntro(): boolean {
@@ -77,7 +77,7 @@ export function HomeIntro() {
   return (
     <section className="h2-intro rise" aria-labelledby="h2-intro-h">
       <div className="h2-intro-top">
-        <h2 id="h2-intro-h">Your agent connects to keel. It gets smarter, more organized, and works better with other agents.</h2>
+        <h1 id="h2-intro-h">Your agent connects to keel and gets smarter, more organized, and better with other agents.</h1>
         <button type="button" className="btn ghost h2-hide" onClick={() => set(false)} aria-label="Hide what keel gives your agent">
           Hide
         </button>
@@ -94,7 +94,7 @@ export function HomeIntro() {
           </li>
         ))}
       </ul>
-      <div className="h2-example" aria-label="Example: a commit">
+      <div className="h2-example" role="group" aria-label="Example: a commit">
         <span className="h2-ex-h">Example</span>
         <ol>
           <li>Your agent wants to commit.</li>

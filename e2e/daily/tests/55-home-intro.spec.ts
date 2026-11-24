@@ -34,6 +34,10 @@ test.describe("J28 Home: what keel gives your agent", () => {
     await expect(intro).toContainText("Your agent wants to commit.");
     // the box to ask or build is still on the page, under the message
     await expect(page.getByRole("heading", { name: `Ask keel about ${shop.name}` })).toBeVisible();
+    // phone width: the Ask box is still on the first screen, not pushed below the fold
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator(".h2-box")).toBeInViewport();
+    await page.setViewportSize({ width: 1280, height: 900 });
     await shot(page, "j28-home-intro");
 
     // phone width: the six things fit (no sideways scroll)

@@ -59,20 +59,20 @@ What keel gives your agent:
 |---|---|
 | **Project knowledge** | architecture, domain, data, integrations: what the project is and how its parts talk |
 | **Code and commit style** | how code is written here and how commits look |
-| **Rules** | what agents may change and what is off limits, checked before the action |
+| **Rules** | what may be changed and what is off limits (`keel_rules`); keel's own flows check them before each action |
 | **Wiki** | the specs and docs, with their build state |
 | **Graph** | what uses what: classes, functions, routes |
-| **Shared context** | several agents on one keel see the same knowledge and each other's work, so less is done twice |
+| **Shared context** | several agents on one keel see the same knowledge, specs, graph and keel's flows, so less is done twice |
 
 **keel connects, it does not take over.** Your agent stays yours: Claude Code, Codex, OpenCode, Cursor or any MCP
 client. It asks keel what it needs and keeps working its own way. The more agents use one keel, the more they gain
 together.
 
 **Connect your agent** (after [Start](#start)): **Help › Start here, step 3** shows the one line for your tool, for
-example Claude Code:
+example Claude Code (read level; add `--write` only if your agent should also decide gates and start flows):
 
 ```bash
-claude mcp add keel-v2 -- "$(command -v keel2)" mcp --write
+claude mcp add keel -- "$(command -v keel2)" mcp
 ```
 
 More: [the MCP levels and tools](docs/GUIDE.md#use-keel-from-claude-code-or-claude-desktop-mcp).
