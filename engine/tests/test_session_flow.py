@@ -261,6 +261,9 @@ def test_two_sessions_on_two_parallel_flows_each_hold_a_different_work_order(cli
     first, _ = session_flow(client, repo)
     second, _ = session_flow(client, repo)
     got_one, got_two = next_order(client, one), next_order(client, two)
+    # With the frozen clock both waits have the same `since`, so "the oldest" is decided by the order the flows
+    # were added to the hub (sorted() keeps it on a tie). When #217 hands an order to the session that started
+    # the flow, change this test with it.
     assert got_one["flow"] == first and got_two["flow"] == second      # the oldest one to the first that asks
     assert next_order(client, one)["flow"] == first                    # each keeps the order it took
     assert next_order(client, two)["flow"] == second

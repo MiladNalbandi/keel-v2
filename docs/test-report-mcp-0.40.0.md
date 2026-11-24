@@ -9,7 +9,8 @@ to; it is not there to manage agents. With several agents at once, keel should m
 ## Summary
 
 - **139 of 141 MCP tools were called** (69 read, 62 write, 10 admin); 108 work as described, 17 stop at the person's OK
-  (expected) and were checked up to there, 9 work in part, 5 need a model key, 2 were not called on purpose.
+  (expected) and were checked up to there, 9 work in part, 5 do not work (4 need a model key, 1 was broken:
+  `keel_flow_doctor`, [#220](https://github.com/MiladNalbandi/keel-v2/issues/220), fixed in this PR), 2 were not called on purpose.
   Most calls answer in 20–250 ms.
 - **keel's testing loop works end to end**: keel runs the project's tests after each build, sends a failure back with the
   output, stops for the person when the same failure comes back, and commits only after the tests pass and the person
@@ -68,7 +69,7 @@ What keel did not do (yet):
 - **No shared knowledge.**
   - `keel_knowledge` is empty on a new project. Only an init flow with a model fills it, and no tool lets an agent add
     a fact for the others.
-  - All 7 agents read `docs/CONVENTIONS.md` themselves. No agent used `keel_search` or `keel_read_file`: on a small
+  - 7 of the 8 agents read `docs/CONVENTIONS.md` themselves (the one that was handed another agent's work orders did not). No agent used `keel_search` or `keel_read_file`: on a small
     project, plain file reads were faster.
 - **No view of the other agents.** `keel_live` said "no agent is running" while 3 sessions worked
   ([#219](https://github.com/MiladNalbandi/keel-v2/issues/219)). Only `keel_flows` showed the other flows.

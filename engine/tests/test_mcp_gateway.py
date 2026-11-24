@@ -127,8 +127,6 @@ def test_harness_steps_get_the_connected_servers_through_keel(client, repo, monk
     assert keel["env"].get("KEEL_PROJECT") == "demo"                  # keel's server stays on this flow's project
 
 
-
-
 async def test_a_write_tool_runs_once_after_the_persons_ok_and_not_at_all_after_a_no(tmp_path, monkeypatch):
     """The Inbox path end to end, in process: the read-only tool never asks; the write tool asks keel's api
     (POST /projects/{pid}/plugins/ask, then GET /plugins/asks/{id}) and runs once on allow, never on deny."""
