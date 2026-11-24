@@ -3,6 +3,7 @@ connected to keel's MCP server, plans and builds; keel publishes work orders, ke
 checks after each step, and commits. No model is called for the session's steps (the fake model's planner and builder
 must never run). Real git repo, real flow, the session's tools stand in as HTTP calls to the engine's routes."""
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -249,3 +250,59 @@ def test_todos_are_checked():
         sessions.todos_of([{"text": "a", "status": "maybe"}])
     with pytest.raises(ValueError):
         sessions.todos_of("a list")
+
+
+def test_two_sessions_on_two_parallel_flows_each_hold_a_different_work_order(client, repo, no_model, clock):
+    """Several agents at once (STU-81): two connected sessions of the same client and two waiting flows of one project.
+    Each session gets a different work order and keeps it; neither order is handed out twice, and a session cannot
+    report the order the other one holds. Today the oldest order goes to whichever session asks first, not to the
+    session that started the flow (keel-v2#217)."""
+    one, two = open_session(client), open_session(client)            # both "claude-code", like three Claude Codes
+    first, _ = session_flow(client, repo)
+    second, _ = session_flow(client, repo)
+    got_one, got_two = next_order(client, one), next_order(client, two)
+    assert got_one["flow"] == first and got_two["flow"] == second      # the oldest one to the first that asks
+    assert next_order(client, one)["flow"] == first                    # each keeps the order it took
+    assert next_order(client, two)["flow"] == second
+    r = client.post(f"/sessions/flows/{first}/plan", json={"session": two, "plan": PLAN})
+    assert r.status_code == 409 and "Another connected session" in r.json()["error"]
+    r = client.post(f"/sessions/flows/{second}/plan", json={"session": two, "plan": PLAN})
+    assert r.status_code == 200, r.text
+    assert wait(client, second)["waiting"]["step"] == "plan_gate"
+    assert wait(client, first)["waiting"]["order"]["kind"] == "plan"   # the other flow still waits for its session
+    assert next_order(client, two) is None                             # nothing else waits that two may take
+    assert no_model == []
+
+
+def test_tests_that_keep_failing_stop_for_the_person_then_the_session_hears_it_is_the_same_failure(
+        client, repo, no_model, clock, tests_pass):
+    """keel's testing loop with a connected session (STU-81, seen live on 0.40.0): a failed test run is a fix order;
+    failing again stops the flow for the person ("keeps failing"), never a third silent round; the person's approve
+    runs the tests again and the next order tells the session it is the same failure, so it tries another cause."""
+    sid = open_session(client)
+    tid, _s = session_flow(client, repo)
+    client.post(f"/sessions/flows/{tid}/plan", json={"session": sid, "plan": PLAN})
+    wait(client, tid)
+    tests_pass["fail"] = 99
+    decide(client, tid, payload={"choice": "approve"})
+    assert next_order(client, sid)["kind"] == "build"
+    client.post(f"/sessions/flows/{tid}/done", json={"session": sid, "summary": "Built it."})
+    s = wait(client, tid)
+    assert s["waiting"]["kind"] == "session" and s["waiting"]["order"]["kind"] == "fix"
+    assert "assert 2 == 3" in next_order(client, sid)["failure"]
+    client.post(f"/sessions/flows/{tid}/done", json={"session": sid, "summary": "Fixed it, I think."})
+    s = wait(client, tid)
+    assert s["waiting"]["kind"] == "fix" and "keeps failing" in s["waiting"]["title"], s   # the person decides now
+    assert next_order(client, sid) is None
+    r = client.post(f"/sessions/flows/{tid}/done", json={"session": sid, "summary": "again"})
+    assert r.status_code == 409 and "waits for the person" in r.json()["error"]
+    s = decide(client, tid)                                            # "try again"
+    checks = tests_pass["n"]
+    assert s["waiting"]["kind"] == "session", s
+    order = next_order(client, sid)
+    assert "SAME FAILURE" in json.dumps(order)
+    tests_pass["fail"] = 0
+    client.post(f"/sessions/flows/{tid}/done", json={"session": sid, "summary": "Found the real cause."})
+    s = wait(client, tid)
+    assert s["waiting"]["step"] == "done_gate" and tests_pass["n"] == checks + 1, s
+    assert no_model == []
