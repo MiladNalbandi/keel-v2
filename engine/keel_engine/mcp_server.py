@@ -735,7 +735,7 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         """keel's flow doctor (#101): what crashed in keel's flows in the last `days` days (default 7), how often, what keel
         repaired by itself, and what to improve, as Markdown (the improvement report). Each kind of crash has its count,
         the steps and providers it hit, what to do, and an example error."""
-        return guard(lambda a: (a.get("/api/flow-doctor/report", days=max(1, min(int(days), 90))) or {}).get("markdown")
+        return guard(lambda a: (a.get("/flow-doctor/report", days=max(1, min(int(days), 90))) or {}).get("markdown")
                      or "No report.", api)
 
     @reg(ro)
