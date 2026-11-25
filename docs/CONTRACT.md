@@ -4145,7 +4145,7 @@ GET  /api/plugins/cluster/contexts             -> ... own_kubeconfig, contexts[]
 - The new POST routes are named in no MCP list: they need the MCP admin level, like the plugin's other POST routes.
 - No token in any answer; the code reaches gcloud on stdin only.
 
-## 0.40.2: native mode, agents' commands in a sandbox
+## 0.41.1: native mode, agents' commands in a sandbox
 
 - `engine/keel_engine/tools/agent_sandbox.py`. Natively (`KEEL_NATIVE=1`) every command an agent's turn starts (its
   shell, the project's tests and builds, the CI pipeline's local run, a stack's `setup.run`: everything that in keel's
