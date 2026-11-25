@@ -296,7 +296,7 @@ def run_local(run: dict, root: str, idx: int, nonce: str, ext_mode: str, timeout
         env = {**_local_env(), "KEEL_CI_WORK": copy}
         # 0.21.3 the project's script runs as the agents' own user (tools/agent_user.py), like its other commands
         agent_user.share(copy, agent=False)
-        argv, env = agent_user.wrap(["sh", f"{copy}/.keel-ci/run-{idx}.sh"], env)
+        argv, env = agent_user.wrap(["sh", f"{copy}/.keel-ci/run-{idx}.sh"], env, cwd=copy)
         try:
             p = subprocess.run(argv, cwd=copy, capture_output=True, text=True,
                                errors="replace", timeout=timeout, env=env, start_new_session=True)

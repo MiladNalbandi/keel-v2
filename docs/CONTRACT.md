@@ -4144,3 +4144,28 @@ GET  /api/plugins/cluster/contexts             -> ... own_kubeconfig, contexts[]
   named explicitly. gcloud's Python cache goes to `$KEEL_DATA/cluster/pycache` when gcloud's folder is read-only.
 - The new POST routes are named in no MCP list: they need the MCP admin level, like the plugin's other POST routes.
 - No token in any answer; the code reaches gcloud on stdin only.
+
+## 0.41.1: native mode, agents' commands in a sandbox
+
+- `engine/keel_engine/tools/agent_sandbox.py`. Natively (`KEEL_NATIVE=1`) every command an agent's turn starts (its
+  shell, the project's tests and builds, the CI pipeline's local run, a stack's `setup.run`: everything that in keel's
+  image runs as the agents' own user, `tools/agent_user.py wrap` and `testcmd._start` with `as_agent`) starts in an OS
+  sandbox. keel's own commands (`as_agent=False`, e.g. `gh` with keel's token) do not.
+- Hidden from those commands: keel's data folder (`KEEL_DATA`: `run/web-key`, `run/internal-token`, `keel.db`,
+  `master.key` …) and keel2's run folder next to it (`~/.keel2/<name>/run`, the internal token). A project folder inside
+  the data folder (the demo project) stays open.
+- Linux: bubblewrap (`bwrap --dev-bind / / --unshare-pid --proc /proc --die-with-parent --tmpfs <hidden> … [--bind
+  <project> <project>] --chdir <cwd> -- <command>`): the file system as it is, the hidden folders empty, a process
+  namespace of its own (keel's api and engine and their `/proc/<pid>/environ` are not in it). macOS: `sandbox-exec -p
+  '(version 1)(allow default)(deny file-read* file-write* (subpath <hidden>)…)[(allow file-read* file-write* (subpath
+  <project>))]'`.
+- Which one: checked once with a probe command. None (Linux without bubblewrap, or a container without user
+  namespaces): commands run as before; the engine's log, `keel2 status`, `keel2 doctor` and the first native start
+  say so ("install bubblewrap"). `KEEL_SANDBOX=off` turns it off.
+- A flow's worktree (`<project>/.keel/worktrees/<name>`) keeps its whole project open (its `.git` points there).
+- Limits (Linux, bubblewrap): a background process an agent's command starts (a Gradle daemon, `nohup server &`) ends
+  with that command; `sudo` and other setuid tools do not work inside. `KEEL_SANDBOX=off` runs commands as before.
+- MCP: `keel_rule_edit`, `keel_review_reply`, `keel_review_resolve`, `keel_review_submit` and `keel_review_merge` wait
+  for the person's OK in the Inbox, like `keel_rules_mode`.
+- Tests: `engine/tests/test_agent_sandbox.py` (the real-sandbox tests run when the computer has one;
+  `KEEL_TEST_SANDBOX=1` makes them required).

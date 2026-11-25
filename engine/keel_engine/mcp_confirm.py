@@ -46,7 +46,10 @@ OUT_OF_BAND = {"keel_delete_run", "keel_remove_project", "keel_stack_remove", "k
                "keel_agent_model",                                                                    # model changes
                "keel_db_change",                                                                      # data changes
                "keel_release_check",                                                    # a safety check turned off
-               "keel_rules_mode"}                                                       # 0.40 keel's rules turned off
+               "keel_rules_mode",                                                       # 0.40 keel's rules turned off
+               "keel_rule_edit",                                                        # a rule pack off, changed or removed
+               "keel_review_reply", "keel_review_resolve", "keel_review_submit",          # posted as the person
+               "keel_review_merge"}
 OUT_OF_BAND_ACTIONS = {"open_pr", "pr"}     # keel_run_action actions that publish (they push a branch)
 
 

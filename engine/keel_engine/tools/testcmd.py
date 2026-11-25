@@ -417,6 +417,13 @@ def _start(root: str, command: str, env: dict | None, as_agent: bool) -> subproc
         argv, run_env = agent_user.wrap(agent_user.shell(command), env)
         return subprocess.Popen(argv, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                 errors="replace", env=run_env, start_new_session=True, stdin=subprocess.DEVNULL)
+    if as_agent:
+        from . import agent_sandbox
+        plain = agent_user.shell(command)
+        boxed = agent_sandbox.wrap(plain, root)     # native mode: keel's own files hidden (tools/agent_sandbox.py)
+        if boxed != plain:
+            return subprocess.Popen(boxed, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                    errors="replace", env=env, start_new_session=posix)
     return subprocess.Popen(command, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                             errors="replace", env=env, start_new_session=posix)
 
