@@ -26,13 +26,23 @@ def internal_token() -> str:
     environment of keel's processes (`ps eww`, /proc/<pid>/environ) to every program of the same user."""
     tok = os.environ.get("KEEL_INTERNAL_TOKEN", "").strip()
     path = os.environ.get("KEEL_INTERNAL_TOKEN_FILE", "").strip()
-    if not tok and path:
+    if tok or not path:
+        return tok
+    try:
+        st = os.stat(path)
+    except OSError:
+        return ""
+    key = (path, st.st_mtime_ns, st.st_size)
+    if _token_file.get("key") != key:                 # read again only when the file changed (every request asks)
         try:
             with open(path, encoding="utf-8") as f:
-                tok = f.read().strip()
+                _token_file.update(key=key, token=f.read().strip())
         except OSError:
-            tok = ""
-    return tok
+            return ""
+    return str(_token_file.get("token") or "")
+
+
+_token_file: dict = {}
 
 
 def engine_open() -> bool:

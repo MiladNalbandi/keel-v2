@@ -25,7 +25,8 @@ def native(tmp_path, monkeypatch):
     monkeypatch.setenv("KEEL2_HOME", str(home.parent))        # never the real ~/.keel2 of the computer the tests run on
     monkeypatch.delenv("KEEL_HIDE", raising=False)
     monkeypatch.setenv("KEEL_DESKTOP_HOME", str(tmp_path / "no-desktop-app"))
-    for v in ("KEEL_APP", "KEEL2_PATH"):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-config"))
+    for v in ("KEEL_APP", "KEEL2_PATH", "KEEL_DESKTOP"):
         monkeypatch.delenv(v, raising=False)
     monkeypatch.delenv("KEEL_SANDBOX", raising=False)
     monkeypatch.delenv("KEEL_AGENT_USER", raising=False)
@@ -97,16 +98,39 @@ def test_the_run_folder_is_not_guessed_next_to_a_data_folder_that_is_not_keel2s(
     assert agent_sandbox.hidden() == [_real(tmp_path / "elsewhere" / "data")]
 
 
-def test_a_symlink_or_a_folder_without_keel2s_marker_decides_nothing(native, tmp_path):
-    """An agent's command can make ~/.keel2/x/data -> / : that must not hide everything (or open everything again)."""
+def test_a_symlink_inside_keel2s_folder_decides_nothing_and_a_left_keel_stays_hidden(native, tmp_path):
+    """~/.keel2/x/data -> / must not hide everything (or open everything again). A keel keel2 uninstall left (no mode
+    file any more) may still have its data: hidden."""
     (native.parent / "x").mkdir()
-    (native.parent / "x" / "mode").write_text("native\n")
     os.symlink("/", native.parent / "x" / "data")
     os.symlink(str(tmp_path), native.parent / "y")
-    (native.parent / "z" / "run").mkdir(parents=True)              # no mode file: not a keel
+    (native.parent / "left" / "data").mkdir(parents=True)
     got = agent_sandbox.hidden()
-    assert "/" not in got and _real(tmp_path) not in got and _real(native.parent / "z" / "run") not in got
-    assert got == [_real(native / "data"), _real(native / "run")]
+    assert "/" not in got and _real(tmp_path) not in got
+    assert sorted(got) == sorted([_real(native / "data"), _real(native / "run"), _real(native.parent / "left" / "data")])
+
+
+def test_a_keel2_folder_moved_to_another_disk_and_linked_is_followed(native, monkeypatch, tmp_path):
+    link = tmp_path / "linked-keel2"
+    os.symlink(str(native.parent), link)
+    monkeypatch.setenv("KEEL2_HOME", str(link))
+    assert _real(native / "run") in agent_sandbox.hidden()
+    assert _real(native.parent) in agent_sandbox.read_only()
+
+
+def test_keel2s_settings_and_the_desktop_apps_own_files_are_read_only(native, monkeypatch, tmp_path):
+    cfg = tmp_path / "config" / "keel2"
+    cfg.mkdir(parents=True)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    res = tmp_path / "app" / "resources"
+    (res / "keel").mkdir(parents=True)
+    (res / "runtime" / "bin").mkdir(parents=True)
+    monkeypatch.setenv("KEEL_APP", str(res / "keel"))
+    monkeypatch.setenv("KEEL_DESKTOP", "1")
+    ro = agent_sandbox.read_only()
+    assert _real(cfg) in ro and _real(res) in ro
+    monkeypatch.delenv("KEEL_DESKTOP")
+    assert _real(res / "keel") in agent_sandbox.read_only()          # keel2's release: the release folder itself
 
 
 def test_the_desktop_apps_folders_are_hidden_and_its_folder_is_read_only(native, monkeypatch, tmp_path):
@@ -151,9 +175,9 @@ def test_a_project_that_holds_keels_folders_does_not_open_them_again(native, mon
     monkeypatch.setitem(agent_sandbox._found, "backend", "bwrap")
     home = native.parent.parent
     argv = agent_sandbox.wrap(["/bin/sh", "-c", "x"], str(home))
-    j = _keep_bind(argv, _real(home))
-    if j > 0:
-        assert ["--tmpfs", _real(native / "data")] in [argv[k:k + 2] for k in range(j, len(argv))]
+    assert _keep_bind(argv, _real(home)) == -1                       # nothing of it to open again
+    pairs = [argv[k:k + 2] for k in range(len(argv) - 1)]
+    assert ["--tmpfs", _real(native / "data")] in pairs and ["--ro-bind", _real(native.parent)] in pairs
 
 
 def test_bwrap_runs_from_the_path_the_probe_found(native, monkeypatch, tmp_path):
@@ -345,14 +369,21 @@ def test_for_real_another_keel2_keels_folders_are_hidden_too(native, tmp_path):
 
 
 def test_for_real_keels_folders_cannot_be_renamed_into_view_or_keels_programs_changed(native, tmp_path):
+    """A rename on the same mount (keel2's folder in the folder above it; a keel inside keel2's folder) is refused; a
+    move to another place becomes a copy (mv), which holds nothing of keel's."""
     _need_backend()
     (native / "current").mkdir()
     (native / "current" / "keel-start").write_text("# keel's own\n")
     k2 = native.parent
-    moved = tmp_path / "moved"
-    code, out = testcmd.run(str(tmp_path), f"mv '{native}' '{moved}' 2>/dev/null; mv '{k2}' '{moved}' 2>/dev/null; "
-                            f"echo evil >> '{native / 'current' / 'keel-start'}' 2>/dev/null; echo done", 60)
-    assert "done" in out and native.is_dir() and not moved.exists()
+    code, out = testcmd.run(str(tmp_path), f"mv '{k2}' '{tmp_path / 'k2-moved'}'; mv '{native}' '{k2 / 'renamed'}'; "
+                            f"mv '{native}' '{tmp_path / 'copied'}'; "
+                            f"echo evil >> '{native / 'current' / 'keel-start'}'; echo done", 60)
+    assert "done" in out
+    assert native.is_dir() and not (tmp_path / "k2-moved").exists() and not (k2 / "renamed").exists()
     assert (native / "current" / "keel-start").read_text() == "# keel's own\n"
-    code, out = testcmd.run(str(tmp_path), f"cat '{native / 'run' / 'token'}'", 60)
+    copied = tmp_path / "copied"
+    if copied.exists():
+        assert not (copied / "run" / "token").exists() or "the-internal-token" not in (copied / "run" / "token").read_text()
+        assert not (copied / "data" / "keel.db").exists()
+    code, out = testcmd.run(str(tmp_path), f"cat '{native / 'run' / 'token'}' '{tmp_path / 'copied' / 'run' / 'token'}'", 60)
     assert "the-internal-token" not in out

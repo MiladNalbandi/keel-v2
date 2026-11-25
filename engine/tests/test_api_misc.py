@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import textwrap
@@ -48,6 +49,9 @@ def test_the_internal_token_comes_from_its_file_when_there_is_no_variable(monkey
     with TestClient(create_app(EventBus())) as c:
         assert c.get("/templates").status_code == 401
         assert c.get("/templates", headers={"X-Keel-Token": "from-the-file"}).status_code == 200
+    f.write_text("a-new-one\n")                       # a new start writes it again: read again
+    os.utime(f, ns=(1, 1))
+    assert config.internal_token() == "a-new-one"
     monkeypatch.setenv("KEEL_INTERNAL_TOKEN_FILE", str(tmp_path / "missing"))
     assert config.internal_token() == ""
 

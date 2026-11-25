@@ -92,6 +92,8 @@ def test_git_itself_gets_the_token_for_github_only_and_nothing_is_left_behind(re
         assert not any(TOKEN in a for a in r.args) and not any(TOKEN in str(v) for v in r.env.values())
         path = r.env["KEEL_GIT_TOKEN_FILE"]
         assert oct(os.stat(path).st_mode & 0o777) == "0o600"
+        # 0.41.2 in keel's own run folder, not the /tmp agents' commands share
+        assert Path(path).resolve().is_relative_to((Path(os.environ["KEEL_DATA"]) / "run").resolve())
 
         def fill(host):
             return subprocess.run(["git", *r.args, "credential", "fill"], input=f"protocol=https\nhost={host}\n\n",

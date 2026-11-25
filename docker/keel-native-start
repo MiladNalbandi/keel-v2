@@ -18,7 +18,7 @@ set -euo pipefail
 if [ -n "${KEEL_INTERNAL_TOKEN:-}" ]; then
   mkdir -p "$KEEL_DATA/run"
   (umask 077; printf '%s' "$KEEL_INTERNAL_TOKEN" > "$KEEL_DATA/run/internal-token.new" && mv -f "$KEEL_DATA/run/internal-token.new" "$KEEL_DATA/run/internal-token")
-  exec env -u KEEL_INTERNAL_TOKEN KEEL_INTERNAL_TOKEN_FILE="$KEEL_DATA/run/internal-token" /bin/bash "$0" "$@"
+  exec env -u KEEL_INTERNAL_TOKEN KEEL_INTERNAL_TOKEN_FILE="$KEEL_DATA/run/internal-token" "${BASH:-/bin/bash}" "$0" "$@"
 fi
 export KEEL_NATIVE=1
 export KEEL_CONTENT="${KEEL_CONTENT:-$KEEL_APP/content}"

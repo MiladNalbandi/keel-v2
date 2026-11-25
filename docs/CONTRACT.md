@@ -4182,14 +4182,19 @@ GET  /api/plugins/cluster/contexts             -> ... own_kubeconfig, contexts[]
   passes `KEEL_INTERNAL_TOKEN_FILE` too.
 - The sandbox hides (`tools/agent_sandbox.py hidden`): `KEEL_DATA`; the folders in `KEEL_HIDE` (keel2: its run and
   logs folders; the desktop app: its own); every keel2 keel's `data`, `run` and `logs` (`<KEEL2_HOME>/<name>` with
-  keel2's `mode` file, default `~/.keel2`); and the desktop app's `data`, `run` and `logs` (`KEEL_DESKTOP_HOME`, else
-  `~/Library/Application Support/keel` and `~/Library/Logs/keel` on macOS, `${XDG_DATA_HOME:-~/.local/share}/keel` on
-  Linux). Symlinks there count for nothing. No more guessing a `run` folder next to `KEEL_DATA`.
+  every folder in `KEEL2_HOME`, default `~/.keel2`, also one `keel2 uninstall` left); and the desktop app's `data`,
+  `run` and `logs` (`KEEL_DESKTOP_HOME`, else `~/Library/Application Support/keel` and `~/Library/Logs/keel` on macOS,
+  `${XDG_DATA_HOME:-~/.local/share}/keel` on Linux). `KEEL2_HOME` and the desktop app's folder are followed when they
+  are symlinks; symlinks inside them count for nothing. No more guessing a `run` folder next to `KEEL_DATA`.
 - Read only for agents' commands (`read_only`): keel2's folder (`KEEL2_HOME`: the releases, the agent CLIs, each keel's
-  settings), the desktop app's folder, the running release (`KEEL_APP`) and the keel2 script (`KEEL2_PATH`; not when it
-  is inside the project, a keel checkout). The folders above the hidden and read-only ones cannot be renamed (bubblewrap:
+  files), keel2's settings (`${XDG_CONFIG_HOME:-~/.config}/keel2`), the desktop app's folder, the running release
+  (`KEEL_APP`; the desktop app: the folder it is in, with the app's Python, Java and engine) and the keel2 script
+  (`KEEL2_PATH`; not when it is inside the project, a keel checkout). The folders above the hidden and read-only ones cannot be renamed (bubblewrap:
   each is bound onto itself, a mount point; macOS: `(deny file-write* (literal …))`). A project that holds keel's folders
-  keeps them hidden.
+  keeps them hidden. On Linux each of those folders is a mount point of its own, so a move between them is a copy
+  (`mv` does that by itself; a rename(2) gets EXDEV).
+- keel's GitHub login for a push (`tools/git_auth.py`) is written to a temp folder in `$KEEL_DATA/run`, not `/tmp`.
+- The engine reads the token file again only when it changed (its size or time).
 - `docker/keel-native-start`: given `KEEL_INTERNAL_TOKEN` (a keel2 script before 0.41.2 with a newer release), it
   writes the file and starts itself again without the variable. keel2 starts keel and `keel2 mcp` with `env -u
   KEEL_INTERNAL_TOKEN`, removes the last start's `data/run/internal-token` first, and reads the token keel-start wrote

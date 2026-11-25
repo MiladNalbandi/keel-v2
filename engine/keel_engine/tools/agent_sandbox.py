@@ -75,20 +75,30 @@ def _real_dir(path: str) -> str | None:
     return os.path.realpath(path)
 
 
-def _instances() -> list[str]:
-    """Every keel2 keel's folder (<KEEL2_HOME>/<name> with keel2's marker file `mode` in it) and the desktop app's."""
-    home = keel2_home()
-    out = []
+def _top(path: str) -> str | None:
+    """A folder the person set up (KEEL2_HOME, the desktop app's): followed when it is a symlink (moved to another
+    disk). Only what is inside it, where an agent might have written, must not be a symlink."""
     try:
-        names = sorted(os.listdir(home))
+        r = os.path.realpath(path) if path.strip() else ""
+        return r if r and os.path.isdir(r) else None
     except OSError:
-        names = []
-    for n in names:
-        d = os.path.join(home, n)
-        if _real_dir(d) and os.path.isfile(os.path.join(d, "mode")) and not os.path.islink(os.path.join(d, "mode")):
-            out.append(d)
-    if _real_dir(desktop_home()):
-        out.append(desktop_home())
+        return None
+
+
+def _instances() -> list[str]:
+    """Every keel2 keel's folder (<KEEL2_HOME>/<name>, also one keel2 uninstall or a switch to Docker left: its data
+    may still be there; the folder is read only for agents' commands, so they cannot add one) and the desktop app's."""
+    out = []
+    home = _top(keel2_home())
+    if home:
+        try:
+            names = sorted(os.listdir(home))
+        except OSError:
+            names = []
+        out += [os.path.join(home, n) for n in names if _real_dir(os.path.join(home, n))]
+    desk = _top(desktop_home())
+    if desk:
+        out.append(desk)
     return out
 
 
@@ -118,14 +128,23 @@ def hidden() -> list[str]:
     return out
 
 
+def keel2_config() -> str:
+    """keel2's settings per keel (<name>.options, .folders, .share, .limits): ${XDG_CONFIG_HOME:-~/.config}/keel2."""
+    xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    return os.path.join(xdg if os.path.isabs(xdg) else os.path.join(os.path.expanduser("~"), ".config"), "keel2")
+
+
 def read_only() -> list[str]:
-    """keel's own programs and settings the agents' commands may read but never change: keel2's folder (the releases,
-    the agent CLIs, a keel's bind and project files: code there runs outside the sandbox at keel's next start), the
-    desktop app's folder, the running release (KEEL_APP) and the keel2 script (KEEL2_PATH)."""
+    """keel's own programs and settings the agents' commands may read but never change (code or settings there take
+    effect outside the sandbox at keel's next start): keel2's folder (the releases, the agent CLIs, each keel's files),
+    keel2's settings, the desktop app's folder, the running release (KEEL_APP; the desktop app: the whole folder it is
+    in, with the app's Python, Java and engine) and the keel2 script (KEEL2_PATH)."""
     if not os.environ.get("KEEL_DATA", "").strip():
         return []
-    want = [keel2_home(), desktop_home(), os.environ.get("KEEL_APP", "")]
-    out = _clean(want)
+    app = os.environ.get("KEEL_APP", "").strip()
+    if app and os.environ.get("KEEL_DESKTOP") == "1":
+        app = os.path.dirname(os.path.realpath(app))           # resources/: keel/, runtime/, the app's own code
+    out = _clean([p for p in (_top(keel2_home()), _top(keel2_config()), _top(desktop_home()), _top(app)) if p])
     script = os.environ.get("KEEL2_PATH", "").strip()
     if script and os.path.isfile(script) and not os.path.islink(script):
         r = os.path.realpath(script)
