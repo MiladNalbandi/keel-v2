@@ -18,7 +18,7 @@ import {
 import { AgentCard, CiCard, FlowCard, QuestionsCard, RuleCard, SkillCard, SlotCard, StackCard, splitActions, StartCard, WorkflowCard } from "./Actions";
 import { ChangesBox, DoneFailed, fixRequest, PermissionCard, SideBar } from "./FixParts";
 import { kb } from "./keelbotApi";
-import { answerModel, fileLink, folderBanner, messageTokens, PREFILL_KEY, replaceTyping, sessionTokens, starters, typingAt, usageParts, usageText, type Typing } from "./model";
+import { answerModel, atBottom, fileLink, outgoingShown, folderBanner, messageTokens, PREFILL_KEY, replaceTyping, sessionTokens, starters, typingAt, usageParts, usageText, type Outgoing, type Typing } from "./model";
 import { ChatList, ConfirmRow } from "./ChatList";
 import { dropDraft, getDraft, getListOpen, getNewMode, getScroll, saveListOpen, saveNewMode, saveScroll, setDraft } from "./chats";
 import { markSeen, useKeelBotUnread, useSeen } from "./unread";
@@ -290,6 +290,11 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   useEffect(() => setDraft(pid, sid, { text, mentions }), [pid, sid, text, mentions]);
   const [pending, setPending] = useState<{ call: string; n: number } | null>(null);
   const [sending, setSending] = useState(false);
+  // #235 the person's messages on screen from Enter on, before the chat read back has them (and the ones that failed)
+  const [outbox, setOutbox] = useState<Outgoing[]>([]);
+  const outId = useRef(0);
+  // #235 the person scrolled up while new text came: a "New messages" button takes them down
+  const [unseen, setUnseen] = useState(false);
   const [pick, setPick] = useState(0);
   const [files, setFiles] = useState<string[] | null>(null);
   const [symbols, setSymbols] = useState<GraphHit[]>([]);
@@ -347,6 +352,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   // commands that wait for the person's OK (this project's; the cards show this chat's)
   const perms = useLoad(`helper:${pid}:perms`, () => kb.permissions(pid), { live: false });
   const asks = (perms.data ?? []).filter((q) => q.session === sid);
+  const asksLen = asks.length;
   // the running answer: the one this page started, else the one an earlier page started (helper.started event)
   const runningCall = useMemo(() => {
     if (pending) return pending.call;
@@ -423,17 +429,29 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const onScroll = () => {
     const el = scroller.current;
     if (!el || restored.current !== sid) return;
-    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    const bottom = atBottom(el);
     stick.current = bottom;
+    if (bottom) setUnseen(false);
     if (scrollSave.current && scrollSave.current.sid !== sid) flushScroll();
     if (scrollSave.current) window.clearTimeout(scrollSave.current.timer);
     scrollSave.current = { sid, top: el.scrollTop, bottom, timer: window.setTimeout(flushScroll, 150) };
   };
   // keep the newest message in view, unless the person scrolled up to read
-  useEffect(() => {
+  // #235 also while KeelBot thinks and writes (its live text grows), and for the person's own message at Enter
+  const liveLen = runningCall ? (liveText?.[runningCall]?.length ?? 0) + (liveThinking?.[runningCall]?.length ?? 0) : 0;
+  const shownOut = outgoingShown(outbox, messages);
+  useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [messages.length, runningCall, runningCall ? liveSteps[runningCall]?.length : 0]);
+    if (!el) return;
+    if (stick.current) el.scrollTop = el.scrollHeight;
+    else if (restored.current === sid && el.scrollHeight > el.clientHeight) setUnseen(true);
+  }, [messages.length, runningCall, runningCall ? liveSteps[runningCall]?.length : 0, liveLen, shownOut.length, asksLen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toBottom = () => {
+    const el = scroller.current;
+    stick.current = true;
+    setUnseen(false);
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  };
 
   const typing: Typing = useMemo(() => typingAt(text, caret), [text, caret]);
   useEffect(() => {
@@ -499,7 +517,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const [queued, setQueued] = useState<string[]>([]);
   // 0.18.63 `toMode`: a picked "Switch to Edit" option: the chat goes on in that mode (as /mode edit in keel TUI), and the
   // answer already runs in it
-  const send = async (raw?: string, toMode?: HelperMode) => {
+  const send = async (raw?: string, toMode?: HelperMode, retryId?: number) => {
     const body = (raw ?? text).trim();
     if (body && raw === undefined && (runningCall || sending) && !handed) {
       setQueued((q) => [...q, body]);
@@ -508,36 +526,52 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
       return;
     }
     if (!body || sending || runningCall || handed) return;
+    // #235 the message is on screen at once, the input is empty at once: the person never waits on the UI. The
+    // "Sending…" state lasts only until the api took the message (it answers before KeelBot starts); a failure keeps the
+    // message with the reason and a Retry.
+    const oid = retryId ?? ++outId.current;
+    const keep = { text: raw === undefined ? text : body, mentions };
+    setOutbox((o) => [...o.filter((x) => x.id !== oid), { id: oid, text: body, state: "sending" }]);
+    if (raw === undefined) {
+      setText("");
+      setCaret(0);
+    }
     setSending(true);
     stick.current = true;
+    setUnseen(false);
     try {
       const id = await ensureSession(toMode ?? mode);
       if (toMode && s && s.mode !== toMode) {
         try {
           await kb.patch(pid, id, { mode: toMode });
         } catch (e) {
+          setOutbox((o) => o.filter((x) => x.id !== oid));
           toast(`Not switched to ${toMode === "edit" ? "Edit" : "Ask"}: ${errorParts(e).message} Use the mode menu above.`);
           return;
         }
       }
-      const used = mentions.filter((m) => body.includes(`@${m.value}`));
+      const used = keep.mentions.filter((m) => body.includes(`@${m.value}`));
       const started = await kb.turn(pid, id, {
         text: body, mentions: used.length ? used : undefined, selection: selection ?? undefined, open_file: openFile ?? undefined,
       });
+      // the api has it: "Sending…" ends now, the message stays until the chat read back has it
+      setOutbox((o) => o.map((x) => (x.id === oid ? { ...x, state: "sent", n: started.n } : x)));
       setPending({ call: started.call_id, n: started.n });
-      setText("");
-      setCaret(0);
-      setMentions([]);
+      setSending(false);
+      if (raw === undefined) setMentions([]);
       onClearSelection?.();
       if (sid !== id) setSid(id);
-      await sess.reload();
+      void sess.reload();   // not awaited: the answer's steps and text stream in while the chat is read
     } catch (e) {
       const p = errorParts(e);
-      toast(p.hint ? `${p.message} ${p.hint}` : p.message);
+      setOutbox((o) => o.map((x) => (x.id === oid ? { ...x, state: "failed", error: p.hint ? `${p.message} ${p.hint}` : p.message } : x)));
     } finally {
       setSending(false);
     }
   };
+  /** #235 send a failed message again (Retry on it) */
+  const retry = (o: Outgoing) => { void send(o.text, undefined, o.id); };
+  const dropOut = (o: Outgoing) => setOutbox((x) => x.filter((y) => y.id !== o.id));
 
   const stop = async () => {
     if (!sid) return;
@@ -559,6 +593,8 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
       setCaret(0);
       setPending(null);
       setFailed(null);
+      setOutbox([]);        // #235 the messages on their way belong to the chat that is left
+      setUnseen(false);
     }
     setConfirmDel(false);
     setListOpen(false);
@@ -877,6 +913,19 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             )}
           </div>
         ))}
+        {shownOut.map((o) => (
+          <div key={`out-${o.id}`} className={`hp-msg hp-user hp-out ${o.state}`} data-testid="hp-outgoing">
+            <p className="hp-text">{o.text}</p>
+            {o.state === "sending" && <p className="hp-out-state" role="status">Sending…</p>}
+            {o.state === "failed" && (
+              <div className="hp-out-state hp-out-err" role="alert">
+                <span>Not sent: {o.error}</span>{" "}
+                <button type="button" className="hp-tb" onClick={() => retry(o)} disabled={busy}>Retry</button>
+                <button type="button" className="hp-tb" onClick={() => dropOut(o)} aria-label="Remove this message">×</button>
+              </div>
+            )}
+          </div>
+        ))}
         {runningCall && !messages.some((m) => m.call_id === runningCall) && (
           <div className="hp-msg hp-help hp-live">
             <TurnSteps callId={runningCall} live={liveSteps[runningCall] ?? []} running />
@@ -903,6 +952,9 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         )}
       </div>
 
+      {unseen && (
+        <button type="button" className="hp-newmsg" onClick={toBottom} aria-label="New messages: scroll down">New messages ↓</button>
+      )}
       <form className="hp-compose" onSubmit={submit}>
         {(selection || openFile) && (
           <div className="hp-chips">

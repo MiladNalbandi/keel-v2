@@ -78,3 +78,18 @@ export function folderBanner(s: Pick<HelperSession, "folder_branch"> | null | un
   if (!sw) return null;
   return { kind: sw.during ? "during" : "switched", to: sw.to, from: sw.from, at: sw.at, by: sw.by };
 }
+
+/** #235 a message the person sent that the chat read from the server does not have yet: on screen from Enter
+ *  ("sending" until the api took it), or "failed" with the reason and a Retry. `n` is the server's number for it. */
+export type Outgoing = { id: number; text: string; state: "sending" | "sent" | "failed"; error?: string; n?: number };
+
+/** #235 the outgoing messages still to show: one goes once the chat read back has its message (n) or a later one. */
+export function outgoingShown(out: Outgoing[], messages: { n: number }[]): Outgoing[] {
+  const last = messages.reduce((a, m) => Math.max(a, m.n), 0);
+  return out.filter((o) => o.n === undefined || o.n > last);
+}
+
+/** #235 the chat is scrolled to (near) its end: new text follows; else a "New messages" button shows. */
+export function atBottom(el: { scrollHeight: number; scrollTop: number; clientHeight: number }, slack = 40): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight < slack;
+}
