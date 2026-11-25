@@ -216,15 +216,16 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const hasCode = pages.some((p) => p.id === "repo");
   const hasGraph = pages.some((p) => p.id === "graph");
   const [sid, setSidState] = useState<string | null>(() => read(sidKey(pid)));
+  const sidRef = useRef(sid);
+  sidRef.current = sid;
   /** keep: this tab's choice only (following keel TUI or another tab); set: the person's, so keel TUI follows it (0.18.6) */
-  const keepSid = useCallback((v: string | null) => { setSidState(v); write(sidKey(pid), v); }, [pid]);
+  // #235 sidRef is the chat on screen now, also before the next render (a send that ends checks it)
+  const keepSid = useCallback((v: string | null) => { sidRef.current = v; setSidState(v); write(sidKey(pid), v); }, [pid]);
   const setSid = useCallback((v: string | null) => {
     keepSid(v);
     shareFocus(v ? { chat: v, chat_project: pid } : { close: true, chat_project: pid });
   }, [keepSid, pid]);
   // the chat this panel shows and the text typed in it now (read when another tab or keel TUI switches the chat)
-  const sidRef = useRef(sid);
-  sidRef.current = sid;
   const draftRef = useRef<{ text: string; mentions: HelperMention[] }>({ text: "", mentions: [] });
   /** Another tab or keel TUI opened a chat: this panel follows. The text typed stays in the chat it was typed for, and the
    *  chat that opens shows its own draft (the draft effect below must not write the old text into it). */
@@ -439,7 +440,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   // keep the newest message in view, unless the person scrolled up to read
   // #235 also while KeelBot thinks and writes (its live text grows), and for the person's own message at Enter
   const liveLen = runningCall ? (liveText?.[runningCall]?.length ?? 0) + (liveThinking?.[runningCall]?.length ?? 0) : 0;
-  const shownOut = outgoingShown(outbox, messages);
+  const shownOut = outgoingShown(outbox, messages, sid);
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el) return;
@@ -517,7 +518,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const [queued, setQueued] = useState<string[]>([]);
   // 0.18.63 `toMode`: a picked "Switch to Edit" option: the chat goes on in that mode (as /mode edit in keel TUI), and the
   // answer already runs in it
-  const send = async (raw?: string, toMode?: HelperMode, retryId?: number) => {
+  const send = async (raw?: string, toMode?: HelperMode, again?: Outgoing) => {
     const body = (raw ?? text).trim();
     if (body && raw === undefined && (runningCall || sending) && !handed) {
       setQueued((q) => [...q, body]);
@@ -529,18 +530,25 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     // #235 the message is on screen at once, the input is empty at once: the person never waits on the UI. The
     // "Sending…" state lasts only until the api took the message (it answers before KeelBot starts); a failure keeps the
     // message with the reason and a Retry.
-    const oid = retryId ?? ++outId.current;
-    const keep = { text: raw === undefined ? text : body, mentions };
-    setOutbox((o) => [...o.filter((x) => x.id !== oid), { id: oid, text: body, state: "sending" }]);
+    const oid = again?.id ?? ++outId.current;
+    const from = sid;   // the chat it is sent in: it shows there only, and the person may open another one meanwhile
+    // the mentions go with the message (a Retry sends the same ones); the input's chips are gone with its text
+    const sendMentions = again ? (again.mentions ?? []) : raw === undefined ? mentions : [];
+    const after = messages.reduce((a, m) => Math.max(a, m.n), 0);
+    setOutbox((o) => [...o.filter((x) => x.id !== oid),
+      { id: oid, chat: from, text: body, state: "sending", after, mentions: sendMentions }]);
     if (raw === undefined) {
       setText("");
       setCaret(0);
+      setMentions([]);
     }
     setSending(true);
     stick.current = true;
     setUnseen(false);
     try {
       const id = await ensureSession(toMode ?? mode);
+      // a new chat: the message belongs to the chat just made
+      if (id !== from) setOutbox((o) => o.map((x) => (x.id === oid ? { ...x, chat: id } : x)));
       if (toMode && s && s.mode !== toMode) {
         try {
           await kb.patch(pid, id, { mode: toMode });
@@ -550,18 +558,19 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
           return;
         }
       }
-      const used = keep.mentions.filter((m) => body.includes(`@${m.value}`));
+      const used = sendMentions.filter((m) => body.includes(`@${m.value}`));
       const started = await kb.turn(pid, id, {
         text: body, mentions: used.length ? used : undefined, selection: selection ?? undefined, open_file: openFile ?? undefined,
       });
       // the api has it: "Sending…" ends now, the message stays until the chat read back has it
       setOutbox((o) => o.map((x) => (x.id === oid ? { ...x, state: "sent", n: started.n } : x)));
-      setPending({ call: started.call_id, n: started.n });
       setSending(false);
-      if (raw === undefined) setMentions([]);
       onClearSelection?.();
-      if (sid !== id) setSid(id);
-      void sess.reload();   // not awaited: the answer's steps and text stream in while the chat is read
+      // the person opened another chat while it was sent: they stay there (this chat's answer is read when they come back)
+      if (sidRef.current === id) {
+        setPending({ call: started.call_id, n: started.n });
+        void sess.reload();
+      }   // not awaited: the answer's steps and text stream in while the chat is read
     } catch (e) {
       const p = errorParts(e);
       setOutbox((o) => o.map((x) => (x.id === oid ? { ...x, state: "failed", error: p.hint ? `${p.message} ${p.hint}` : p.message } : x)));
@@ -570,7 +579,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     }
   };
   /** #235 send a failed message again (Retry on it) */
-  const retry = (o: Outgoing) => { void send(o.text, undefined, o.id); };
+  const retry = (o: Outgoing) => { if (o.chat === sid) void send(o.text, undefined, o); };
   const dropOut = (o: Outgoing) => setOutbox((x) => x.filter((y) => y.id !== o.id));
 
   const stop = async () => {
@@ -593,7 +602,6 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
       setCaret(0);
       setPending(null);
       setFailed(null);
-      setOutbox([]);        // #235 the messages on their way belong to the chat that is left
       setUnseen(false);
     }
     setConfirmDel(false);

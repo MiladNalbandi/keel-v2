@@ -1,7 +1,7 @@
 // KeelBot panel's pure helpers: file:line links in answers, what the person is typing (@ or /), and the words for
 // a session. Kept apart from the component so tests can check them directly.
 
-import type { HelperMessage, HelperSession } from "@keel/web-sdk";
+import type { HelperMention, HelperMessage, HelperSession } from "@keel/web-sdk";
 
 // file:line links are keel's own (the launcher reads them in answers too)
 export { fileLink } from "@keel/web-sdk";
@@ -80,13 +80,20 @@ export function folderBanner(s: Pick<HelperSession, "folder_branch"> | null | un
 }
 
 /** #235 a message the person sent that the chat read from the server does not have yet: on screen from Enter
- *  ("sending" until the api took it), or "failed" with the reason and a Retry. `n` is the server's number for it. */
-export type Outgoing = { id: number; text: string; state: "sending" | "sent" | "failed"; error?: string; n?: number };
+ *  ("sending" until the api took it), or "failed" with the reason and a Retry. `chat`: the chat it was sent in (null: a
+ *  new chat not made yet); it shows and is retried only there. `n` is the server's number for it; `after`: the chat's last
+ *  message number when it was sent. */
+export type Outgoing = {
+  id: number; chat: string | null; text: string; state: "sending" | "sent" | "failed"; error?: string; n?: number; after: number;
+  mentions?: HelperMention[];
+};
 
-/** #235 the outgoing messages still to show: one goes once the chat read back has its message (n) or a later one. */
-export function outgoingShown(out: Outgoing[], messages: { n: number }[]): Outgoing[] {
+/** #235 the outgoing messages of this chat still to show: one goes once the chat read back has it (its n, or, before the
+ *  api answered, a later user message with the same text). */
+export function outgoingShown(out: Outgoing[], messages: { n: number; role?: string; text?: string }[], chat: string | null): Outgoing[] {
   const last = messages.reduce((a, m) => Math.max(a, m.n), 0);
-  return out.filter((o) => o.n === undefined || o.n > last);
+  return out.filter((o) => o.chat === chat
+    && (o.n === undefined ? !messages.some((m) => m.n > o.after && m.role === "user" && m.text?.trim() === o.text) : o.n > last));
 }
 
 /** #235 the chat is scrolled to (near) its end: new text follows; else a "New messages" button shows. */
