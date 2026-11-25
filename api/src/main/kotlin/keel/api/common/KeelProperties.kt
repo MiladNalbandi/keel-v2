@@ -14,7 +14,13 @@ data class KeelProperties(
     /** keel v2's content folder (KEEL_CONTENT); blank = found, see [contentDir]. */
     val content: String = "",
     val engineUrl: String = "http://127.0.0.1:8090",
-    val internalToken: String = "",
+    /** The token keel's api, engine and keel2 share (KEEL_INTERNAL_TOKEN); blank = read from [internalTokenFile]. */
+    private val internalToken: String = "",
+    /**
+     * 0.41.2 the file that holds it (KEEL_INTERNAL_TOKEN_FILE): keel-start hands the token over as this file only, since a
+     * variable shows in the environment of keel's processes to every program of the same user (`ps eww`).
+     */
+    val internalTokenFile: String = "",
     val secret: String = "",
     val scanOnStart: Boolean = true,
     /** Let flows on real projects run with the fake model without asking (tests). The demo project always may. */
@@ -34,6 +40,15 @@ data class KeelProperties(
     /** 0.18.57 the main project folder's path on the person's computer (KEEL_HOST_WORKSPACE, set by keel2); blank = unknown. */
     val hostWorkspace: String = "",
 ) {
+    /** The internal token: [internalToken], else the content of [internalTokenFile] ("" when neither gives one). */
+    val token: String by lazy {
+        internalToken.trim().ifEmpty {
+            internalTokenFile.trim().takeIf { it.isNotEmpty() }
+                ?.let { runCatching { Files.readString(Paths.get(it)).trim() }.getOrDefault("") }
+                .orEmpty()
+        }
+    }
+
     /** The command for keel's builtin MCP server. */
     val mcpPythonCommand: String by lazy {
         mcpPython.ifBlank { ENGINE_PYTHON.takeIf { Files.isExecutable(Paths.get(it)) } ?: "python3" }

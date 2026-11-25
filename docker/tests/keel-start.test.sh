@@ -47,6 +47,7 @@ cat > "$BIN/engine" << 'EOF'
 #!/bin/sh
 t="$KEEL_TEST_DIR"
 echo "engine start paths=$KEEL_PLUGIN_PATHS addons=$KEEL_PLUGIN_ADDONS port=$KEEL_ENGINE_PORT" >> "$t/log"
+echo "engine token var=${KEEL_INTERNAL_TOKEN:-none} file=${KEEL_INTERNAL_TOKEN_FILE:-none}" >> "$t/log"
 trap 'rm -f "$t/engine.up"; echo "engine stop" >> "$t/log"; kill $s 2>/dev/null; exit 143' TERM
 touch "$t/engine.up"
 sleep 30 & s=$!
@@ -329,6 +330,21 @@ start_bg KEEL_FRONT=0 KEEL_FRONT_CMD="$BIN/front"
 wait_exit
 check "no Python api" is "$(count 'front start')" 0
 check "the Kotlin api keeps its own port" logs "api start 1 supervised=1 .* port= address="
+
+new_case "0.41.2 the internal token: a file in, a file out, never a variable for keel's processes"
+printf 'from-keel2\n' > "$T/token"
+plan "up 3"
+start_bg KEEL_INTERNAL_TOKEN_FILE="$T/token"
+wait_exit
+check "data/run/internal-token holds keel2's token" is "$(cat "$T/data/run/internal-token")" "from-keel2"
+check "the engine gets the file, not the token" logs "engine token var=none file=$T/data/run/internal-token"
+check "the file is the person's only" is "$(stat -c %a "$T/data/run/internal-token" 2>/dev/null || stat -f %Lp "$T/data/run/internal-token")" 600
+new_case "0.41.2 a token given as a variable (an older keel2) still works, and keel's processes get it as a file"
+plan "up 3"
+start_bg KEEL_INTERNAL_TOKEN=from-a-variable
+wait_exit
+check "data/run/internal-token holds it" is "$(cat "$T/data/run/internal-token")" "from-a-variable"
+check "the engine gets the file only" logs "engine token var=none file=$T/data/run/internal-token"
 
 echo
 if [ "$failures" != 0 ]; then

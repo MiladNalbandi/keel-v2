@@ -30,6 +30,7 @@ keel:
   content: ${KEEL_CONTENT:}
   engine-url: ${KEEL_ENGINE_URL:http://127.0.0.1:8090}
   internal-token: ${KEEL_INTERNAL_TOKEN:}
+  internal-token-file: ${KEEL_INTERNAL_TOKEN_FILE:}
   secret: ${KEEL_SECRET:}
   scan-on-start: true
   mcp-python: ${KEEL_MCP_PYTHON:}

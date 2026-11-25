@@ -507,6 +507,21 @@ def test_the_style_check_names_the_version_mismatch(tmp_path, monkeypatch):
                      "your style check ran on PHP 8.4.1 with php-cs-fixer v3.64.0; CI runs PHP 7.4 (php-cs-fixer:3.4)."]
 
 
+def test_the_version_probe_of_a_projects_tool_runs_like_its_other_commands(tmp_path, monkeypatch):
+    """vendor/bin/phpcs --version is the project's own program: natively it starts in the sandbox (agent_user.wrap)."""
+    from keel_engine.tools import agent_user
+
+    seen = []
+
+    def wrap(argv, env=None, nice=None, cwd=None):
+        seen.append((list(argv), cwd))
+        return ["/usr/bin/env", *argv], env
+
+    monkeypatch.setattr(agent_user, "wrap", wrap)
+    assert ci_pipeline._run_version(str(tmp_path), ["sh", "-c", "echo v1.2.3"]) == "1.2.3"
+    assert seen == [(["sh", "-c", "echo v1.2.3"], str(tmp_path))]
+
+
 def test_the_final_review_and_the_ship_reviewers_get_the_report(tmp_path):
     root = project(tmp_path, {"README.md": "shop\n"})
     text = "## CI on its own versions\n\n| job | versions | result | time |\n|---|---|---|---|\n| cs | php 7.4 | failed | 3s |\n"

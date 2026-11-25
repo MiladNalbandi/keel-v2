@@ -34,6 +34,24 @@ def test_internal_token(monkeypatch):
         assert c.get("/templates", headers={"X-Keel-Token": "s3cret"}).status_code == 200
 
 
+def test_the_internal_token_comes_from_its_file_when_there_is_no_variable(monkeypatch, tmp_path):
+    """keel-start hands the token over as KEEL_INTERNAL_TOKEN_FILE only: in the environment of keel's processes every
+    program of the same user could read it (ps eww)."""
+    from keel_engine import config, mcp_api
+
+    f = tmp_path / "internal-token"
+    f.write_text("from-the-file\n")
+    monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
+    monkeypatch.setenv("KEEL_INTERNAL_TOKEN_FILE", str(f))
+    assert config.internal_token() == mcp_api.internal_token() == "from-the-file"
+    assert config.mcp_token("read") != ""
+    with TestClient(create_app(EventBus())) as c:
+        assert c.get("/templates").status_code == 401
+        assert c.get("/templates", headers={"X-Keel-Token": "from-the-file"}).status_code == 200
+    monkeypatch.setenv("KEEL_INTERNAL_TOKEN_FILE", str(tmp_path / "missing"))
+    assert config.internal_token() == ""
+
+
 def test_mcp_tools_lists_a_stdio_server(client, tmp_path):
     server = tmp_path / "server.py"
     server.write_text(textwrap.dedent("""

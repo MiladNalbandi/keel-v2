@@ -4,16 +4,21 @@ In keel's image the agents run as their own user (tools/agent_user.py). Native m
 second user: the agent's shell, the project's tests and builds run as the person, like keel's api and engine. When
 the computer has a sandbox, each of those commands starts inside it, so keel's own folders stay keel's:
 
-    - Linux: bubblewrap (`bwrap`, the package bubblewrap). The whole file system as it is, with keel's data folder and
-      keel's run folder replaced by empty ones, and a process namespace of its own (keel's api and engine, and their
-      environment in /proc, are not in it). The command dies with keel's process in front of it.
-    - macOS: sandbox-exec (part of macOS). Everything allowed except reading or writing keel's data and run folders.
+    - Linux: bubblewrap (`bwrap`, the package bubblewrap). The whole file system as it is, with keel's folders replaced
+      by empty ones, and a process namespace of its own: keel's api and engine are not in it, so neither their
+      environment nor their /proc/<pid>/root (a way around the empty folders) can be read. The command dies with keel's
+      process in front of it.
+    - macOS: sandbox-exec (part of macOS). Everything allowed except reading or writing keel's folders.
 
-A project folder inside keel's data folder (keel's demo project) stays open: the command works in it.
+keel's folders: the data folder (KEEL_DATA), the folders the program that started keel names in KEEL_HIDE (keel2: its
+run and logs folders; the desktop app: its own), and every keel2 keel's data, run and logs folders on this computer
+(KEEL2_HOME, default ~/.keel2: <name>/data, <name>/run, <name>/logs; the releases and the agent CLIs next to them stay
+open). A project folder inside one of them (keel's demo project) stays open: the command works in it.
 
-Which sandbox there is gets checked once (a probe command); without one, commands run as before and keel says so (the
-engine's log, keel2 status). KEEL_SANDBOX=off turns it off. Only native mode uses it: in keel's image the agents' own
-user already keeps them from keel's files.
+Which sandbox there is gets checked with a probe command; the answer is kept for the process, a "none" only for a minute
+(RETRY_AFTER), then checked again. Without one, commands run as before and keel says so (the engine's log, keel2 status).
+KEEL_SANDBOX=off turns it off. Only native mode uses it: in keel's image the agents' own user already keeps them from
+keel's files.
 
 Stdlib only.
 """
@@ -24,11 +29,15 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ENV = "KEEL_SANDBOX"           # off: never; anything else: when the computer has one (default)
+HIDE_ENV = "KEEL_HIDE"        # more folders to hide, ':' between them (set by keel2 and the desktop app)
+KEEL2_PARTS = ("data", "run", "logs")
 PROBE_TIMEOUT = 20
-_found: dict[str, str | None] = {}
+RETRY_AFTER = 60              # seconds a probe that found no sandbox counts
+_found: dict[str, object] = {}
 
 
 def active() -> bool:
@@ -37,18 +46,31 @@ def active() -> bool:
             and os.environ.get(ENV, "").strip().lower() not in ("off", "0", "no", "false"))
 
 
+def keel2_home() -> str:
+    return os.environ.get("KEEL2_HOME", "").strip() or os.path.join(os.path.expanduser("~"), ".keel2")
+
+
 def hidden() -> list[str]:
-    """keel's own folders the agents never see: the data folder (KEEL_DATA) and, next to it, keel2's run folder (its
-    internal token). Real paths (macOS: /var is /private/var), without duplicates."""
+    """keel's own folders the agents never see (see the top of this file). Real paths (macOS: /var is /private/var),
+    only folders that exist, without duplicates and without one inside another."""
     data = os.environ.get("KEEL_DATA", "").strip()
     if not data:
         return []
-    d = os.path.realpath(data)
-    out = [d]
-    run = os.path.join(os.path.dirname(d), "run")
-    if os.path.isdir(run) and run not in out:
-        out.append(run)
-    return out
+    want = [data, *os.environ.get(HIDE_ENV, "").split(":")]
+    home = keel2_home()
+    try:
+        names = sorted(os.listdir(home))
+    except OSError:
+        names = []
+    want += [os.path.join(home, n, part) for n in names for part in KEEL2_PARTS]
+    out: list[str] = []
+    for w in want:
+        if not w.strip():
+            continue
+        r = os.path.realpath(w.strip())
+        if (r == os.path.realpath(data) or os.path.isdir(r)) and r not in out:
+            out.append(r)
+    return [r for r in out if not any(o != r and _inside(r, o) for o in out)]
 
 
 def _inside(path: str, folder: str) -> bool:
@@ -63,7 +85,8 @@ def _project(path: str) -> str:
 
 
 def _bwrap_argv(argv: list[str], hide: list[str], keep: str | None, cwd: str | None = None) -> list[str]:
-    out = ["bwrap", "--dev-bind", "/", "/", "--unshare-pid", "--proc", "/proc", "--die-with-parent"]
+    # --unshare-pid stays: without it /proc/<keel's pid>/root shows keel's folders as keel sees them
+    out = [str(_found.get("bwrap") or "bwrap"), "--dev-bind", "/", "/", "--unshare-pid", "--proc", "/proc", "--die-with-parent"]
     for h in hide:
         out += ["--tmpfs", h]
     if keep and any(_inside(keep, h) for h in hide):
@@ -100,17 +123,24 @@ def _probe(argv: list[str]) -> bool:
 
 def backend() -> str | None:
     """`bwrap`, `sandbox-exec` or None (none on this computer, or it does not work here: a container without user
-    namespaces). Checked once."""
+    namespaces). A sandbox found is kept for the process; none is checked again after RETRY_AFTER seconds. bwrap runs
+    from the path the probe found (_found["bwrap"]), not whatever PATH holds later."""
     if "backend" in _found:
-        return _found["backend"]
+        got = _found["backend"]
+        if got is not None or time.monotonic() - float(_found.get("at") or 0) < RETRY_AFTER or "at" not in _found:
+            return got  # type: ignore[return-value]
     found = None
-    if sys.platform.startswith("linux") and shutil.which("bwrap"):
-        if _probe(_bwrap_argv(["true"], [], None)):
-            found = "bwrap"
+    if sys.platform.startswith("linux"):
+        exe = shutil.which("bwrap")
+        if exe:
+            _found["bwrap"] = os.path.realpath(exe)
+            if _probe(_bwrap_argv(["true"], [], None)):
+                found = "bwrap"
     elif sys.platform == "darwin" and Path("/usr/bin/sandbox-exec").exists():
         if _probe(_macos_argv(["/usr/bin/true"], [], None)):
             found = "sandbox-exec"
     _found["backend"] = found
+    _found["at"] = time.monotonic()
     return found
 
 

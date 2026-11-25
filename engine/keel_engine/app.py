@@ -463,8 +463,8 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
         if request.url.path not in ("/health", "/plugins/call", *extensions.open_paths()):
             if not token:
                 if not config.engine_open():
-                    return _err(401, "The engine has no KEEL_INTERNAL_TOKEN, so it refuses requests.",
-                                "Start it with KEEL_INTERNAL_TOKEN set (keel-start does), or KEEL_ENGINE_OPEN=1 for local development.")
+                    return _err(401, "The engine has no internal token (KEEL_INTERNAL_TOKEN or KEEL_INTERNAL_TOKEN_FILE), so it refuses requests.",
+                                "Start it with one of them set (keel-start does), or KEEL_ENGINE_OPEN=1 for local development.")
             elif not secrets.compare_digest(request.headers.get("X-Keel-Token", ""), token):
                 return _err(401, "Missing or wrong X-Keel-Token.")
         return await call_next(request)

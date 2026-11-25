@@ -220,8 +220,13 @@ api() { echo "http://localhost:${1:-$(running_port)}/api"; }
 # v0.18.1 keel's api answers no caller without a credential (api auth/LocalAuth): keel2 sends keel's internal token.
 # It never goes on a command line (other users of this computer can read those): curl reads the header from a pipe.
 keel_token() {
-  if native_mode && ! docker_keel_running; then cat "$ND/run/token" 2>/dev/null || true
+  if native_mode && ! docker_keel_running; then cat "$(native_token_file)" 2>/dev/null || true
   else docker exec "$NAME" cat /data/run/internal-token 2>/dev/null || true; fi
+}
+# 0.41.2 the token a native keel really uses: keel-start writes it to data/run/internal-token (from run/token; a release
+# before 0.41.2, after keel2 update --rollback, makes its own there)
+native_token_file() {
+  if [ -s "$ND/data/run/internal-token" ]; then echo "$ND/data/run/internal-token"; else echo "$ND/run/token"; fi
 }
 kcurl() { curl -H @<(printf 'X-Keel-Token: %s\n' "$(keel_token)") "$@"; }
 
@@ -1946,7 +1951,8 @@ cmd_mcp() {
     # client may start this with an environment that has no TZ and a Python that cannot read /etc/localtime)
     local ntz; ntz="$(host_tz)"
     if [ -n "$ntz" ]; then export TZ="$ntz"; fi
-    KEEL_API_URL="http://127.0.0.1:$p" KEEL_INTERNAL_TOKEN="$(cat "$ND/run/token")" KEEL_PUBLIC_URL="${KEEL_PUBLIC_URL:-http://localhost:$p}" \
+    # 0.41.2 the internal token as a file, never in the environment (other programs of this user could read that)
+    KEEL_API_URL="http://127.0.0.1:$p" KEEL_INTERNAL_TOKEN_FILE="$(native_token_file)" KEEL_PUBLIC_URL="${KEEL_PUBLIC_URL:-http://localhost:$p}" \
       KEEL_DATA="$ND/data" KEEL_PLUGINS_IMAGE="$ND/current/plugins" \
       exec "$ND/current/engine/.venv/bin/python" -P -m keel_engine.mcp "$mode" ${extra[@]+"${extra[@]}"}
   fi
@@ -2794,11 +2800,15 @@ native_start() {  # native_start <project> <tarball or ""> <source checkout or "
   printf 'api=%s\nengine=%s\nback=%s\n' "$port" "$eport" "$bport" > "$ND/run/ports"
   # cmd_start sets NATIVE_BIND (a start without --wifi is 127.0.0.1); restart, update and restore keep the last one
   local bind="${NATIVE_BIND:-${KEEL_BIND:-$(cat "$ND/bind" 2>/dev/null || echo 127.0.0.1)}}"; printf '%s\n' "$bind" > "$ND/bind"
+  # 0.41.2 keel gets the internal token as this file (KEEL_INTERNAL_TOKEN_FILE), not as a variable: a variable shows in
+  # the environment of keel's processes to every program of this user (`ps eww`). Agents' commands run in a sandbox
+  # that hides this run folder and the logs (KEEL_HIDE), and every keel2 keel's data, run and logs (KEEL2_HOME).
   tok="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   (umask 077; printf '%s' "$tok" > "$ND/run/token")
   info "Starting keel natively for ${B}$project${N}…"
   KEEL_APP="$ND/current" KEEL_DATA="$ND/data" KEEL_WORKSPACE="$project" KEEL_PROJECT_NAME="$(basename "$project")" KEEL_HOST_WORKSPACE="$project" \
-    KEEL_FOLDERS="$folders" KEEL_PORT="$port" KEEL_ENGINE_PORT="$eport" KEEL_BACK_PORT="$bport" KEEL_NPM="$ND/npm" KEEL_INTERNAL_TOKEN="$tok" \
+    KEEL_FOLDERS="$folders" KEEL_PORT="$port" KEEL_ENGINE_PORT="$eport" KEEL_BACK_PORT="$bport" KEEL_NPM="$ND/npm" \
+    KEEL_INTERNAL_TOKEN_FILE="$ND/run/token" KEEL_HIDE="$ND/run:$ND/logs" KEEL2_HOME="${KEEL2_HOME:-$HOME/.keel2}" \
     KEEL_PLUGINS="${NATIVE_PLUGINS:-${KEEL_PLUGINS:-on}}" KEEL_BIND="$bind" KEEL_NAME="$NAME" KEEL2_PATH="$(self_path)" \
     KEEL_HOST_NAME="$(own_name)" nohup "$ND/current/keel-native-start" >> "$ND/logs/keel.log" 2>&1 < /dev/null &
   echo $! > "$ND/run/keel.pid"

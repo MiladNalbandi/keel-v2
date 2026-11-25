@@ -75,12 +75,17 @@ test("keel's environment: the app's Python and Java, never on PATH; the AppImage
     paths: pathsFor("linux", "/home/ana", {}),
     ports: { api: 8180, engine: 40001, back: 40002 },
     folders: ["/home/ana/shop", "/home/ana/libs"],
-    token: "t0k",
+    tokenFile: "/home/ana/.local/share/keel/run/token",
     pathValue: "/usr/local/bin:/usr/bin:/r/runtime/bin",
     version: "0.27.0",
   });
   assert.equal(env.PATH, "/usr/local/bin:/usr/bin:/r/runtime/bin");
   assert.equal(env.KEEL_PORT, "8180");
+  // the token as a file only, and the app's own folders hidden from agents' commands
+  assert.equal(env.KEEL_INTERNAL_TOKEN, undefined);
+  assert.equal(env.KEEL_INTERNAL_TOKEN_FILE, "/home/ana/.local/share/keel/run/token");
+  const pp = pathsFor("linux", "/home/ana", {});
+  assert.equal(env.KEEL_HIDE, `${pp.run}:${pp.logs}`);
   assert.equal(env.KEEL_BACK_PORT, "40002");
   assert.equal(env.KEEL_FOLDERS, "/home/ana/shop:/home/ana/libs");
   assert.equal(env.KEEL_WORKSPACE, "/home/ana/shop");
@@ -97,7 +102,7 @@ test("keel's environment: the app's Python and Java, never on PATH; the AppImage
   assert.equal(env.LD_LIBRARY_PATH, undefined);
   assert.ok(!String(env.PATH).includes("jre") && !String(env.PATH).includes("python"));
   // the demo: no folder, so keel makes its demo project
-  const demo = keelEnv({}, { bundle: b, paths: pathsFor("linux", "/h", {}), ports: { api: 1, engine: 2, back: 3 }, folders: [], token: "x", pathValue: "/usr/bin", version: "1", safe: true });
+  const demo = keelEnv({}, { bundle: b, paths: pathsFor("linux", "/h", {}), ports: { api: 1, engine: 2, back: 3 }, folders: [], tokenFile: "/h/t", pathValue: "/usr/bin", version: "1", safe: true });
   assert.equal(demo.KEEL_WORKSPACE, "");
   assert.equal(demo.KEEL_PROJECT_NAME, undefined);
   assert.equal(demo.KEEL_PLUGINS, "image");

@@ -633,8 +633,11 @@ def style_check(root: str, cfg: dict, key: str, res: dict) -> list[str]:
 def _run_version(root: str, argv: list[str]) -> str:
     if not argv:
         return ""
+    # the project's own program (vendor/bin/phpcs, node_modules/.bin/eslint): like its other commands, as the agents'
+    # user, natively in the sandbox that hides keel's files (tools/agent_user.py wrap)
+    run, env = agent_user.wrap(list(argv), _local_env(), cwd=root)
     try:
-        p = subprocess.run(argv, cwd=root, capture_output=True, text=True, timeout=30, env=_local_env())
+        p = subprocess.run(run, cwd=root, capture_output=True, text=True, timeout=30, env=env, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired):
         return ""
     m = re.search(r"v?(\d+\.\d+(?:\.\d+)?)", (p.stdout or "") + (p.stderr or ""))

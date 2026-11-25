@@ -21,7 +21,7 @@ export SERVER_ADDRESS="${KEEL_BIND:-127.0.0.1}"
 export KEEL_ENGINE_PORT="${KEEL_ENGINE_PORT:-8090}"
 export KEEL_ENGINE_URL="http://127.0.0.1:$KEEL_ENGINE_PORT"
 export KEEL_API_URL="http://127.0.0.1:$KEEL_PORT"
-export KEEL_INTERNAL_TOKEN="${KEEL_INTERNAL_TOKEN:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
+# the internal token: keel-start (KEEL_INTERNAL_TOKEN_FILE from keel2 or the desktop app, never a variable)
 export CODEGRAPH_NO_DAEMON=1 CODEGRAPH_TELEMETRY=0 DO_NOT_TRACK=1 CODEGRAPH_NO_UPDATE_CHECK=1
 # the plugins that came in the release (as /opt/keel-v2/plugins in the image), with the installed ones in $KEEL_DATA
 export KEEL_PLUGINS_IMAGE="${KEEL_PLUGINS_IMAGE:-$KEEL_APP/plugins}"

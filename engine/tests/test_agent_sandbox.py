@@ -20,6 +20,8 @@ def native(tmp_path, monkeypatch):
     (home / "run" / "token").write_text("the-internal-token")
     monkeypatch.setenv("KEEL_NATIVE", "1")
     monkeypatch.setenv("KEEL_DATA", str(home / "data"))
+    monkeypatch.setenv("KEEL2_HOME", str(home.parent))        # never the real ~/.keel2 of the computer the tests run on
+    monkeypatch.delenv("KEEL_HIDE", raising=False)
     monkeypatch.delenv("KEEL_SANDBOX", raising=False)
     monkeypatch.delenv("KEEL_AGENT_USER", raising=False)
     agent_sandbox._reset_for_tests()
@@ -48,6 +50,66 @@ def test_the_data_folder_and_the_run_folder_are_hidden(native):
     assert agent_sandbox.hidden() == [_real(native / "data"), _real(native / "run")]
 
 
+def test_every_keel2_keels_data_run_and_logs_are_hidden_but_not_its_release_or_clis(native):
+    other = native.parent / "keel-other"
+    for d in ("data", "run", "logs", "npm/bin", "current"):
+        (other / d).mkdir(parents=True)
+    (native / "logs").mkdir()
+    got = agent_sandbox.hidden()
+    for d in (native / "data", native / "run", native / "logs", other / "data", other / "run", other / "logs"):
+        assert _real(d) in got, d
+    assert not any(h.endswith(("/npm", "/npm/bin", "/current")) for h in got)
+    assert _real(native.parent) not in got
+
+
+def test_keel_hide_adds_folders_and_a_folder_inside_another_is_not_named_twice(native, monkeypatch, tmp_path):
+    app = tmp_path / "app"
+    (app / "run").mkdir(parents=True)
+    (app / "logs").mkdir()
+    monkeypatch.setenv("KEEL_HIDE", f"{app / 'run'}:{app / 'logs'}:{app / 'missing'}::{native / 'data' / 'run'}")
+    got = agent_sandbox.hidden()
+    assert _real(app / "run") in got and _real(app / "logs") in got
+    assert not any("missing" in h for h in got)
+    assert _real(native / "data" / "run") not in got           # inside the data folder, which is hidden already
+
+
+def test_the_run_folder_is_not_guessed_next_to_a_data_folder_that_is_not_keel2s(native, monkeypatch, tmp_path):
+    """The desktop app or a custom KEEL_DATA: only what KEEL_HIDE names, not a "run" that happens to be next to it."""
+    (tmp_path / "elsewhere" / "data").mkdir(parents=True)
+    (tmp_path / "elsewhere" / "run").mkdir()
+    monkeypatch.setenv("KEEL_DATA", str(tmp_path / "elsewhere" / "data"))
+    monkeypatch.setenv("KEEL2_HOME", str(tmp_path / "no-keel2-here"))
+    assert agent_sandbox.hidden() == [_real(tmp_path / "elsewhere" / "data")]
+
+
+def test_bwrap_runs_from_the_path_the_probe_found(native, monkeypatch, tmp_path):
+    monkeypatch.setitem(agent_sandbox._found, "backend", "bwrap")
+    monkeypatch.setitem(agent_sandbox._found, "bwrap", "/usr/bin/bwrap")
+    assert agent_sandbox.wrap(["/bin/sh", "-c", "x"], str(tmp_path))[0] == "/usr/bin/bwrap"
+
+
+def test_a_probe_that_found_no_sandbox_is_tried_again_later_and_one_that_found_it_is_kept(native, monkeypatch, tmp_path):
+    monkeypatch.setattr(agent_sandbox.sys, "platform", "linux")
+    exe = tmp_path / "bin" / "bwrap"
+    exe.parent.mkdir()
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
+    monkeypatch.setattr(agent_sandbox.shutil, "which", lambda name: str(exe))
+    works, probes, now = [False], [], [1000.0]
+    monkeypatch.setattr(agent_sandbox, "_probe", lambda argv: probes.append(argv) or works[0])
+    monkeypatch.setattr(agent_sandbox.time, "monotonic", lambda: now[0])
+    assert agent_sandbox.backend() is None and len(probes) == 1
+    assert probes[0][0] == os.path.realpath(exe) and "--unshare-pid" in probes[0]
+    now[0] += 10
+    assert agent_sandbox.backend() is None and len(probes) == 1          # within a minute: the answer stands
+    works[0] = True
+    now[0] += agent_sandbox.RETRY_AFTER
+    assert agent_sandbox.backend() == "bwrap" and len(probes) == 2
+    now[0] += 10 * agent_sandbox.RETRY_AFTER
+    works[0] = False
+    assert agent_sandbox.backend() == "bwrap" and len(probes) == 2       # found: kept for the process
+
+
 def test_bwrap_hides_keels_folders_and_keel_s_processes(native, monkeypatch, tmp_path):
     monkeypatch.setitem(agent_sandbox._found, "backend", "bwrap")
     project = tmp_path / "shop"
@@ -56,6 +118,7 @@ def test_bwrap_hides_keels_folders_and_keel_s_processes(native, monkeypatch, tmp
     assert argv[0] == "bwrap" and argv[-4:] == ["--", "/bin/sh", "-c", "npm test"]
     assert ["--tmpfs", _real(native / "data")] == argv[argv.index(_real(native / "data")) - 1:][:2]
     assert "--tmpfs" in argv and _real(native / "run") in argv
+    # --unshare-pid stays: without it /proc/<keel's pid>/root would show keel's folders (the real test below)
     assert "--unshare-pid" in argv and "--die-with-parent" in argv
     assert argv[argv.index("--chdir") + 1] == _real(project)
     assert "--bind" not in argv          # the project is not in keel's folders: nothing to open again
@@ -178,3 +241,28 @@ def test_for_real_an_agents_command_cannot_read_keels_environment(native):
         assert "secret-of-the-api" not in out
     finally:
         keel.kill()
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="/proc: Linux")
+def test_for_real_keels_folders_cannot_be_reached_through_proc_root_of_keels_processes(native):
+    """/proc/<pid>/root of a process outside the sandbox is that process's view of the files: keel's own folders as
+    keel sees them. Its own process namespace (--unshare-pid) keeps keel's processes out of the command's /proc."""
+    _need_backend()
+    keel = subprocess.Popen(["sleep", "60"])
+    try:
+        token = native / "run" / "token"
+        code, out = testcmd.run("/tmp", f"cat /proc/{keel.pid}/root{token}; ls /proc/{keel.pid}/root{native / 'data'}", 60)
+        assert "the-internal-token" not in out and "keel.db" not in out
+    finally:
+        keel.kill()
+
+
+def test_for_real_another_keel2_keels_folders_are_hidden_too(native, tmp_path):
+    _need_backend()
+    other = native.parent / "keel-other"
+    (other / "run").mkdir(parents=True)
+    (other / "run" / "token").write_text("the-other-token")
+    (other / "npm" / "bin").mkdir(parents=True)
+    (other / "npm" / "bin" / "tool").write_text("a tool\n")
+    code, out = testcmd.run(str(tmp_path), f"cat '{other / 'run' / 'token'}'; cat '{other / 'npm' / 'bin' / 'tool'}'", 60)
+    assert "the-other-token" not in out and "a tool" in out
