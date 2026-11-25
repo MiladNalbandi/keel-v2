@@ -2684,7 +2684,8 @@ native_sandbox_line() {  # native_sandbox_line ok|warn — says whether agents' 
   case "$s" in
     bwrap|sandbox-exec) ok "agents' commands run in a sandbox ($s): keel's own folders stay keel's" ;;
     off) warn "agents' commands run without a sandbox (KEEL_SANDBOX=off)" ;;
-    *) warn "agents' commands run without a sandbox: install bubblewrap ($(native_hint bubblewrap))" ;;
+    *) if [ "$(uname -s)" = Darwin ]; then warn "agents' commands run without a sandbox (sandbox-exec does not work here)"
+       else warn "agents' commands run without a sandbox: install bubblewrap ($(native_hint bubblewrap))"; fi ;;
   esac
 }
 

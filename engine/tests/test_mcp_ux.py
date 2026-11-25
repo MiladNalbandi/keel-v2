@@ -256,6 +256,7 @@ def test_loosening_rules_and_posting_as_the_person_need_the_persons_ok_in_the_in
     from keel_engine import mcp_confirm
 
     monkeypatch.delenv("KEEL_MCP_CONFIRM", raising=False)
-    for name in ("keel_rule_edit", "keel_review_reply", "keel_review_resolve", "keel_review_submit", "keel_rules_mode"):
+    for name in ("keel_rule_edit", "keel_review_reply", "keel_review_resolve", "keel_review_submit", "keel_review_merge",
+                 "keel_rules_mode"):
         assert mcp_confirm.out_of_band(name), name
     assert not mcp_confirm.out_of_band("keel_review_comment")      # a draft stays in keel

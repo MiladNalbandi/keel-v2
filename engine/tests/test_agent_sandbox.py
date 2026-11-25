@@ -74,6 +74,21 @@ def test_a_project_inside_keels_data_folder_stays_open(native, monkeypatch):
     assert prof.index("(deny file-read* file-write*") < prof.index(f'(allow file-read* file-write* (subpath "{_real(demo)}"))')
 
 
+def test_a_flows_worktree_of_that_project_keeps_the_whole_project_open(native, monkeypatch):
+    """A worktree's .git file points into the project's .git: the project stays open, the command works in the worktree."""
+    demo = native / "data" / "demo"
+    wt = demo / ".keel" / "worktrees" / "flow-x"
+    wt.mkdir(parents=True)
+    monkeypatch.setitem(agent_sandbox._found, "backend", "bwrap")
+    argv = agent_sandbox.wrap(["/bin/sh", "-c", "git status"], str(wt))
+    i = argv.index("--bind")
+    assert argv[i:i + 3] == ["--bind", _real(demo), _real(demo)]
+    assert argv[argv.index("--chdir") + 1] == _real(wt)
+    monkeypatch.setitem(agent_sandbox._found, "backend", "sandbox-exec")
+    prof = agent_sandbox.wrap(["/bin/sh", "-c", "git status"], str(wt))[2]
+    assert f'(allow file-read* file-write* (subpath "{_real(demo)}"))' in prof
+
+
 def test_the_macos_profile_denies_keels_folders_after_allowing_the_rest(native, monkeypatch):
     monkeypatch.setitem(agent_sandbox._found, "backend", "sandbox-exec")
     argv = agent_sandbox.wrap(["/bin/sh", "-c", "go test ./..."], "/elsewhere")

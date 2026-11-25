@@ -4162,5 +4162,10 @@ GET  /api/plugins/cluster/contexts             -> ... own_kubeconfig, contexts[]
 - Which one: checked once with a probe command. None (Linux without bubblewrap, or a container without user
   namespaces): commands run as before; the engine's log, `keel2 status`, `keel2 doctor` and the first native start
   say so ("install bubblewrap"). `KEEL_SANDBOX=off` turns it off.
+- A flow's worktree (`<project>/.keel/worktrees/<name>`) keeps its whole project open (its `.git` points there).
+- Limits (Linux, bubblewrap): a background process an agent's command starts (a Gradle daemon, `nohup server &`) ends
+  with that command; `sudo` and other setuid tools do not work inside. `KEEL_SANDBOX=off` runs commands as before.
+- MCP: `keel_rule_edit`, `keel_review_reply`, `keel_review_resolve`, `keel_review_submit` and `keel_review_merge` wait
+  for the person's OK in the Inbox, like `keel_rules_mode`.
 - Tests: `engine/tests/test_agent_sandbox.py` (the real-sandbox tests run when the computer has one;
   `KEEL_TEST_SANDBOX=1` makes them required).

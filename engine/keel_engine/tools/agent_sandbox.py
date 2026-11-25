@@ -55,14 +55,21 @@ def _inside(path: str, folder: str) -> bool:
     return path == folder or path.startswith(folder.rstrip("/") + "/")
 
 
-def _bwrap_argv(argv: list[str], hide: list[str], keep: str | None) -> list[str]:
+def _project(path: str) -> str:
+    """The folder that stays open: a flow's worktree (<project>/.keel/worktrees/<name>) keeps its whole project open,
+    because its .git file points into the project's .git."""
+    cut = path.find("/.keel/worktrees/")
+    return path[:cut] if cut > 0 else path
+
+
+def _bwrap_argv(argv: list[str], hide: list[str], keep: str | None, cwd: str | None = None) -> list[str]:
     out = ["bwrap", "--dev-bind", "/", "/", "--unshare-pid", "--proc", "/proc", "--die-with-parent"]
     for h in hide:
         out += ["--tmpfs", h]
     if keep and any(_inside(keep, h) for h in hide):
         out += ["--bind", keep, keep]
-    if keep:
-        out += ["--chdir", keep]
+    if cwd:
+        out += ["--chdir", cwd]
     return [*out, "--", *argv]
 
 
@@ -116,9 +123,9 @@ def wrap(argv: list[str], cwd: str | None = None) -> list[str]:
     if not hide:
         return list(argv)
     b = backend()
-    keep = os.path.realpath(cwd) if cwd else None
+    keep = _project(os.path.realpath(cwd)) if cwd else None
     if b == "bwrap":
-        return _bwrap_argv(list(argv), hide, keep)
+        return _bwrap_argv(list(argv), hide, keep, os.path.realpath(cwd) if cwd else None)
     if b == "sandbox-exec":
         return _macos_argv(list(argv), hide, keep)
     return list(argv)
