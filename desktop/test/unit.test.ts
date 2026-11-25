@@ -76,6 +76,7 @@ test("keel's environment: the app's Python and Java, never on PATH; the AppImage
     ports: { api: 8180, engine: 40001, back: 40002 },
     folders: ["/home/ana/shop", "/home/ana/libs"],
     tokenFile: "/home/ana/.local/share/keel/run/token",
+    hide: ["/home/ana/.config/keel"],
     pathValue: "/usr/local/bin:/usr/bin:/r/runtime/bin",
     version: "0.27.0",
   });
@@ -85,7 +86,7 @@ test("keel's environment: the app's Python and Java, never on PATH; the AppImage
   assert.equal(env.KEEL_INTERNAL_TOKEN, undefined);
   assert.equal(env.KEEL_INTERNAL_TOKEN_FILE, "/home/ana/.local/share/keel/run/token");
   const pp = pathsFor("linux", "/home/ana", {});
-  assert.equal(env.KEEL_HIDE, `${pp.run}:${pp.logs}`);
+  assert.equal(env.KEEL_HIDE, `${pp.run}:${pp.logs}:/home/ana/.config/keel`);
   assert.equal(env.KEEL_BACK_PORT, "40002");
   assert.equal(env.KEEL_FOLDERS, "/home/ana/shop:/home/ana/libs");
   assert.equal(env.KEEL_WORKSPACE, "/home/ana/shop");

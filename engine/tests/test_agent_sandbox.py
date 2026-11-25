@@ -164,6 +164,11 @@ def test_keels_programs_are_read_only_and_the_folders_above_keels_cannot_be_rena
     assert k2 + "/keel-x" not in argv                       # inside a read-only folder: nothing to pin
     order = [argv.index(a) for a in ("--ro-bind", "--tmpfs")]
     assert order == sorted(order)
+    # a link to the script (~/.local/bin/keel2 -> a checkout): the file it points to is read only
+    link = tmp_path / "bin" / "keel2-link"
+    os.symlink(str(script), link)
+    monkeypatch.setenv("KEEL2_PATH", str(link))
+    assert _real(script) in agent_sandbox.read_only()
     # the keel2 script inside the project (a keel checkout) is the project's own file
     monkeypatch.setenv("KEEL2_PATH", str(project / "keel2"))
     (project / "keel2").write_text("#!/bin/sh\n")

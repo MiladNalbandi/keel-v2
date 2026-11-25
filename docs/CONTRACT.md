@@ -4181,7 +4181,8 @@ GET  /api/plugins/cluster/contexts             -> ... own_kubeconfig, contexts[]
   api-py `Settings.internal_token`, `keel-plugin dev`): `KEEL_INTERNAL_TOKEN`, else the file. `keel2 mcp` natively
   passes `KEEL_INTERNAL_TOKEN_FILE` too.
 - The sandbox hides (`tools/agent_sandbox.py hidden`): `KEEL_DATA`; the folders in `KEEL_HIDE` (keel2: its run and
-  logs folders; the desktop app: its own); every keel2 keel's `data`, `run` and `logs` (`<KEEL2_HOME>/<name>` with
+  logs folders; the desktop app: its run and logs folders and its browser profile, `userData`, with the window's
+  sign-in cookie); every keel2 keel's `data`, `run` and `logs` (`<KEEL2_HOME>/<name>` with
   every folder in `KEEL2_HOME`, default `~/.keel2`, also one `keel2 uninstall` left); and the desktop app's `data`,
   `run` and `logs` (`KEEL_DESKTOP_HOME`, else `~/Library/Application Support/keel` and `~/Library/Logs/keel` on macOS,
   `${XDG_DATA_HOME:-~/.local/share}/keel` on Linux). `KEEL2_HOME` and the desktop app's folder are followed when they
@@ -4191,8 +4192,9 @@ GET  /api/plugins/cluster/contexts             -> ... own_kubeconfig, contexts[]
   (`KEEL_APP`; the desktop app: the folder it is in, with the app's Python, Java and engine) and the keel2 script
   (`KEEL2_PATH`; not when it is inside the project, a keel checkout). The folders above the hidden and read-only ones cannot be renamed (bubblewrap:
   each is bound onto itself, a mount point; macOS: `(deny file-write* (literal …))`). A project that holds keel's folders
-  keeps them hidden. On Linux each of those folders is a mount point of its own, so a move between them is a copy
-  (`mv` does that by itself; a rename(2) gets EXDEV).
+  keeps them hidden. On Linux each of those folders is a mount point of its own, so a rename(2) or link(2) into one
+  of them from anywhere else (`/tmp` to the project) gets EXDEV: `mv` and most tools copy instead, hard-linking caches
+  (pnpm, uv) copy too.
 - keel's GitHub login for a push (`tools/git_auth.py`) is written to a temp folder in `$KEEL_DATA/run`, not `/tmp`.
 - The engine reads the token file again only when it changed (its size or time).
 - `docker/keel-native-start`: given `KEEL_INTERNAL_TOKEN` (a keel2 script before 0.41.2 with a newer release), it

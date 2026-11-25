@@ -16,6 +16,8 @@ export type Health = { ok: boolean; engine: boolean; version?: string; native?: 
 
 export type StartRequest = {
   folders: string[];
+  /** more folders agents' commands never see: the app's own browser profile (its sign-in cookie) */
+  hide?: string[];
   port?: number;
   safe?: boolean;
   pathValue: string;
@@ -130,6 +132,7 @@ export class Keel extends EventEmitter {
       ports: this.ports,
       folders: r.folders,
       tokenFile,
+      hide: r.hide,
       pathValue: r.pathValue,
       safe: r.safe,
       version: this.version,

@@ -14,6 +14,8 @@ export type StartOptions = {
   /** the file that holds keel's internal token (0.41.2: a file, never a variable: other programs of this user can read
    * a process's environment, `ps eww`) */
   tokenFile: string;
+  /** more folders the sandbox hides (KEEL_HIDE) besides the app's run and logs folders */
+  hide?: string[];
   /** the person's PATH (shellenv.mergePath) */
   pathValue: string;
   /** keel2 restart --safe: only the plugins that came with keel */
@@ -55,7 +57,7 @@ export function keelEnv(base: NodeJS.ProcessEnv, o: StartOptions): NodeJS.Proces
     KEEL_BACK_PORT: String(o.ports.back),
     KEEL_INTERNAL_TOKEN_FILE: o.tokenFile,
     // what agents' commands never see besides keel's data (engine tools/agent_sandbox.py): the app's run and logs folders
-    KEEL_HIDE: [o.paths.run, o.paths.logs].join(":"),
+    KEEL_HIDE: [o.paths.run, o.paths.logs, ...(o.hide ?? [])].join(":"),
     KEEL_PLUGINS: o.safe ? "image" : "on",
     KEEL_BIND: "127.0.0.1",
     KEEL_NAME: "keel-desktop",
