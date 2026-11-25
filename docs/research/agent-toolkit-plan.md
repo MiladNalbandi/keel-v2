@@ -115,6 +115,20 @@ by 7% on average, though neither moved success much), and generated ones helped 
 [S8]. And: "Never send an LLM to do a linter's job" [S27]. So: **detect from files that
 machines enforce, cite the file, and let a person's written rule override everything.**
 
+### 1.5 Tools that already serve conventions
+
+| Tool | What it does | Detected or written | Source |
+|---|---|---|---|
+| Packmind (Apache-2.0) | Turns a team playbook into the files each agent reads (`CLAUDE.md`, `.cursor/rules`, `AGENTS.md`); an onboarding command drafts first standards from the codebase and people approve them | written, with a detected first draft | [S29] |
+| Ruler | One `.ruler/` folder, copied into each agent's own file (`ruler apply`) | written | [S30] |
+| Central "standards" MCP servers | One hosted server holds the organisation's standards as Markdown; agents fetch them on request. The reason given: with files, "AI ignored the standards entirely" and "Updating one standard meant chasing down 15 copies across repos". No measured result is given | written | [S31] |
+| Commit-message MCP servers (for example `generate_commit_message`, `git_commit_and_push`) | Write the message for the agent from the diff, in one fixed Conventional Commits form | neither: a fixed format | [S32] |
+
+The existing tools either copy written rules into files, or write commits in one fixed format. In this search we
+found none that answers "what is *this* repo's style?" from the repo's own configs and history, with a source and a
+confidence (one search summary names a commit tool that adapts to the history; not opened). That is the gap
+`keel_howto` fills.
+
 ## 2. keel today
 
 ### What keel already has
@@ -406,3 +420,8 @@ Web sources were read on 2026-11-24 and 2026-11-25. "older" = more than a year o
   https://github.blog/ai-and-ml/github-copilot/building-an-agentic-memory-system-for-github-copilot/ (January 2026)
 - [S27] HumanLayer, "Writing a good CLAUDE.md": https://www.humanlayer.dev/blog/writing-a-good-claude-md (2025-11-25, one year old)
 - [S28] Study of agent-authored pull requests: https://arxiv.org/abs/2601.15195 (2026-01-21, abstract only)
+- [S29] Packmind: https://github.com/PackmindHub/packmind (undated; its MCP docs page returned 404)
+- [S30] Ruler: https://github.com/intellectronica/ruler (search summary only, not opened)
+- [S31] Turing, "Solving AI coding chaos with MCP": https://www.turing.com/blog/solving-ai-coding-chaos-with-mcp (2025-11-12, older);
+  Corbat coding-standards-mcp: https://socket.dev/npm/package/@corbat-tech/coding-standards-mcp (search summary only)
+- [S32] git-mcp-server: https://github.com/surajfale/git-mcp-server (undated, a small project)
