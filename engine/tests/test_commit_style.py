@@ -160,3 +160,11 @@ def test_no_fixed_style_still_shows_the_recent_subjects(tmp_path):
     note, detail = cs.for_agent(str(root), {})
     assert note.startswith("No fixed commit style")
     assert detail.splitlines() == ["Recent subjects:", "  Totals round to cents", "  Add the cart", "  chore: start"]
+
+
+def test_the_detail_explains_only_the_placeholders_the_style_has(tmp_path):
+    root = project(tmp_path)
+    _, detail = cs.for_agent(str(root), {"git": {"commit_template": "{type}: {subject}"}})
+    first = detail.splitlines()[0]
+    assert "{type}" in first and "{subject}" in first
+    assert "{ticket}" not in first and "{scope}" not in first

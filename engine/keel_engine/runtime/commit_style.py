@@ -214,9 +214,12 @@ def for_agent(root: str, cfg: dict | None, examples: int = 8) -> tuple[str, str]
                 "No fixed commit style: .keel/config.yml has no git.commit_template and the recent commits share none. "
                 "Follow the recent subjects below.")
     out = []
-    if tpl:
-        out.append("{ticket} the ticket key (e.g. SHOPS-1234, often in the branch name) · {type} feat, fix, test, "
-                   "refactor, docs, chore ... · {scope} what the change is about · {subject} what it does, short")
+    meaning = {"{ticket}": "the ticket key (e.g. SHOPS-1234, often in the branch name)",
+               "{type}": "feat, fix, test, refactor, docs, chore ...",
+               "{scope}": "what the change is about", "{subject}": "what it does, short"}
+    used = [f"{k} {v}" for k, v in meaning.items() if tpl and k in tpl]
+    if used:                     # only the placeholders this template has, so the agent adds nothing the team never writes
+        out.append(" · ".join(used))
     if subjects:
         out += ["Recent subjects:"] + [f"  {x}" for x in subjects[:examples]]
     return note, "\n".join(out)
