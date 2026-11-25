@@ -812,6 +812,12 @@ def build_server(write: bool = False, api: KeelApi | None = None, level: str | N
         return guard(more.knowledge, api, project, section)
 
     @reg(ro)
+    def keel_commit_style(project: str | None = None) -> str:
+        """How commits look in this project, before you commit: git.commit_template from .keel/config.yml, else the
+        style most of the team's recent commits share, with recent subjects as examples. Changes nothing."""
+        return guard(more.commit_style, api, project)
+
+    @reg(ro)
     def keel_search(query: str, project: str | None = None, kind: Literal["text", "symbol"] = "text") -> str:
         """Search the project: text in code and docs (file:line), or a class, function or route in the code graph."""
         return guard(more.search, api, query, project, kind)

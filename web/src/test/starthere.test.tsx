@@ -330,7 +330,8 @@ describe("the first-run welcome", () => {
     db.mcpClients = [];
     render(<App />);
     const w = await screen.findByRole("dialog", { name: "Welcome to keel" });
-    expect(within(w).getByRole("heading", { level: 1 })).toHaveTextContent("Your AI agents,with a process you trust.");
+    expect(within(w).getByRole("heading", { level: 1 })).toHaveTextContent("Your agent,smarter with keel.");
+    expect(w).toHaveTextContent("keel does not take control of your agents");
     expect(within(w).getByTestId("tour-video")).toHaveAttribute("src", expect.stringContaining("keel-v2-explainer.mp4"));
     expect(within(w).getByRole("button", { name: "Play the 4-minute tour" })).toBeInTheDocument();
     expect(within(w).getByRole("button", { name: "Skip, I know keel" })).toBeInTheDocument();

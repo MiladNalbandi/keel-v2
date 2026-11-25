@@ -673,6 +673,16 @@ def _deps(a):
 
 # ------------------------------------------------------------------ audit
 
+async def commit_style_action(a):
+    return await asyncio.to_thread(_commit_style, a)
+
+
+def _commit_style(a):
+    """#237 the project's commit style for an agent that wants to commit (keel_commit_style over MCP). Changes nothing."""
+    note, detail = commit_style.for_agent(a.root, rules.load_config(a.root))
+    return _result(True, note, detail)
+
+
 async def audit(a):
     return await asyncio.to_thread(_audit, a)
 

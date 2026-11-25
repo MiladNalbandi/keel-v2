@@ -148,6 +148,13 @@ def knowledge(api: KeelApi, project: str | None = None, section: str | None = No
     return "\n".join(out)
 
 
+def commit_style(api: KeelApi, project: str | None = None) -> str:
+    """#237 how commits look in the project: the engine's read action commit_style (runtime/commit_style.for_agent)."""
+    p = _project(api, project)
+    r = api.post(f"/projects/{p['id']}/actions/commit_style", {"args": {}}, timeout=ACTION_TIMEOUT) or {}
+    return "\n\n".join(x for x in (r.get("note") or "", r.get("detail") or "") if x) or "keel gave no commit style."
+
+
 def search(api: KeelApi, query: str, project: str | None = None, kind: str = "text") -> str:
     p = _project(api, project)
     pid = p["id"]
