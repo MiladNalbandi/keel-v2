@@ -31,8 +31,8 @@ What the agents' user still has (by design, or because nothing in between can ta
     - with keel2 --docker, the host's Docker socket (keel-stack-setup agent-docker): Docker reaches everything of the
       host, keel's data volume too.
 
-Native mode (keel2 start --native) is unchanged: there is no second user on the person's computer, and agents run as
-the person, as before (KEEL_NATIVE=1 turns this off). So is a container where keel-start found no working sudo rule
+Native mode (keel2 start --native) has no second user on the person's computer: agents run as the person (KEEL_NATIVE=1
+turns this off), and their commands start in an OS sandbox that hides keel's own files instead (tools/agent_sandbox.py). So is a container where keel-start found no working sudo rule
 (it says so in the log and does not set KEEL_AGENT_USER).
 
 Stdlib only.
@@ -104,12 +104,15 @@ def agent_env(env: dict | None) -> dict:
     return out
 
 
-def wrap(argv: list[str], env: dict | None = None, nice: int | None = None) -> tuple[list[str], dict | None]:
-    """(argv, env) that start `argv` as the agents' user. Unchanged when agents run as keel's user (env None stays
-    None: the child inherits, as before)."""
+def wrap(argv: list[str], env: dict | None = None, nice: int | None = None,
+         cwd: str | None = None) -> tuple[list[str], dict | None]:
+    """(argv, env) that start `argv` as the agents' user. When agents run as keel's user: unchanged (env None stays
+    None: the child inherits, as before), except in native mode, where `argv` starts in the sandbox that hides keel's
+    own files (tools/agent_sandbox.py; `cwd`, the folder it works in, stays open)."""
     u = user()
     if not u:
-        return list(argv), env
+        from . import agent_sandbox
+        return agent_sandbox.wrap(list(argv), cwd), env
     e = agent_env(env)
     e[PATH_ENV] = e.get("PATH") or os.defpath
     if nice:

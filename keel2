@@ -80,7 +80,7 @@
 # data volume, so they survive restarts and new images. Nothing from your computer is copied into the container.
 set -euo pipefail
 
-KEEL2_VERSION="0.40.1"
+KEEL2_VERSION="0.40.2"
 IMAGE="${KEEL_IMAGE:-ghcr.io/miladnalbandi/keel-v2:latest}"
 # keel's core only (docs/plugins/16-steps5-7-contract.md, step 6): keel2 start --core, unless KEEL_IMAGE is set
 CORE_IMAGE="ghcr.io/miladnalbandi/keel-v2:core"
@@ -2667,10 +2667,32 @@ native_need() {  # what native mode needs on this computer: Java 21, uv, git, cu
   command -v curl >/dev/null 2>&1 || die "Native mode needs curl." "Install it: $(native_hint curl)"
 }
 
+# native_sandbox — the sandbox the engine starts agents' commands in, natively (engine tools/agent_sandbox.py: it hides
+# keel's own files from them): bwrap, sandbox-exec, off (KEEL_SANDBOX=off) or none
+native_sandbox() {
+  case "${KEEL_SANDBOX:-}" in off|0|no|false) echo off; return 0 ;; esac
+  if [ "$(uname -s)" = Darwin ]; then
+    [ -x /usr/bin/sandbox-exec ] && /usr/bin/sandbox-exec -p '(version 1)(allow default)' /usr/bin/true >/dev/null 2>&1 && { echo sandbox-exec; return 0; }
+  elif command -v bwrap >/dev/null 2>&1 && bwrap --dev-bind / / --unshare-pid --proc /proc --die-with-parent -- true >/dev/null 2>&1; then
+    echo bwrap; return 0
+  fi
+  echo none
+}
+
+native_sandbox_line() {  # native_sandbox_line ok|warn — says whether agents' commands see keel's own keys
+  local s; s="$(native_sandbox)"
+  case "$s" in
+    bwrap|sandbox-exec) ok "agents' commands run in a sandbox ($s): keel's own folders stay keel's" ;;
+    off) warn "agents' commands run without a sandbox (KEEL_SANDBOX=off)" ;;
+    *) warn "agents' commands run without a sandbox: install bubblewrap ($(native_hint bubblewrap))" ;;
+  esac
+}
+
 native_warn() {  # once per keel: agents run as you
   [ -f "$ND/.warned" ] && return 0
   warn "Native mode: keel's agents run as you, with your files, your SSH keys and your network."
   warn "In Docker they only see the project folders. Docker stays the default: use native mode only on a computer and projects you trust."
+  native_sandbox_line
   if [ "${KEEL_YES:-0}" = 1 ] || ask_yes "Start keel natively?"; then mkdir -p "$ND"; : > "$ND/.warned"; return 0; fi
   die "Not started (native mode needs your yes; KEEL_YES=1 gives it without asking)." "Or use Docker: keel2 start [folder]"
 }
@@ -2817,6 +2839,7 @@ native_status() {
   info "  files      $ND"
   phone_line
   warn "agents run as you (native mode): they can read what you can."
+  native_sandbox_line
 }
 
 native_doctor() {
@@ -2832,6 +2855,7 @@ native_doctor() {
   [ -x "$ND/npm/bin/codegraph" ] && ok "codegraph in $ND/npm" || warn "codegraph not installed yet (keel2 start --native installs it)"
   mkdir -p "$ND" 2>/dev/null && [ -w "$ND" ] && ok "$ND is writable" || { bad "$ND is not writable"; problems=$((problems + 1)); }
   local p; p="$(native_port)"; if native_running; then ok "keel runs on port $p"; elif [ -n "$p" ] && port_busy "$p"; then warn "port $p is used by something else"; fi
+  native_sandbox_line
   [ "$problems" = 0 ] && ok "no problems found" || die "$problems problem(s) found."
 }
 
