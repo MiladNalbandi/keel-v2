@@ -248,3 +248,14 @@ async def test_yes_and_a_form_work_as_before():
     async with create_connected_server_and_client_session(server(api, level="admin"), elicitation_callback=say_yes) as s:
         res = await s.call_tool("keel_stop_flow", {"thread_id": "t-1"})
     assert not res.isError and api.posts == [("/api/threads/t-1/stop", {})]
+
+
+def test_loosening_rules_and_posting_as_the_person_need_the_persons_ok_in_the_inbox(monkeypatch):
+    """The token a client without forms gets is in the model's reach: a tool that turns rules off or posts as the
+    person must wait for the person's approval in keel's Inbox, like keel_rules_mode."""
+    from keel_engine import mcp_confirm
+
+    monkeypatch.delenv("KEEL_MCP_CONFIRM", raising=False)
+    for name in ("keel_rule_edit", "keel_review_reply", "keel_review_resolve", "keel_review_submit", "keel_rules_mode"):
+        assert mcp_confirm.out_of_band(name), name
+    assert not mcp_confirm.out_of_band("keel_review_comment")      # a draft stays in keel
