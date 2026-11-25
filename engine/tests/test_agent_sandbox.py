@@ -1,6 +1,7 @@
 """Native mode: an agent's commands start in an OS sandbox that hides keel's own files (tools/agent_sandbox.py)."""
 
 import os
+import shutil
 import subprocess
 import sys
 
@@ -272,7 +273,9 @@ def test_an_agents_command_goes_through_the_sandbox_and_keels_own_do_not(native,
 def _need_backend():
     b = agent_sandbox.backend()
     if b is None:
-        if os.environ.get("KEEL_TEST_SANDBOX") == "1":
+        # CI on Linux with bubblewrap (GitHub's Ubuntu runners have it): the real tests must run, not skip
+        ci_bwrap = os.environ.get("CI") == "true" and sys.platform.startswith("linux") and shutil.which("bwrap")
+        if os.environ.get("KEEL_TEST_SANDBOX") == "1" or ci_bwrap:
             pytest.fail("KEEL_TEST_SANDBOX=1 but this computer has no working sandbox (bubblewrap on Linux)")
         pytest.skip("no working sandbox here (bubblewrap on Linux, sandbox-exec on macOS)")
     return b
