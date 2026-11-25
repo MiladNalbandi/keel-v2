@@ -97,7 +97,6 @@ describe("KeelBot send in the panel", () => {
     delta("First words and more words");
     const btn = await within(p).findByRole("button", { name: "New messages: scroll down" });
     expect(top).toBe(100);
-    log.scrollTo = ((o: ScrollToOptions) => { top = o.top ?? top; }) as never;
     await user.click(btn);
     expect(top).toBe(2000);
     expect(within(p).queryByRole("button", { name: "New messages: scroll down" })).toBeNull();

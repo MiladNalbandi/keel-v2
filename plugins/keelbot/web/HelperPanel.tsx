@@ -450,7 +450,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     const el = scroller.current;
     stick.current = true;
     setUnseen(false);
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    if (el) el.scrollTop = el.scrollHeight;   // at once: a smooth scroll loses the race with text that still grows
   };
 
   const typing: Typing = useMemo(() => typingAt(text, caret), [text, caret]);
