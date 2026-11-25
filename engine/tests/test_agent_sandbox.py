@@ -15,7 +15,7 @@ def native(tmp_path, monkeypatch):
     home = tmp_path / "keel2" / "keel-x"
     (home / "data" / "run").mkdir(parents=True)
     (home / "data" / "run" / "web-key").write_text("the-web-key\n")
-    (home / "data" / "keel.db").write_text("db")
+    (home / "data" / "keel.db").write_text("the-db-content")
     (home / "run").mkdir()
     (home / "run" / "token").write_text("the-internal-token")
     monkeypatch.setenv("KEEL_NATIVE", "1")
@@ -151,7 +151,8 @@ def test_for_real_an_agents_command_cannot_read_keels_keys(native, tmp_path):
     key, token, db = native / "data" / "run" / "web-key", native / "run" / "token", native / "data" / "keel.db"
     code, out = testcmd.run(str(project), f"cat README.md; cat '{key}'; cat '{token}'; cat '{db}'; ls '{native / 'data'}'", 60)
     assert "# shop" in out
-    assert "the-web-key" not in out and "the-internal-token" not in out and "db" not in out.replace("# shop", "")
+    assert "the-web-key" not in out and "the-internal-token" not in out and "the-db-content" not in out
+    assert "keel.db" not in out.splitlines()                          # ls of the data folder shows nothing of it
     code, out = testcmd.run(str(project), f"echo forged > '{key}' 2>/dev/null; echo done", 60)
     assert key.read_text() == "the-web-key\n"
     # the project's own files: written as before
