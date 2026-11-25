@@ -135,15 +135,15 @@ function Hello({ onNext }: { onNext: () => void }) {
     <div className="wl-hello">
       <div className="wl-col">
         <div className="wl-kicker up">Welcome</div>
-        <h1 className="up d1" tabIndex={-1}>Your AI agents,<br />with a process you trust.</h1>
+        <h1 className="up d1" tabIndex={-1}>Your agent,<br />smarter with keel.</h1>
         <p className="wl-lead up d2">
-          keel runs coding agents through spec, tests, code and review. It stops at the gates where you decide, and keeps
-          every step in the record.
+          Your coding agent connects to keel and gets what it needs to know about your project. It gets more organized and
+          works better with other agents. keel does not take control of your agents or manage them.
         </p>
         <div className="wl-cards">
-          <div className="wl-card up d3"><span className="wl-num p">1</span><div><b>Flows</b> <span>· spec → a failing test → code → review, one criterion at a time</span></div></div>
-          <div className="wl-card up d4"><span className="wl-num g">2</span><div><b>Gates</b> <span>· you approve what matters, from the web, the terminal or your phone</span></div></div>
-          <div className="wl-card up d5"><span className="wl-num y">3</span><div><b>Guards</b> <span>· rules agents cannot break: no secrets, no skipped tests, no force push</span></div></div>
+          <div className="wl-card up d3"><span className="wl-num p">1</span><div><b>Connect</b> <span>· Claude Code, Codex, OpenCode or Cursor adds keel's MCP server once</span></div></div>
+          <div className="wl-card up d4"><span className="wl-num g">2</span><div><b>Know</b> <span>· project knowledge, code style, rules, Wiki and Graph, when your agent asks</span></div></div>
+          <div className="wl-card up d5"><span className="wl-num y">3</span><div><b>Together</b> <span>· several agents on one keel share the same context, so less is done twice</span></div></div>
         </div>
         <div className="wl-row up d6">
           <button type="button" className="wl-btn p big" onClick={onNext}>Set up keel · 5 steps, ~5 min</button>
