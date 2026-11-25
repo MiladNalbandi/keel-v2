@@ -18,10 +18,14 @@ def native(tmp_path, monkeypatch):
     (home / "data" / "keel.db").write_text("the-db-content")
     (home / "run").mkdir()
     (home / "run" / "token").write_text("the-internal-token")
+    (home / "mode").write_text("native\n")                     # keel2's marker file
     monkeypatch.setenv("KEEL_NATIVE", "1")
     monkeypatch.setenv("KEEL_DATA", str(home / "data"))
     monkeypatch.setenv("KEEL2_HOME", str(home.parent))        # never the real ~/.keel2 of the computer the tests run on
     monkeypatch.delenv("KEEL_HIDE", raising=False)
+    monkeypatch.setenv("KEEL_DESKTOP_HOME", str(tmp_path / "no-desktop-app"))
+    for v in ("KEEL_APP", "KEEL2_PATH"):
+        monkeypatch.delenv(v, raising=False)
     monkeypatch.delenv("KEEL_SANDBOX", raising=False)
     monkeypatch.delenv("KEEL_AGENT_USER", raising=False)
     agent_sandbox._reset_for_tests()
@@ -31,6 +35,15 @@ def native(tmp_path, monkeypatch):
 
 def _real(p):
     return os.path.realpath(str(p))
+
+
+def _keep_bind(argv, folder):
+    """The index of `--bind folder folder` that comes after the empty folders (the project opened again), or -1."""
+    last_tmpfs = max((j for j, a in enumerate(argv) if a == "--tmpfs"), default=-1)
+    for j in range(last_tmpfs + 1, len(argv) - 2):
+        if argv[j:j + 3] == ["--bind", folder, folder]:
+            return j
+    return -1
 
 
 def test_nothing_changes_outside_native_mode(native, monkeypatch):
@@ -54,6 +67,7 @@ def test_every_keel2_keels_data_run_and_logs_are_hidden_but_not_its_release_or_c
     other = native.parent / "keel-other"
     for d in ("data", "run", "logs", "npm/bin", "current"):
         (other / d).mkdir(parents=True)
+    (other / "mode").write_text("docker\n")
     (native / "logs").mkdir()
     got = agent_sandbox.hidden()
     for d in (native / "data", native / "run", native / "logs", other / "data", other / "run", other / "logs"):
@@ -80,6 +94,65 @@ def test_the_run_folder_is_not_guessed_next_to_a_data_folder_that_is_not_keel2s(
     monkeypatch.setenv("KEEL_DATA", str(tmp_path / "elsewhere" / "data"))
     monkeypatch.setenv("KEEL2_HOME", str(tmp_path / "no-keel2-here"))
     assert agent_sandbox.hidden() == [_real(tmp_path / "elsewhere" / "data")]
+
+
+def test_a_symlink_or_a_folder_without_keel2s_marker_decides_nothing(native, tmp_path):
+    """An agent's command can make ~/.keel2/x/data -> / : that must not hide everything (or open everything again)."""
+    (native.parent / "x").mkdir()
+    (native.parent / "x" / "mode").write_text("native\n")
+    os.symlink("/", native.parent / "x" / "data")
+    os.symlink(str(tmp_path), native.parent / "y")
+    (native.parent / "z" / "run").mkdir(parents=True)              # no mode file: not a keel
+    got = agent_sandbox.hidden()
+    assert "/" not in got and _real(tmp_path) not in got and _real(native.parent / "z" / "run") not in got
+    assert got == [_real(native / "data"), _real(native / "run")]
+
+
+def test_the_desktop_apps_folders_are_hidden_and_its_folder_is_read_only(native, monkeypatch, tmp_path):
+    app = tmp_path / "desktop"
+    for d in ("data", "run", "logs"):
+        (app / d).mkdir(parents=True)
+    (app / "desktop.json").write_text("{}")
+    monkeypatch.setenv("KEEL_DESKTOP_HOME", str(app))
+    got = agent_sandbox.hidden()
+    assert all(_real(app / d) in got for d in ("data", "run", "logs"))
+    assert _real(app) in agent_sandbox.read_only()
+
+
+def test_keels_programs_are_read_only_and_the_folders_above_keels_cannot_be_renamed(native, monkeypatch, tmp_path):
+    """Code in ~/.keel2/<name>/current (keel-start, the engine) runs outside the sandbox at keel's next start; a folder
+    above a hidden one, renamed, would show it under another name."""
+    monkeypatch.setitem(agent_sandbox._found, "backend", "bwrap")
+    (native / "current").mkdir()
+    script = tmp_path / "bin" / "keel2"
+    script.parent.mkdir()
+    script.write_text("#!/bin/sh\n")
+    monkeypatch.setenv("KEEL2_PATH", str(script))
+    project = tmp_path / "shop"
+    project.mkdir()
+    argv = agent_sandbox.wrap(["/bin/sh", "-c", "x"], str(project))
+    k2 = _real(native.parent)
+    assert argv[argv.index(k2) - 1] == "--ro-bind" and _real(script) in argv
+    for above in (os.path.dirname(k2), _real(tmp_path)):
+        i = argv.index(above)
+        assert argv[i - 1:i + 2] == ["--bind", above, above]
+    assert k2 + "/keel-x" not in argv                       # inside a read-only folder: nothing to pin
+    order = [argv.index(a) for a in ("--ro-bind", "--tmpfs")]
+    assert order == sorted(order)
+    # the keel2 script inside the project (a keel checkout) is the project's own file
+    monkeypatch.setenv("KEEL2_PATH", str(project / "keel2"))
+    (project / "keel2").write_text("#!/bin/sh\n")
+    assert _real(project / "keel2") not in agent_sandbox.wrap(["/bin/sh", "-c", "x"], str(project))
+
+
+def test_a_project_that_holds_keels_folders_does_not_open_them_again(native, monkeypatch, tmp_path):
+    """The project is the folder keel2's folder is in (a home folder as the project): opened again, without keel's."""
+    monkeypatch.setitem(agent_sandbox._found, "backend", "bwrap")
+    home = native.parent.parent
+    argv = agent_sandbox.wrap(["/bin/sh", "-c", "x"], str(home))
+    j = _keep_bind(argv, _real(home))
+    if j > 0:
+        assert ["--tmpfs", _real(native / "data")] in [argv[k:k + 2] for k in range(j, len(argv))]
 
 
 def test_bwrap_runs_from_the_path_the_probe_found(native, monkeypatch, tmp_path):
@@ -121,7 +194,7 @@ def test_bwrap_hides_keels_folders_and_keel_s_processes(native, monkeypatch, tmp
     # --unshare-pid stays: without it /proc/<keel's pid>/root would show keel's folders (the real test below)
     assert "--unshare-pid" in argv and "--die-with-parent" in argv
     assert argv[argv.index("--chdir") + 1] == _real(project)
-    assert "--bind" not in argv          # the project is not in keel's folders: nothing to open again
+    assert _keep_bind(argv, _real(project)) == -1     # the project is not in keel's folders: nothing to open again
 
 
 def test_a_project_inside_keels_data_folder_stays_open(native, monkeypatch):
@@ -129,9 +202,7 @@ def test_a_project_inside_keels_data_folder_stays_open(native, monkeypatch):
     demo.mkdir()
     monkeypatch.setitem(agent_sandbox._found, "backend", "bwrap")
     argv = agent_sandbox.wrap(["/bin/sh", "-c", "pytest"], str(demo))
-    i = argv.index("--bind")
-    assert argv[i:i + 3] == ["--bind", _real(demo), _real(demo)]
-    assert argv.index("--bind") > max(j for j, a in enumerate(argv) if a == "--tmpfs")   # after the empty folder
+    assert _keep_bind(argv, _real(demo)) > 0                # after the empty folder
     monkeypatch.setitem(agent_sandbox._found, "backend", "sandbox-exec")
     prof = agent_sandbox.wrap(["/bin/sh", "-c", "pytest"], str(demo))[2]
     assert prof.index("(deny file-read* file-write*") < prof.index(f'(allow file-read* file-write* (subpath "{_real(demo)}"))')
@@ -144,8 +215,7 @@ def test_a_flows_worktree_of_that_project_keeps_the_whole_project_open(native, m
     wt.mkdir(parents=True)
     monkeypatch.setitem(agent_sandbox._found, "backend", "bwrap")
     argv = agent_sandbox.wrap(["/bin/sh", "-c", "git status"], str(wt))
-    i = argv.index("--bind")
-    assert argv[i:i + 3] == ["--bind", _real(demo), _real(demo)]
+    assert _keep_bind(argv, _real(demo)) > 0
     assert argv[argv.index("--chdir") + 1] == _real(wt)
     monkeypatch.setitem(agent_sandbox._found, "backend", "sandbox-exec")
     prof = agent_sandbox.wrap(["/bin/sh", "-c", "git status"], str(wt))[2]
@@ -157,8 +227,10 @@ def test_the_macos_profile_denies_keels_folders_after_allowing_the_rest(native, 
     argv = agent_sandbox.wrap(["/bin/sh", "-c", "go test ./..."], "/elsewhere")
     assert argv[:2] == ["/usr/bin/sandbox-exec", "-p"] and argv[3:] == ["/bin/sh", "-c", "go test ./..."]
     prof = argv[2]
-    assert prof.startswith("(version 1)\n(allow default)\n(deny file-read* file-write* ")
-    assert f'(subpath "{_real(native / "data")}")' in prof and f'(subpath "{_real(native / "run")}")' in prof
+    assert prof.startswith("(version 1)\n(allow default)\n(deny file-write* (literal ")
+    deny = next(ln for ln in prof.splitlines() if ln.startswith("(deny file-read* file-write* "))
+    assert f'(subpath "{_real(native / "data")}")' in deny and f'(subpath "{_real(native / "run")}")' in deny
+    assert f'(deny file-write* (subpath "{_real(native.parent)}"))' in prof        # keel2's folder: read only
     assert "(allow file-read* file-write* (subpath" not in prof
 
 
@@ -261,8 +333,23 @@ def test_for_real_another_keel2_keels_folders_are_hidden_too(native, tmp_path):
     _need_backend()
     other = native.parent / "keel-other"
     (other / "run").mkdir(parents=True)
+    (other / "mode").write_text("native\n")
     (other / "run" / "token").write_text("the-other-token")
     (other / "npm" / "bin").mkdir(parents=True)
     (other / "npm" / "bin" / "tool").write_text("a tool\n")
     code, out = testcmd.run(str(tmp_path), f"cat '{other / 'run' / 'token'}'; cat '{other / 'npm' / 'bin' / 'tool'}'", 60)
     assert "the-other-token" not in out and "a tool" in out
+
+
+def test_for_real_keels_folders_cannot_be_renamed_into_view_or_keels_programs_changed(native, tmp_path):
+    _need_backend()
+    (native / "current").mkdir()
+    (native / "current" / "keel-start").write_text("# keel's own\n")
+    k2 = native.parent
+    moved = tmp_path / "moved"
+    code, out = testcmd.run(str(tmp_path), f"mv '{native}' '{moved}' 2>/dev/null; mv '{k2}' '{moved}' 2>/dev/null; "
+                            f"echo evil >> '{native / 'current' / 'keel-start'}' 2>/dev/null; echo done", 60)
+    assert "done" in out and native.is_dir() and not moved.exists()
+    assert (native / "current" / "keel-start").read_text() == "# keel's own\n"
+    code, out = testcmd.run(str(tmp_path), f"cat '{native / 'run' / 'token'}'", 60)
+    assert "the-internal-token" not in out

@@ -39,7 +39,7 @@ def test_every_tool_result_is_capped_and_a_read_is_cut_without_a_file(project):
     # Bash keeps its own smaller cap (MAX_RESULT), now with the whole output saved for the model to read
     assert len(got) < tools_mod.MAX_RESULT + 1000 and "characters left out" in got and " is in " in got
     # the file is in keel's data folder: the agent's commands cannot see it (its own user, the sandbox natively)
-    assert "Read it with offset and limit" in got and "Bash and Grep cannot reach that file" in got
+    assert "Read it with offset and limit" in got and "use Read for it, not Bash or Grep" in got
 
 
 def test_old_tool_results_are_cleared_in_batches_and_the_newest_stay():

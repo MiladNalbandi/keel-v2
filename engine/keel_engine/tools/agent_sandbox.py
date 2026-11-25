@@ -13,7 +13,10 @@ the computer has a sandbox, each of those commands starts inside it, so keel's o
 keel's folders: the data folder (KEEL_DATA), the folders the program that started keel names in KEEL_HIDE (keel2: its
 run and logs folders; the desktop app: its own), and every keel2 keel's data, run and logs folders on this computer
 (KEEL2_HOME, default ~/.keel2: <name>/data, <name>/run, <name>/logs; the releases and the agent CLIs next to them stay
-open). A project folder inside one of them (keel's demo project) stays open: the command works in it.
+open), and the desktop app's data, run and logs. A project folder inside one of them (keel's demo project) stays open:
+the command works in it. keel's programs and settings (keel2's folder, the desktop app's, the running release, the keel2
+script) are read only, and the folders above all of these cannot be renamed. This keeps keel's own files out of agents'
+commands; the agent runs as the person, so it is not a wall against a program that sets out to leave it.
 
 Which sandbox there is gets checked with a probe command; the answer is kept for the process, a "none" only for a minute
 (RETRY_AFTER), then checked again. Without one, commands run as before and keel says so (the engine's log, keel2 status).
@@ -50,27 +53,97 @@ def keel2_home() -> str:
     return os.environ.get("KEEL2_HOME", "").strip() or os.path.join(os.path.expanduser("~"), ".keel2")
 
 
-def hidden() -> list[str]:
-    """keel's own folders the agents never see (see the top of this file). Real paths (macOS: /var is /private/var),
-    only folders that exist, without duplicates and without one inside another."""
-    data = os.environ.get("KEEL_DATA", "").strip()
-    if not data:
-        return []
-    want = [data, *os.environ.get(HIDE_ENV, "").split(":")]
+def desktop_home() -> str:
+    """The desktop app's folder (desktop/src/paths.ts pathsFor): KEEL_DESKTOP_HOME, else the platform's place."""
+    given = os.environ.get("KEEL_DESKTOP_HOME", "").strip()
+    if given:
+        return os.path.abspath(given)
+    home = os.path.expanduser("~")
+    if sys.platform == "darwin":
+        return os.path.join(home, "Library", "Application Support", "keel")
+    xdg = os.environ.get("XDG_DATA_HOME", "").strip()
+    return os.path.join(xdg if os.path.isabs(xdg) else os.path.join(home, ".local", "share"), "keel")
+
+
+def _real_dir(path: str) -> str | None:
+    """The real path of a folder that is not a symlink itself (an agent may have made one: ~/.keel2/x/data -> /)."""
+    try:
+        if not path.strip() or os.path.islink(path) or not os.path.isdir(path):
+            return None
+    except OSError:
+        return None
+    return os.path.realpath(path)
+
+
+def _instances() -> list[str]:
+    """Every keel2 keel's folder (<KEEL2_HOME>/<name> with keel2's marker file `mode` in it) and the desktop app's."""
     home = keel2_home()
+    out = []
     try:
         names = sorted(os.listdir(home))
     except OSError:
         names = []
-    want += [os.path.join(home, n, part) for n in names for part in KEEL2_PARTS]
+    for n in names:
+        d = os.path.join(home, n)
+        if _real_dir(d) and os.path.isfile(os.path.join(d, "mode")) and not os.path.islink(os.path.join(d, "mode")):
+            out.append(d)
+    if _real_dir(desktop_home()):
+        out.append(desktop_home())
+    return out
+
+
+def _clean(paths: list[str]) -> list[str]:
     out: list[str] = []
-    for w in want:
-        if not w.strip():
-            continue
-        r = os.path.realpath(w.strip())
-        if (r == os.path.realpath(data) or os.path.isdir(r)) and r not in out:
+    for w in paths:
+        r = _real_dir(w)
+        if r and r not in out:
             out.append(r)
     return [r for r in out if not any(o != r and _inside(r, o) for o in out)]
+
+
+def hidden() -> list[str]:
+    """keel's own folders the agents never see (see the top of this file). Real paths (macOS: /var is /private/var),
+    only folders that exist and are no symlinks, without duplicates and without one inside another."""
+    data = os.environ.get("KEEL_DATA", "").strip()
+    if not data:
+        return []
+    want = [data, *os.environ.get(HIDE_ENV, "").split(":")]
+    want += [os.path.join(i, part) for i in _instances() for part in KEEL2_PARTS]
+    if sys.platform == "darwin":
+        want.append(os.path.join(os.path.expanduser("~"), "Library", "Logs", "keel"))     # the desktop app's logs
+    out = _clean(want)
+    d = os.path.realpath(data)
+    if d not in out and not any(_inside(d, o) for o in out):
+        out.insert(0, d)                                    # KEEL_DATA is hidden even before keel made it
+    return out
+
+
+def read_only() -> list[str]:
+    """keel's own programs and settings the agents' commands may read but never change: keel2's folder (the releases,
+    the agent CLIs, a keel's bind and project files: code there runs outside the sandbox at keel's next start), the
+    desktop app's folder, the running release (KEEL_APP) and the keel2 script (KEEL2_PATH)."""
+    if not os.environ.get("KEEL_DATA", "").strip():
+        return []
+    want = [keel2_home(), desktop_home(), os.environ.get("KEEL_APP", "")]
+    out = _clean(want)
+    script = os.environ.get("KEEL2_PATH", "").strip()
+    if script and os.path.isfile(script) and not os.path.islink(script):
+        r = os.path.realpath(script)
+        if not any(_inside(r, o) for o in out):
+            out.append(r)
+    return out
+
+
+def _ancestors(paths: list[str]) -> list[str]:
+    """Every folder above `paths`, shallowest first, without /. They become mount points in the sandbox (bwrap) or
+    unwritable entries (macOS), so a command cannot rename them and find keel's folders under another name."""
+    out: set[str] = set()
+    for p in paths:
+        a = os.path.dirname(p)
+        while a and a != "/" and a not in out:
+            out.add(a)
+            a = os.path.dirname(a)
+    return sorted(out, key=lambda a: (a.count("/"), a))
 
 
 def _inside(path: str, folder: str) -> bool:
@@ -84,13 +157,23 @@ def _project(path: str) -> str:
     return path[:cut] if cut > 0 else path
 
 
-def _bwrap_argv(argv: list[str], hide: list[str], keep: str | None, cwd: str | None = None) -> list[str]:
+def _bwrap_argv(argv: list[str], hide: list[str], keep: str | None, cwd: str | None = None,
+                ro: list[str] | None = None) -> list[str]:
     # --unshare-pid stays: without it /proc/<keel's pid>/root shows keel's folders as keel sees them
     out = [str(_found.get("bwrap") or "bwrap"), "--dev-bind", "/", "/", "--unshare-pid", "--proc", "/proc", "--die-with-parent"]
+    ro = list(ro or [])
+    for a in _ancestors([*hide, *ro]):
+        if not any(_inside(a, r) for r in ro):              # inside a read-only folder nothing can be renamed anyway
+            out += ["--bind", a, a]
+    for r in ro:
+        out += ["--ro-bind", r, r]
     for h in hide:
         out += ["--tmpfs", h]
-    if keep and any(_inside(keep, h) for h in hide):
+    if keep and any(_inside(keep, f) for f in [*hide, *ro]):
         out += ["--bind", keep, keep]
+        for h in hide:                                      # the project's bind shows what is under it again
+            if _inside(h, keep) and h != keep:
+                out += ["--tmpfs", h]
     if cwd:
         out += ["--chdir", cwd]
     return [*out, "--", *argv]
@@ -100,18 +183,28 @@ def _sb_string(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def macos_profile(hide: list[str], keep: str | None) -> str:
-    """The sandbox-exec profile: everything allowed, keel's folders not (the later rule wins), the project folder again."""
+def macos_profile(hide: list[str], keep: str | None, ro: list[str] | None = None) -> str:
+    """The sandbox-exec profile: everything allowed, keel's folders not (the later rule wins), keel's programs read
+    only, the folders above them not renamed, the project folder again (without keel's folders inside it)."""
+    ro = list(ro or [])
     lines = ["(version 1)", "(allow default)"]
+    above = _ancestors([*hide, *ro])
+    if above:
+        lines.append("(deny file-write* " + " ".join(f"(literal {_sb_string(a)})" for a in above) + ")")
+    if ro:
+        lines.append("(deny file-write* " + " ".join(f"(subpath {_sb_string(r)})" for r in ro) + ")")
     if hide:
         lines.append("(deny file-read* file-write* " + " ".join(f"(subpath {_sb_string(h)})" for h in hide) + ")")
-    if keep and any(_inside(keep, h) for h in hide):
+    if keep and any(_inside(keep, f) for f in [*hide, *ro]):
         lines.append(f"(allow file-read* file-write* (subpath {_sb_string(keep)}))")
+        inner = [h for h in hide if _inside(h, keep) and h != keep]
+        if inner:
+            lines.append("(deny file-read* file-write* " + " ".join(f"(subpath {_sb_string(h)})" for h in inner) + ")")
     return "\n".join(lines)
 
 
-def _macos_argv(argv: list[str], hide: list[str], keep: str | None) -> list[str]:
-    return ["/usr/bin/sandbox-exec", "-p", macos_profile(hide, keep), *argv]
+def _macos_argv(argv: list[str], hide: list[str], keep: str | None, ro: list[str] | None = None) -> list[str]:
+    return ["/usr/bin/sandbox-exec", "-p", macos_profile(hide, keep, ro), *argv]
 
 
 def _probe(argv: list[str]) -> bool:
@@ -154,10 +247,12 @@ def wrap(argv: list[str], cwd: str | None = None) -> list[str]:
         return list(argv)
     b = backend()
     keep = _project(os.path.realpath(cwd)) if cwd else None
+    # the keel2 script inside the project (a keel checkout): the project's own file, the agent may change it
+    ro = [r for r in read_only() if not (keep and os.path.isfile(r) and _inside(r, keep))]
     if b == "bwrap":
-        return _bwrap_argv(list(argv), hide, keep, os.path.realpath(cwd) if cwd else None)
+        return _bwrap_argv(list(argv), hide, keep, os.path.realpath(cwd) if cwd else None, ro)
     if b == "sandbox-exec":
-        return _macos_argv(list(argv), hide, keep)
+        return _macos_argv(list(argv), hide, keep, ro)
     return list(argv)
 
 

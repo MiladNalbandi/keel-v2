@@ -172,6 +172,7 @@ logs() { grep -q -- "$1" "$T/log"; }
 says() { grep -q -- "$1" "$T/out"; }
 is() { [ "$1" = "$2" ]; }
 missing() { [ ! -e "$1" ]; }
+not_in() { [ -f "$2" ] && ! grep -q -- "$1" "$2"; }
 
 # ---------------------------------------------------------------- cases
 
@@ -345,6 +346,18 @@ start_bg KEEL_INTERNAL_TOKEN=from-a-variable
 wait_exit
 check "data/run/internal-token holds it" is "$(cat "$T/data/run/internal-token")" "from-a-variable"
 check "the engine gets the file only" logs "engine token var=none file=$T/data/run/internal-token"
+
+new_case "0.41.2 keel-native-start given the token as a variable (a keel2 before 0.41.2): its own environment drops it"
+mkdir -p "$T/app"
+cp "$ROOT/docker/keel-native-start" "$T/app/keel-native-start"
+# keel-start stands for the loop: it writes down this process's own environment as ps shows it
+printf '%s\n' 'ps eww -o command= -p $$ > "$KEEL_TEST_DIR/ps"' 'env > "$KEEL_TEST_DIR/env"' > "$T/app/keel-start"
+env HOME="$T/home" KEEL_APP="$T/app" KEEL_DATA="$T/data" KEEL_TEST_DIR="$T" KEEL_INTERNAL_TOKEN=tok-from-old-keel2 \
+  bash "$T/app/keel-native-start" > "$T/out" 2>&1 || true
+check "the token is in data/run/internal-token" is "$(cat "$T/data/run/internal-token" 2>/dev/null)" "tok-from-old-keel2"
+check "the process's environment (ps eww) has no token" not_in "tok-from-old-keel2" "$T/ps"
+check "...it has the file" grep -q "KEEL_INTERNAL_TOKEN_FILE=$T/data/run/internal-token" "$T/env"
+check "...and ps still shows keel-native-start (keel2 finds keel by it)" grep -q "keel-native-start" "$T/ps"
 
 echo
 if [ "$failures" != 0 ]; then

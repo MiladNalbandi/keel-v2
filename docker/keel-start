@@ -28,12 +28,12 @@ set -euo pipefail
 
 # 0.20.0 glibc keeps one malloc arena per thread up to 8 x CPUs: two are enough here and hold far less memory
 export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"
-# The internal token keel's api, engine and keel2 share: from the file KEEL_INTERNAL_TOKEN_FILE names (keel2 --native,
-# the desktop app), else KEEL_INTERNAL_TOKEN, else a new one. 0.41.2 keel's processes get it as a file only
+# The internal token keel's api, engine and keel2 share: KEEL_INTERNAL_TOKEN, else the file KEEL_INTERNAL_TOKEN_FILE
+# names (keel2 --native, the desktop app), else a new one (the readers' order). 0.41.2 keel's processes get it as a file only
 # ($KEEL_DATA/run/internal-token, mode 600): in their environment every program of the same user could read it (`ps eww`
 # on macOS, /proc/<pid>/environ on Linux), the agents' commands in native mode too.
 internal_token="${KEEL_INTERNAL_TOKEN:-}"
-if [ -n "${KEEL_INTERNAL_TOKEN_FILE:-}" ] && [ -s "$KEEL_INTERNAL_TOKEN_FILE" ]; then
+if [ -z "$internal_token" ] && [ -n "${KEEL_INTERNAL_TOKEN_FILE:-}" ] && [ -s "$KEEL_INTERNAL_TOKEN_FILE" ]; then
   internal_token="$(tr -d ' \r\n' < "$KEEL_INTERNAL_TOKEN_FILE")"
 fi
 [ -n "$internal_token" ] || internal_token="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"

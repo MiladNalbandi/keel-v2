@@ -4181,9 +4181,21 @@ GET  /api/plugins/cluster/contexts             -> ... own_kubeconfig, contexts[]
   api-py `Settings.internal_token`, `keel-plugin dev`): `KEEL_INTERNAL_TOKEN`, else the file. `keel2 mcp` natively
   passes `KEEL_INTERNAL_TOKEN_FILE` too.
 - The sandbox hides (`tools/agent_sandbox.py hidden`): `KEEL_DATA`; the folders in `KEEL_HIDE` (keel2: its run and
-  logs folders; the desktop app: its own); and every keel2 keel's `data`, `run` and `logs` under `KEEL2_HOME` (default
-  `~/.keel2`), so one keel's agents do not see another keel's database or keys. The releases (`current`) and the agent
-  CLIs (`npm`) stay open. No more guessing a `run` folder next to `KEEL_DATA`.
+  logs folders; the desktop app: its own); every keel2 keel's `data`, `run` and `logs` (`<KEEL2_HOME>/<name>` with
+  keel2's `mode` file, default `~/.keel2`); and the desktop app's `data`, `run` and `logs` (`KEEL_DESKTOP_HOME`, else
+  `~/Library/Application Support/keel` and `~/Library/Logs/keel` on macOS, `${XDG_DATA_HOME:-~/.local/share}/keel` on
+  Linux). Symlinks there count for nothing. No more guessing a `run` folder next to `KEEL_DATA`.
+- Read only for agents' commands (`read_only`): keel2's folder (`KEEL2_HOME`: the releases, the agent CLIs, each keel's
+  settings), the desktop app's folder, the running release (`KEEL_APP`) and the keel2 script (`KEEL2_PATH`; not when it
+  is inside the project, a keel checkout). The folders above the hidden and read-only ones cannot be renamed (bubblewrap:
+  each is bound onto itself, a mount point; macOS: `(deny file-write* (literal …))`). A project that holds keel's folders
+  keeps them hidden.
+- `docker/keel-native-start`: given `KEEL_INTERNAL_TOKEN` (a keel2 script before 0.41.2 with a newer release), it
+  writes the file and starts itself again without the variable. keel2 starts keel and `keel2 mcp` with `env -u
+  KEEL_INTERNAL_TOKEN`, removes the last start's `data/run/internal-token` first, and reads the token keel-start wrote
+  there (else `run/token`), so a rollback to an older release still works.
+- What the sandbox is: it keeps keel's own files out of agents' commands. The agent runs as the person, so it is not a
+  wall against a program that sets out to leave it.
 - bubblewrap keeps `--unshare-pid`: without its own process namespace, `/proc/<keel's pid>/root` would show keel's
   folders as keel's own processes see them. So a background process an agent's command starts still ends with that
   command (the limit above stays).
@@ -4192,6 +4204,8 @@ GET  /api/plugins/cluster/contexts             -> ... own_kubeconfig, contexts[]
 - The CI pipeline's version check of a project's style tool (`<tool> --version`) runs like the project's other
   commands (`agent_user.wrap`: the agents' user, natively the sandbox).
 - The harness says a saved whole output is for Read only (Bash and Grep cannot reach keel's data folder).
-- Tests: `engine/tests/test_agent_sandbox.py` (other keel2 keels' folders, `KEEL_HIDE`, the probe, and for real:
-  `/proc/<pid>/root` and another keel's run folder), `test_api_misc.py` (the token file), `tools/keel-plugin`
-  `test_dev.py`, `desktop/test/unit.test.ts` (`KEEL_INTERNAL_TOKEN_FILE`, `KEEL_HIDE`).
+- Tests: `engine/tests/test_agent_sandbox.py` (other keels' folders, the desktop app's, symlinks, `KEEL_HIDE`, read
+  only, the folders above, the probe; for real: `/proc/<pid>/root`, another keel's run folder, a rename and a changed
+  keel-start), `test_api_misc.py` (the token file), `docker/tests/keel-start.test.sh` (file or variable in, the file out;
+  keel-native-start drops the variable), `scripts/test-keel2-launcher.sh` (keel2's native start passes the file,
+  `KEEL_HIDE`, `KEEL2_HOME`), `tools/keel-plugin` `test_dev.py`, `desktop/test/unit.test.ts`.

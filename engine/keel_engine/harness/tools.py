@@ -150,10 +150,10 @@ def cap(text: str, n: int = MAX_RESULT, *, save: bool = True) -> str:
             f = outputs_folder() / f"{uuid.uuid4().hex}.txt"
             f.write_text(text, encoding="utf-8")
             lines = text.count("\n") + 1
-            # only Read reaches it: keel's data folder is hidden from the agent's commands (its own user, or the
-            # sandbox natively) and Grep searches the project
-            where = (f" The whole output ({lines} lines) is in {f}: Read it with offset and limit when you need the "
-                     "part left out (Bash and Grep cannot reach that file).")
+            # Read reaches it; the agent's commands may not (keel's data folder: the agents' own user in keel's image,
+            # the sandbox natively), and Grep searches the project
+            where = (f" The whole output ({lines} lines) is in {f}: Read it with offset and limit "
+                     "when you need the part left out (it is in keel's own folder: use Read for it, not Bash or Grep).")
         except OSError:
             where = ""
     return text[:head] + f"\n… ({len(text) - n} characters left out.{where}) …\n" + text[-(n - head):]
