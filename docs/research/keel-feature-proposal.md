@@ -8,6 +8,10 @@ is built; this is a proposal to decide on. It builds on three documents and does
 - the two plans in review: fewer Inbox OKs ([#250](https://github.com/MiladNalbandi/keel-v2/issues/250)) and no
   `.keel` folder ([#246](https://github.com/MiladNalbandi/keel-v2/issues/246)).
 
+**About the diagrams.** Each diagram is shown as a picture, with its Mermaid source folded under it and SVG and PNG
+files in `docs/research/img/keel-proposal/`. The pictures were made from that source with the Mermaid command-line
+tool. Whether GitHub's own Mermaid viewer draws all seven is not confirmed (section 8).
+
 **The question.** What should keel become in the next month so that an agent with keel is smarter and cheaper than
 one without, and three agents on one keel finish sooner and with fewer tokens than three agents without it?
 
@@ -93,6 +97,13 @@ hidden in the text:
 
 ### 1.1 The system before
 
+![The system before: three agents, one MCP process each with 131 tools, keel's three servers, two databases, and the .keel folder inside the project, with six problems marked](img/keel-proposal/system-before.png)
+
+Larger: [SVG](img/keel-proposal/system-before.svg) · [PNG](img/keel-proposal/system-before.png)
+
+<details>
+<summary>Mermaid source of this diagram</summary>
+
 <!-- diagram: system-before -->
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 320}}}%%
@@ -165,7 +176,7 @@ flowchart TB
   class DOTKEEL project
 ```
 
-Export: [SVG](img/keel-proposal/system-before.svg) · [PNG](img/keel-proposal/system-before.png)
+</details>
 
 How to read it (checked in the code of 0.41.1):
 
@@ -190,6 +201,13 @@ How to read it (checked in the code of 0.41.1):
 
 The job from the test report [K1]: three small tasks in a `shop` project (`discount()`, `Cart.remove()`,
 `Inventory.restock()`), each with a test and a CHANGELOG line, and a rules file `docs/CONVENTIONS.md`.
+
+![One job with three agents before: session open, flow start, wrong work orders, three gates, a 90-second wait, a merge conflict; 7.6 minutes and 90k tokens](img/keel-proposal/job-before.png)
+
+Larger: [SVG](img/keel-proposal/job-before.svg) · [PNG](img/keel-proposal/job-before.png)
+
+<details>
+<summary>Mermaid source of this diagram</summary>
 
 <!-- diagram: job-before -->
 ```mermaid
@@ -225,7 +243,7 @@ sequenceDiagram
   Note over P,R: 7.6 minutes, 90k tokens, 43 tool calls
 ```
 
-Export: [SVG](img/keel-proposal/job-before.svg) · [PNG](img/keel-proposal/job-before.png)
+</details>
 
 The steps and numbers are from [K1]. The size of the protocol text is from the code
 (`engine/keel_engine/mcp_session.py`). The plan gate is there because the test ran with plan mode on.
@@ -589,6 +607,13 @@ not test the same code twice. It is still keel that ran the tests, not the agent
 is told with the grant. New: work in the claimed paths of the agent's worktree renews the claim, and a quiet
 worktree lets it run out. No agent has to remember to renew or release, which is what failed with locks elsewhere [R3].
 
+![The life of a claim: active, renewed by activity, ended by time or by landing; an overlap is a note, nobody is blocked](img/keel-proposal/claim-life.png)
+
+Larger: [SVG](img/keel-proposal/claim-life.svg) · [PNG](img/keel-proposal/claim-life.png)
+
+<details>
+<summary>Mermaid source of this diagram</summary>
+
 <!-- diagram: claim-life -->
 ```mermaid
 stateDiagram-v2
@@ -603,7 +628,7 @@ stateDiagram-v2
   end note
 ```
 
-Export: [SVG](img/keel-proposal/claim-life.svg) · [PNG](img/keel-proposal/claim-life.png)
+</details>
 
 **15. Merge radar.** While branches are live, keel test-merges each pair in the background (`git merge-tree`, which
 changes no working folder) and remembers the result per pair of commits. `keel_who`, `keel_workspace` and
@@ -679,6 +704,13 @@ This is the system when everything in this proposal and the whole no-`.keel`-fol
 part of the way: new light-path worktrees are outside the project from week 3, but the `.keel` folder of an
 existing project moves only when that plan's last phase lands, which is not in the month.
 
+![The system after: three cheap ways in, the agent toolkit, the light path next to flows with gates, keel's own store, and a project folder with no keel file](img/keel-proposal/system-after.png)
+
+Larger: [SVG](img/keel-proposal/system-after.svg) · [PNG](img/keel-proposal/system-after.png)
+
+<details>
+<summary>Mermaid source of this diagram</summary>
+
 <!-- diagram: system-after -->
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 320}}}%%
@@ -748,7 +780,7 @@ flowchart TB
   class CODE project
 ```
 
-Export: [SVG](img/keel-proposal/system-after.svg) · [PNG](img/keel-proposal/system-after.png)
+</details>
 
 What changed against the picture in 1.1 (green = new):
 
@@ -770,6 +802,13 @@ the engine and the api, not a new server.
 ### 4.2 The same job, after
 
 This is the target, not a measurement.
+
+![The same job after: brief by hook, keel_workspace, keel_test, a conflict warning, commits in own worktrees, keel_land; target under 25 s and 60k tokens](img/keel-proposal/job-after.png)
+
+Larger: [SVG](img/keel-proposal/job-after.svg) · [PNG](img/keel-proposal/job-after.png)
+
+<details>
+<summary>Mermaid source of this diagram</summary>
 
 <!-- diagram: job-after -->
 ```mermaid
@@ -799,7 +838,7 @@ sequenceDiagram
   Note over P,R: Target: under 25 s and under 60k tokens, 4 of 4 hidden checks
 ```
 
-Export: [SVG](img/keel-proposal/job-after.svg) · [PNG](img/keel-proposal/job-after.png)
+</details>
 
 `keel_who` gives the "who else works on what" list of step 3 again at any time; the job is too short to need it.
 
@@ -810,6 +849,13 @@ each task, the same job runs as three flows; after the base fixes that path shou
 own time.
 
 ### 4.3 Where the data lives
+
+![Where the data lives before and after: from the project folder and memory into keel's own store](img/keel-proposal/data-before-after.png)
+
+Larger: [SVG](img/keel-proposal/data-before-after.svg) · [PNG](img/keel-proposal/data-before-after.png)
+
+<details>
+<summary>Mermaid source of this diagram</summary>
 
 <!-- diagram: data-before-after -->
 ```mermaid
@@ -858,7 +904,7 @@ flowchart LR
   class A0,A1,A3 new
 ```
 
-Export: [SVG](img/keel-proposal/data-before-after.svg) · [PNG](img/keel-proposal/data-before-after.png)
+</details>
 
 New rows in `keel.db` (all per project, none in the repository):
 
@@ -886,6 +932,13 @@ things: the meter and the race come first; the brief moves to week 2 because it 
 light path is added in week 3, with keel's own worktrees folder before it; merge radar and landing join week 4;
 and the final race is in the first week of January, because week 4 ends on a holiday and the runs need days of
 their own.
+
+![Roadmap: four build weeks from 30 November to 24 December 2026 and the race week of 4 to 8 January 2027](img/keel-proposal/roadmap.png)
+
+Larger: [SVG](img/keel-proposal/roadmap.svg) · [PNG](img/keel-proposal/roadmap.png)
+
+<details>
+<summary>Mermaid source of this diagram</summary>
 
 <!-- diagram: roadmap -->
 ```mermaid
@@ -929,7 +982,7 @@ gantt
   The race must flip             :milestone, m4, 2027-01-08, 0d
 ```
 
-Export: [SVG](img/keel-proposal/roadmap.svg) · [PNG](img/keel-proposal/roadmap.png)
+</details>
 
 | Week | Build | Done when (measured) |
 |---|---|---|
@@ -1027,6 +1080,10 @@ itself added.
   reader opened the page again and compared the quotes; for five of those the raw page text was read. In review a
   third reader opened 24 of the sources and found three small mismatches, which are corrected here. Spot-check any
   other quote before it is used in public text.
+- **Mermaid on GitHub is not confirmed.** In one check with a headless browser, GitHub drew the two sequence
+  diagrams and showed "Unable to render rich display" for the three flowcharts, the state diagram and the chart.
+  A control page did not load, so we cannot say if that is GitHub's viewer or the test browser. This is why the
+  report shows pictures and folds the source. All seven sources render with Mermaid's own tool (version 11).
 - **keel's own state** was read from the code of 0.41.1 on 2026-11-26. `main` moves several times a day; #246 and
   #250 are plans on their branches and not in `main`.
 
