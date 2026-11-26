@@ -105,7 +105,7 @@ Lessons for a tool that does not control agents:
 | Commit format | commitlint / commitizen / release config, commit hooks, then `git log` | config: high; history: medium |
 | Trailers (co-author, sign-off) | `git log` bodies, hooks | medium |
 | Branch names | keel's `branch_pattern`, existing branches, CI branch filters | medium |
-| Test, lint, build commands | `.keel/config.yml`, stacks, `package.json`, `Makefile`, CI YAML | high (CI is what really runs) |
+| Test, lint, build commands | keel's project settings, stacks, `package.json`, `Makefile`, CI YAML | high (CI is what really runs) |
 | Code style | `.editorconfig`, linter and formatter configs | high when a config exists |
 | PR rules | PR template, `CONTRIBUTING.md`, recent merged PR titles | medium |
 | "We never do X here" | nothing: a person must write it | – |
@@ -137,7 +137,7 @@ confidence (one search summary names a commit tool that adapts to the history; n
 |---|---|---|
 | Commit style | A template (`git.commit_template`) or a style inferred from the last 20 human commits, but only when they share a ticket prefix; used for keel's own commits only | `engine/keel_engine/runtime/commit_style.py` |
 | Branch names | `branch_pattern` (default `feat/{slug}`, `fix/` for fixes) | `runtime/bug.py`, api `FlowService` |
-| Test and lint commands | `.keel/config.yml` `commands:`, stacks, `tools:` | `keel_stacks`, `keel_stack` |
+| Test and lint commands | The project's keel settings (`commands:`, `tools:`; today in `.keel/config.yml`) and stacks | `keel_stacks`, `keel_stack` |
 | The repo's own rule files | Finds `AGENTS.md`, `CLAUDE.md`, Copilot / Cursor / Windsurf rules and skills at init and refresh | `runtime/project_rules.py` |
 | Knowledge pages | Six sections with `path:line` citations, written by a model in init / knowledge-refresh; opt-in | `keel_knowledge`, `content/templates/knowledge/` |
 | Facts | A `facts` table with REST create / change / delete | api `KnowledgeService`; no MCP write tool |
@@ -183,6 +183,17 @@ below are illustrations: their counts, file names and line numbers are made up.
 | 7 | `keel_test(scope)` | Tests run with keel's own command; short failing output | M |
 | 8 | Export to `AGENTS.md` | Agents without MCP get the same answers | S |
 
+### Where the data lives
+
+Since 2026-11-26 keel's rule is: by default keel creates no `.keel` folder and changes nothing in the user's project;
+its config, rules and state live in keel's own storage ([#246](https://github.com/MiladNalbandi/keel-v2/issues/246)).
+This plan follows it:
+
+- keel only **reads** the project (configs, CI files, git history) to find the conventions.
+- What it learns (the scan's answers, remembered facts, claims) is kept in keel's own storage, per project.
+- The rule makes the MCP answer more important: with no keel files in the repo, asking keel is how an agent gets
+  what keel knows.
+
 ### 1. `keel_howto(topic="commit")` (first)
 
 ```text
@@ -212,9 +223,9 @@ Commits "type: subject".` An honest "not found" is a useful answer.
 
 ```text
 keel_howto(topic="branch")  →  pattern feat/{slug}, fix/{slug} · base main · ticket in the name: no
-                               source: .keel settings + 18 of 20 remote branches · sure: medium
+                               source: keel settings + 18 of 20 remote branches · sure: medium
 keel_howto(topic="test")    →  all: cd engine && uv run pytest -q · one test: … -k <name>
-                               needs: uv on PATH · source: .keel/config.yml + .github/workflows/ci.yml · sure: high
+                               needs: uv on PATH · source: keel settings + .github/workflows/ci.yml · sure: high
 keel_howto(topic="style")   →  formatter ruff (pyproject.toml), line 128 · run: uv run ruff format <files>
 keel_howto(topic="pr")      →  title like the commit · body must say "Closes #N" · base main · source: CONTRIBUTING.md:31
 keel_howto(topic="where", about="a new MCP tool")
@@ -285,7 +296,8 @@ answer  uv run pytest -q tests/test_mcp.py  ·  1 failed, 41 passed (3.2 s)
 
 ### 8. Export
 
-`keel2 export agents-md` writes a short, marked block into `AGENTS.md` (commands and non-standard rules only, no
+`keel2 export agents-md` is the one part of this plan that writes into the repo, so it runs only when the person
+asks for it and is off by default. It writes a short, marked block into `AGENTS.md` (commands and non-standard rules only, no
 overview, under 60 lines), so agents that never connect still get the answers. The ETH study says instructions are
 followed and overviews are not worth their tokens [S8].
 
@@ -293,7 +305,7 @@ followed and overviews are not worth their tokens [S8].
 
 | Flow | Change | Why |
 |---|---|---|
-| **init** | Add a model-free step `conventions_scan` after `project_rules`: it writes `.keel/conventions.json` (commit, branch, test, style, pr, each with source and confidence) | `keel_howto` then works on day one, with no model key |
+| **init** | Add a model-free step `conventions_scan` after `project_rules`: it saves the answers (commit, branch, test, style, pr, each with source and confidence) in keel's own storage, not in the project | `keel_howto` then works on day one, with no model key |
 | **knowledge-refresh** | Run the scan again; check every remembered fact's citation; mark changed answers | Stops stale answers, the main failure of written files [S11] |
 | **quick / implement / harness (session)** | Put the 5-line brief in the work order instead of long standing text; point to `keel_howto` | keel agents used 26–32k tokens against about 20k plain; the work-order text is most of the gap [K1] |
 | **ship** | Use the `pr` answer for the PR title and body (also fixes "no `Closes #N`", [#207](https://github.com/MiladNalbandi/keel-v2/issues/207)); check commit subjects against the style | One place decides the style for keel's commits and the agent's |
@@ -317,7 +329,7 @@ docs and `git log` each time.
 
 1. `keel_howto(topic="commit")` answers at the read level, with no model, in under 300 ms on a repo with 10k commits.
 2. The answer has: format, types seen, subject rules, trailers, two real examples, source, and `sure: high | medium | low`.
-3. Order of sources: a written rule (`.keel/config.yml` `git.commit_template`, or a commit section in the repo's
+3. Order of sources: a written rule (the project's keel setting `git.commit_template`, or a commit section in the repo's
    agent docs), then tool config (commitlint, commitizen, a commit-msg hook), then history (the last 50 human,
    non-merge commits; keel's own commits are left out as today).
 4. History gives a style only when at least 60% of the commits share it; else the answer says "mixed" and shows the
@@ -330,8 +342,8 @@ docs and `git log` each time.
 10. keel's own commit step and `keel_howto` read the same function, so they cannot disagree.
 
 **Design.** A new `runtime/conventions.py` with `commit(root, cfg) -> dict`; `commit_style.infer` moves behind it and
-keeps its behaviour for keel's commits. `mcp_more.howto()` formats the dict. The result is cached per HEAD in
-`.keel/conventions.json`.
+keeps its behaviour for keel's commits. `mcp_more.howto()` formats the dict. The result is cached per HEAD in keel's
+own storage for the project; nothing is written into the project folder.
 
 **Test plan.** Unit tests on fixture repos: Conventional Commits, ticket prefix, mixed history, empty repo, commitlint
 config, a written rule that disagrees with history (the written rule wins). One MCP test for the call and the
