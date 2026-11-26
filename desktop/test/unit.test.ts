@@ -10,7 +10,7 @@ import { bundleIn, pathsFor } from "../src/paths";
 import { anyFree, firstFree, isFree } from "../src/ports";
 import { addFolder, readSettings, writeSettings } from "../src/settings";
 import { loginShellPath, mergePath, parseMarked, which } from "../src/shellenv";
-import { readPorts } from "../src/supervisor";
+import { Keel, readPorts } from "../src/supervisor";
 import net from "node:net";
 
 test("data folders per OS, never keel2's ~/.keel2", () => {
@@ -75,12 +75,18 @@ test("keel's environment: the app's Python and Java, never on PATH; the AppImage
     paths: pathsFor("linux", "/home/ana", {}),
     ports: { api: 8180, engine: 40001, back: 40002 },
     folders: ["/home/ana/shop", "/home/ana/libs"],
-    token: "t0k",
+    tokenFile: "/home/ana/.local/share/keel/run/token",
+    hide: ["/home/ana/.config/keel"],
     pathValue: "/usr/local/bin:/usr/bin:/r/runtime/bin",
     version: "0.27.0",
   });
   assert.equal(env.PATH, "/usr/local/bin:/usr/bin:/r/runtime/bin");
   assert.equal(env.KEEL_PORT, "8180");
+  // the token as a file only, and the app's own folders hidden from agents' commands
+  assert.equal(env.KEEL_INTERNAL_TOKEN, undefined);
+  assert.equal(env.KEEL_INTERNAL_TOKEN_FILE, "/home/ana/.local/share/keel/run/token");
+  const pp = pathsFor("linux", "/home/ana", {});
+  assert.equal(env.KEEL_HIDE, `${pp.run}:${pp.logs}:/home/ana/.config/keel`);
   assert.equal(env.KEEL_BACK_PORT, "40002");
   assert.equal(env.KEEL_FOLDERS, "/home/ana/shop:/home/ana/libs");
   assert.equal(env.KEEL_WORKSPACE, "/home/ana/shop");
@@ -97,7 +103,7 @@ test("keel's environment: the app's Python and Java, never on PATH; the AppImage
   assert.equal(env.LD_LIBRARY_PATH, undefined);
   assert.ok(!String(env.PATH).includes("jre") && !String(env.PATH).includes("python"));
   // the demo: no folder, so keel makes its demo project
-  const demo = keelEnv({}, { bundle: b, paths: pathsFor("linux", "/h", {}), ports: { api: 1, engine: 2, back: 3 }, folders: [], token: "x", pathValue: "/usr/bin", version: "1", safe: true });
+  const demo = keelEnv({}, { bundle: b, paths: pathsFor("linux", "/h", {}), ports: { api: 1, engine: 2, back: 3 }, folders: [], tokenFile: "/h/t", pathValue: "/usr/bin", version: "1", safe: true });
   assert.equal(demo.KEEL_WORKSPACE, "");
   assert.equal(demo.KEEL_PROJECT_NAME, undefined);
   assert.equal(demo.KEEL_PLUGINS, "image");
@@ -202,4 +208,33 @@ test("0.29.2 the desktop keel's MCP launcher and the connect commands", async ()
   const r = spawnSync(f, ["--write"], { encoding: "utf8" });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /open the keel app/);
+});
+
+test("0.41.2 a start hands keel the internal token as a file (0600), never as a variable", async (t) => {
+  if (process.platform === "win32") return t.skip("keel desktop starts keel natively on macOS and Linux");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "keel-desk-token-"));
+  const res = path.join(root, "resources");
+  fs.mkdirSync(path.join(res, "keel"), { recursive: true });
+  const seen = path.join(root, "seen");
+  // a stand-in keel-native-start: what keel would get, written down, then it waits to be stopped
+  fs.writeFileSync(
+    path.join(res, "keel", "keel-native-start"),
+    `printf '%s\\n' "\${KEEL_INTERNAL_TOKEN-unset}" "$KEEL_INTERNAL_TOKEN_FILE" "$(cat "$KEEL_INTERNAL_TOKEN_FILE")" > "${seen}"\nexec sleep 30\n`,
+  );
+  const paths = pathsFor("linux", root, { KEEL_DESKTOP_HOME: path.join(root, "app") });
+  const keel = new Keel(paths, bundleIn(res), "0.0.0-test");
+  try {
+    await keel.start({ folders: [], pathValue: process.env.PATH ?? "/usr/bin:/bin", env: { ...process.env, KEEL_INTERNAL_TOKEN: "leak" } });
+    const end = Date.now() + 10_000;
+    while (!fs.existsSync(seen) && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
+    const [variable, file, content] = fs.readFileSync(seen, "utf8").split("\n");
+    assert.equal(variable, "unset");
+    assert.equal(file, path.join(paths.run, "token"));
+    assert.equal(content, keel.token);
+    assert.ok(keel.token.length >= 32);
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  } finally {
+    await keel.stop(3000);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

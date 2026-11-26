@@ -14,7 +14,7 @@ def run() -> None:
     settings = Settings()
     if not settings.internal_token:
         logging.getLogger("keel_api").warning(
-            "KEEL_INTERNAL_TOKEN is empty: the MCP tokens of this api and of the Kotlin api will not match"
+            "no internal token (KEEL_INTERNAL_TOKEN, KEEL_INTERNAL_TOKEN_FILE): the MCP tokens of this api and of the Kotlin api will not match"
         )
     uvicorn.run(
         create_app(settings),

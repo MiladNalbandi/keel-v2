@@ -78,7 +78,7 @@ class LocalAuth(
                 "keel made new tokens: start the MCP server again (your client's /mcp, or keel2 mcp).")
         }
         request.getHeader(INTERNAL_HEADER)?.let { t ->
-            if (props.internalToken.isNotEmpty() && McpTokens.same(t, props.internalToken)) return pass(request, response, chain, "internal")
+            if (props.token.isNotEmpty() && McpTokens.same(t, props.token)) return pass(request, response, chain, "internal")
             return refuse(response, HttpServletResponse.SC_FORBIDDEN, "Wrong X-Keel-Token", HINT)
         }
         // 0.21.3 the credential first: a right one always passes, and only a wrong one meets the limit ([AuthLimiter])

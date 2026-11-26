@@ -16,6 +16,8 @@ export type Health = { ok: boolean; engine: boolean; version?: string; native?: 
 
 export type StartRequest = {
   folders: string[];
+  /** more folders agents' commands never see: the app's own browser profile (its sign-in cookie) */
+  hide?: string[];
   port?: number;
   safe?: boolean;
   pathValue: string;
@@ -118,6 +120,10 @@ export class Keel extends EventEmitter {
     const back = await anyFree([want, engine]);
     this.ports = { api: want, engine, back };
     this.token = randomBytes(24).toString("hex");
+    // keel-start reads it from this file (0600, in the run folder agents' commands never see)
+    const tokenFile = path.join(this.paths.run, "token");
+    fs.rmSync(tokenFile, { force: true });
+    fs.writeFileSync(tokenFile, this.token, { mode: 0o600 });
     if (fs.existsSync(this.log)) fs.renameSync(this.log, `${this.log}.1`);
     const fd = fs.openSync(this.log, "a", 0o600);
     const env = keelEnv(r.env, {
@@ -125,7 +131,8 @@ export class Keel extends EventEmitter {
       paths: this.paths,
       ports: this.ports,
       folders: r.folders,
-      token: this.token,
+      tokenFile,
+      hide: r.hide,
       pathValue: r.pathValue,
       safe: r.safe,
       version: this.version,

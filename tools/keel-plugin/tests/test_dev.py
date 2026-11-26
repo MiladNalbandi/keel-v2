@@ -105,6 +105,7 @@ def docker(tmp_path, monkeypatch):
     monkeypatch.delenv("PB_DOCKER_DOWN", raising=False)
     monkeypatch.delenv("KEEL_NAME", raising=False)
     monkeypatch.delenv("KEEL_INTERNAL_TOKEN", raising=False)
+    monkeypatch.delenv("KEEL_INTERNAL_TOKEN_FILE", raising=False)
     monkeypatch.setattr(dev.time, "sleep", lambda s: None)
     return log, root
 
@@ -142,6 +143,17 @@ def test_dev_puts_a_content_only_plugin_into_keel_unsigned_and_says_what_loaded(
     assert "loaded   Notes 0.1.0 · parts: content · from file" in out
     assert "its workflows: notes-flow" in out and "its agents: notes-agent" in out
     assert out.rstrip().splitlines()[-1].startswith("note     notes 0.1.0 is unsigned")
+
+
+def test_a_native_keels_token_comes_from_the_file_keel_internal_token_file_names(notes, keel, docker, run, monkeypatch, tmp_path):
+    log, root = docker
+    f = tmp_path / "token"
+    f.write_text("native-token\n")
+    monkeypatch.setenv("KEEL_INTERNAL_TOKEN_FILE", str(f))
+    code, out, err = run("dev", notes, "--keel", keel["url"], "--container", "keel-dev")
+    assert code == 0, out + err
+    assert set(keel["tokens"]) == {"native-token"}
+    assert not any("internal-token" in c for c in calls(log))           # not read from the container
 
 
 def test_the_container_is_given_else_keel_name_else_keel_v2(monkeypatch):

@@ -423,6 +423,18 @@ else
   run_k PATH="$scratch/fakejava:$orig_path" -- start --native "$scratch/project2"
   check "without a rollback keel2 start follows the script" "$(cat "$ND/current/VERSION")" "$script_v" || true
   [ "$(cat "$ND/current/VERSION")" = "$script_v" ] || printf '%s\n' "$out" | tail -8
+  # 0.41.2 keel gets the internal token as a file, never as a variable (also not one the person's shell exported)
+  echo "native start: the internal token as a file"
+  printf '#!/bin/sh\nenv > "%s"\nexit 3\n' "$scratch/native-env" > "$ND/current/keel-native-start"; chmod +x "$ND/current/keel-native-start"
+  mkdir -p "$ND/data/run"; printf 'stale' > "$ND/data/run/internal-token"; rm -f "$ND/run/keel.pid"
+  run_k PATH="$scratch/fakejava:$orig_path" KEEL_INTERNAL_TOKEN=from-the-shell -- start --native "$scratch/project2"
+  nenv="$(cat "$scratch/native-env" 2>/dev/null || true)"
+  hasnt "no KEEL_INTERNAL_TOKEN in keel's environment" "$nenv" "KEEL_INTERNAL_TOKEN="
+  has "...the file instead" "$nenv" "KEEL_INTERNAL_TOKEN_FILE=$ND/run/token"
+  check "...which holds a token" "$(wc -c < "$ND/run/token" | tr -d ' ')" 48
+  has "the sandbox hides keel2's run and logs folders" "$nenv" "KEEL_HIDE=$ND/run:$ND/logs"
+  has "...and knows keel2's folder" "$nenv" "KEEL2_HOME=$KEEL2_HOME"
+  no_if "the last start's token copy is gone" test -e "$ND/data/run/internal-token"
   # 0.21.3 a release's .minisig is checked with keel's release key before anything is unpacked
   echo "native update: the release's signature"
   kp=(uv run --quiet --project "$here/tools/keel-plugin" keel-plugin)

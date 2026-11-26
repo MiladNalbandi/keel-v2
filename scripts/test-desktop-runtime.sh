@@ -39,6 +39,8 @@ git -C "$repo" add -A && git -C "$repo" -c user.name=ci -c user.email=ci@localho
 free() { local p="$1"; while (echo > "/dev/tcp/127.0.0.1/$p") 2> /dev/null; do p=$((p + 1)); done; echo "$p"; }
 port="$(free 18180)"; eport="$(free $((port + 1)))"; bport="$(free $((eport + 1)))"
 tok="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+# like the app (desktop/src/supervisor.ts): the token as a file in keel's run folder, never in the environment
+mkdir -p "$data/run" && (umask 077; printf '%s' "$tok" > "$data/run/internal-token")
 # the PATH an app gets from the Dock: no Java, no uv, no Python of keel's; rg from the app, last
 path="/usr/bin:/bin:/usr/sbin:/sbin:$app/runtime/bin"
 for t in java uv keel-engine; do
@@ -59,7 +61,7 @@ echo "starting keel from $app (port $port)…"
 t0=$SECONDS
 env -i HOME="$scratch/home" USER="${USER:-keel}" LANG=en_US.UTF-8 PATH="$path" TMPDIR="${TMPDIR:-/tmp}" \
   KEEL_APP="$app/keel" KEEL_DATA="$data" KEEL_WORKSPACE="$repo" KEEL_HOST_WORKSPACE="$repo" KEEL_PROJECT_NAME="my project" \
-  KEEL_FOLDERS="$repo" KEEL_PORT="$port" KEEL_ENGINE_PORT="$eport" KEEL_BACK_PORT="$bport" KEEL_INTERNAL_TOKEN="$tok" \
+  KEEL_FOLDERS="$repo" KEEL_PORT="$port" KEEL_ENGINE_PORT="$eport" KEEL_BACK_PORT="$bport" KEEL_INTERNAL_TOKEN_FILE="$data/run/internal-token" \
   KEEL_PLUGINS=on KEEL_BIND=127.0.0.1 KEEL_NAME=keel-desktop-test KEEL_DESKTOP=1 \
   KEEL_ENGINE_EXE="$app/runtime/bin/keel-engine" KEEL_FRONT=1 KEEL_FRONT_EXE="$app/runtime/bin/keel-api" \
   KEEL_PYTHON="$app/runtime/python/bin/python3" KEEL_MCP_PYTHON="$app/runtime/python/bin/python3" \
