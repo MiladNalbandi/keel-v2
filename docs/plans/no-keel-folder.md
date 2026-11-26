@@ -19,6 +19,7 @@ What keel writes into a project today (all must move or stop in the new default)
 | flow worktrees | `.keel/worktrees/<name>` | `tools/worktrees.py` |
 | exclude lines | `.git/info/exclude` (`/.keel`, `ENGINE_FILES`, worktrees) | `layout.hide`, `git.exclude_engine_files`, `worktrees.add` |
 | stack switches | `<git common dir>/keel/stacks.json` | `runtime/stacks.py local_file` |
+| code graph index | `.codegraph/` (codegraph.db, daemon files; or a link to `$KEEL_DATA/index/<project>`) and a `.codegraph/` line in `.git/info/exclude` | `plugins/graph/.../codegraph.py` (`index`, `_move_index`, `sync` at every flow start and after keel commits) |
 
 Size: `.keel` is named ~440× in the engine, ~90 in the api, ~80 in web, ~55 in plugins, ~270 in JetBrains, plus
 `keel2`, desktop, VS Code, content (agents' instructions) and e2e.
@@ -124,6 +125,22 @@ Size: `.keel` is named ~440× in the engine, ~90 in the api, ~80 in web, ~55 in 
   (the base) for the test commands, so a compose file can mount `${KEEL_WORKTREES}`; `worktree_fit` accepts a mount of
   that folder (or of the worktree itself, when the compose run starts from the worktree folder).
 
+### Code graph index
+
+- The CodeGraph CLI (`@colbymchenry/codegraph` 1.6.4) always keeps its index in a folder inside the folder it indexes:
+  `CODEGRAPH_DIR` only renames that folder (one path part, no `/`, no `..`, checked in the package's `directory.d.ts`).
+  Today's fallback (`_move_index`) still puts a `.codegraph` link into the project. So the index cannot simply move out.
+- `store` mode indexes keel's own checkouts, never the user's folder:
+  - a flow worktree (already in keel's host worktrees folder) gets its own `.codegraph/` there;
+  - for the project itself keel keeps one detached checkout `<worktrees>/<project-id>/_graph` at the project's HEAD,
+    synced at flow start and after keel's commits; the agents' `codegraph` MCP server points at it (or at the flow's
+    worktree). It does not see the user's uncommitted edits; that is accepted (agents fall back to grep, as today).
+  - keel's commit step already never stages `.codegraph` (`action_docs` "never keel's own files"); no exclude line is
+    written.
+- If the `_graph` checkout turns out too slow or too big (phase 3 measures it on a large repo), the fallback is: code
+  graph off in `store` mode until CodeGraph can keep an index outside the folder (a feature request upstream).
+  Milad decides then.
+
 ### Sandbox and rule guard (all three backends)
 
 - bwrap: `--tmpfs <KEEL_DATA>` stays; then `--bind <store>/docs <store>/docs` (read-write). `private/` stays hidden.
@@ -168,7 +185,8 @@ Size: `.keel` is named ~440× in the engine, ~90 in the api, ~80 in web, ~55 in 
      (`git diff --name-only <start>..<flow head>`) plus paths ignored by the project's own `.gitignore` (test/build
      output);
    - `.git/info/exclude` and `.git/config` unchanged (only `worktree`/branch sections git itself adds are allowed);
-   - no `.keel` file or link anywhere in the project.
+   - no `.keel` and no `.codegraph` file or link anywhere in the project, and no `.codegraph/` line in
+     `.git/info/exclude`.
 2. The project's config, rules, specs and knowledge are in its store; the web app, MCP and the agents read and change
    them there.
 3. In each sandbox backend an agent can read and write `<store>/docs/` and cannot read `<store>/private/` or the rest
@@ -189,7 +207,7 @@ Size: `.keel` is named ~440× in the engine, ~90 in the api, ~80 in web, ~55 in 
    project is `legacy`, new ones too (the default flips in phase 4).
 2. **Engine callers.** Every engine `.keel` place through the resolver (split into two PRs if it is too big to
    review: runtime/, then the rest). Still no change for users.
-3. **api, sandbox, worktrees, front ends, content.** api callers, sandbox backends, rule guard, host worktrees folder
+3. **api, sandbox, worktrees, code graph, front ends, content.** api callers, sandbox backends, rule guard, host worktrees folder
    + `keel2` mount, VS Code / JetBrains places that read `.keel` from disk go through the api, agents' instructions.
    `store` mode works end to end but is opt-in (hidden setting) for testing.
 4. **Flip + migration + export + docs.** `store` becomes the default for new projects, Inbox migration, export
