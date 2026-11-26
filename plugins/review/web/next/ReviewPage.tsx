@@ -10,9 +10,21 @@
 //   │ #41 Euro prices     │   Comments · Files · Problems · Commits · Checklist
 //
 // On a phone one at a time: the list, then the pull request with "‹ All pull requests" back to the list.
+//
+// #248 it reads the project's plugins first: while Code Review is off for this project it says so (with the button
+// that turns it on here) and asks nothing of the review api, whose answer would be a 409 in the console.
 
 import { useCallback, useEffect, useState } from "react";
-import { go, useRoute, type CodeOpen, type PageProps } from "@keel/web-sdk";
+import {
+  ErrorBox,
+  get,
+  go,
+  Loading,
+  useLoad,
+  useRoute,
+  type CodeOpen,
+  type PageProps,
+} from "@keel/web-sdk";
 import { NextReview } from "./NextReview";
 import { NextSide } from "./NextSide";
 
@@ -35,8 +47,33 @@ function usePhone(): boolean {
 export const reviewArg = (arg?: string): string | null =>
   arg && /^(pr:\d+|branch:.+)$/.test(arg) ? arg : null;
 
+/** The message keel's api gives when Code Review is off (Plugins.require): ErrorBox offers to turn it on for it. */
+export const REVIEW_OFF = {
+  message: "The Code Review plugin is off for this project",
+  hint: "Turn it on here, or in Settings › Plugins.",
+};
+
+/** Is Code Review on for this project? null while keel reads it. The answer names its project: in the one render
+ *  after the project changes, the last project's answer must not draw the list (it would ask the api for this one). */
+function useReviewOn(pid: string) {
+  const plugins = useLoad(
+    pid ? `review-plugins:${pid}` : null,
+    async () => ({
+      pid,
+      list: await get<{ name: string; enabled: boolean }[]>(
+        `/projects/${encodeURIComponent(pid)}/plugins`,
+      ),
+    }),
+    { live: false },
+  );
+  const mine = plugins.data?.pid === pid ? plugins.data : null;
+  const on = mine ? !!mine.list.find((p) => p.name === "review")?.enabled : null;
+  return { on, error: plugins.error, reload: plugins.reload };
+}
+
 export function ReviewPage({ pid }: PageProps) {
   const { arg } = useRoute();
+  const review = useReviewOn(pid);
   const [key, setKey] = useState<string | null>(() => reviewArg(arg));
   const phone = usePhone();
   // the link decides (back and forward, the launcher): #/review/pr:42 shows #42
@@ -53,6 +90,14 @@ export function ReviewPage({ pid }: PageProps) {
       <p className="rvn-dim rvn-page-empty">
         Pick a project to see its pull requests.
       </p>
+    );
+  // an older keel without the plugins route: the page as before (the list says what is wrong)
+  if (review.on === null && !review.error) return <Loading what="Reading the project's plugins" />;
+  if (review.on === false)
+    return (
+      <div className="rvn-page-empty">
+        <ErrorBox error={REVIEW_OFF} onRetry={() => void review.reload()} />
+      </div>
     );
   const main = (
     <main className="rvn-page-main rise r2" aria-label="Pull request">
