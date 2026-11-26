@@ -164,7 +164,7 @@ def test_keels_programs_are_read_only_and_the_folders_above_keels_cannot_be_rena
     assert k2 + "/keel-x" not in argv                       # inside a read-only folder: nothing to pin
     order = [argv.index(a) for a in ("--ro-bind", "--tmpfs")]
     assert order == sorted(order)
-    # a link to the script (~/.local/bin/keel2 -> a checkout): the file it points to is read only
+    # a link to the script (keel2 in ~/.local/bin -> a checkout): the file it points to is read only
     link = tmp_path / "bin" / "keel2-link"
     os.symlink(str(script), link)
     monkeypatch.setenv("KEEL2_PATH", str(link))

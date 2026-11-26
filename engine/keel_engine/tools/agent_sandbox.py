@@ -146,7 +146,7 @@ def read_only() -> list[str]:
         app = os.path.dirname(os.path.realpath(app))           # resources/: keel/, runtime/, the app's own code
     out = _clean([p for p in (_top(keel2_home()), _top(keel2_config()), _top(desktop_home()), _top(app)) if p])
     script = os.environ.get("KEEL2_PATH", "").strip()
-    if script and os.path.isfile(script):                      # a link (~/.local/bin/keel2): the file it points to
+    if script and os.path.isfile(script):                      # a link (keel2 in ~/.local/bin): the file it points to
         r = os.path.realpath(script)
         if not any(_inside(r, o) for o in out):
             out.append(r)
