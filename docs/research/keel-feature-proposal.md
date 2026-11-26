@@ -23,7 +23,7 @@ worked.
 | MCP, tool | MCP is the standard way an agent talks to a helper program such as keel. A tool is one thing the agent can ask keel to do. |
 | tool definition | The text that tells the agent what a tool does. The agent has to read it, so it costs tokens. |
 | token | The unit in which a model's reading and writing is counted and paid. About four characters. |
-| fixed cost | Tokens an agent pays only for being connected to keel, before it does any work. |
+| fixed cost | Tokens an agent pays for being connected to keel and for text keel repeats, not for the work itself. |
 | session | One agent's connection to keel. |
 | flow, gate | A flow is keel's fixed order of steps for one piece of work. A gate is a step where keel stops and waits for the person's OK. |
 | `harness` flow | The one flow a connected agent can run today: plan, build, keel runs the tests, the person looks, keel commits. |
@@ -31,10 +31,14 @@ worked.
 | Inbox | The page in keel where the person answers gates and other questions. |
 | worktree | A second working folder of the same git repository, on its own branch. Git's own feature. |
 | light path | New in this proposal: using keel's help with no flow and no gate, in a worktree keel gives the agent. |
-| brief | Five lines keel gives an agent at the start: the stack, the rule files, the test command, who else is working. |
+| brief | A short text keel gives an agent at the start: the stack, the rule files, the test command, who else is working. Five lines when it comes by hook. |
 | hook | A small setting in the agent's own program that runs something at a fixed moment, for example at session start. |
 | claim | A note "I am working on these files" with a time limit. It warns others. It blocks nobody. |
-| the race | The test of [K1]: three small tasks, done by plain agents and by agents through keel, timed and counted. |
+| the race | The test of [K1]: three small tasks in a small project called `shop`, done by plain agents and by agents through keel, timed and counted. The script that runs it is the race harness. |
+| landing | Bringing finished branches together into one tested branch. |
+| rule guard | keel's check that stops risky commands of an agent inside a flow. |
+| client | Another word for the agent's program (Claude Code, Codex, Cursor). |
+| maintainer | The person who decides what goes into keel. |
 | arm | One way of running the race, for example "three plain agents" or "three agents on keel's light path". |
 | baseline | The first measurement, which later ones are compared with. |
 | person bot | A script that clicks OK at the gates within about 2 seconds, so the race does not wait for a human. |
@@ -48,8 +52,10 @@ worked.
 1. **keel loses the race today to bugs and to fixed cost more than to missing features.**
    - Time: two bugs are the largest known part of the 7.6 minutes
      ([#217](https://github.com/MiladNalbandi/keel-v2/issues/217),
-     [#218](https://github.com/MiladNalbandi/keel-v2/issues/218)). Part of the time is not explained yet.
-   - Tokens: the fixed text of the work orders is the extra tokens that were measured.
+     [#218](https://github.com/MiladNalbandi/keel-v2/issues/218)). Part of the time is not explained yet. A third
+     bug, [#219](https://github.com/MiladNalbandi/keel-v2/issues/219), hides connected agents from each other. It
+     costs no time, but "who works on what" needs it fixed.
+   - Tokens: the repeated text of the work orders is the extra tokens that were measured.
    - Design: to work through keel, a connected agent must start a flow with gates.
    - Missing: nothing is shared between agents, so three branches met in a conflict.
    - Not in the race at all: keel's 131 tool definitions. An agent program that loads every definition pays them
@@ -70,7 +76,8 @@ worked.
    collide. Section 3, features 11 to 16.
 5. **Measure first, and every week.** A race harness and a meter come in week 1, before any feature. One public
    study found an MCP code tool that saved 14% of the tokens and lost 7 points of solved tasks [R48]. keel must
-   not ship a tool like that without knowing. Sections 5 and 6.
+   not ship a tool like that without knowing. One warning: a win against three plain agents in one folder can come
+   partly from plain git worktrees. The test has an extra arm to show keel's own part. Sections 5 and 6.
 6. **27 features are ranked** in section 3: 10 from the plans that exist and 17 new ones. Each has its goal, effort
    and a way to measure it. The month covers 17 of them. The other 10 wait for the race result.
 
@@ -501,7 +508,7 @@ effort, with the evidence named; the numbers are not measured yet.
 | 4 ★ | **Slim work orders**: the fixed text of a work order under 1,500 characters; the protocol once per session | cheaper | S | new | [K1] | tokens per keel agent in the flow path: 26k to 32k today, within 2k of plain |
 | 5 ★ | **`keel_brief`, delivered by the client's hook**: five lines at session start, no tool call | smarter, cheaper | S | K2 + new | [R37] [R40] [R50] | tool calls before the first edit; agents that open the rules file themselves |
 | 6 | **Shell path**: `keel2 brief`, `keel2 howto`, `keel2 who`, `keel2 test` print the same answers; one skill teaches them | cheaper | S | new | [R2] [R45] | tokens per agent, shell arm against MCP arm, in the race |
-| 7 ★ | **Light path**: `keel_workspace(task)` gives a worktree outside the project and a branch; keel's help works with no flow and no gate | together, cheaper | M, after keel's own worktrees folder exists (#246) | new | [K1] [R3] [R4] | wall time and tokens of the three-agent race; commits that hold another agent's lines (target 0) |
+| 7 ★ | **Light path**: `keel_workspace(task)` gives a worktree outside the project and a branch; keel's help works with no flow and no gate | together, cheaper | M, after keel's own worktrees folder exists (#246) | new | [K1] [R3] [R4] | wall time, tokens and hidden checks on the merged branch in the three-agent race (section 6) |
 | 8 | **`keel_howto(topic="commit")`**, which replaces `keel_commit_style` | smarter | S | K2 | [K2] | commits in the project's style on the first try (hidden check) |
 | 9 | **`keel_howto`** topics `branch`, `test`, `style`, `pr` (the topic `where` stays out until a test shows it saves reads, as [K2] says) | smarter | M | K2 | [K2] [R50] | calls per session; reads of `CONTRIBUTING` and CI files by agents |
 | 10 ★ | **`keel_test(scope)`**: keel's own test command; one line when green, the failing assertions and a path to the full log when red. It grows out of `keel_ci_run`, which exists | cheaper, smarter | M | K2 + new rule | [K1] [R52] | tokens of test output per job; how often the agent opens the full log |
@@ -984,8 +991,8 @@ The chat's plan was: W1 fix the base and no `.keel` folder; W2 the small tool se
 `keel_test`; W4 shared memory, `keel_who`, `keel_claim`, and the race again. This keeps that order and changes five
 things: the meter and the race come first; the brief moves to week 2 because it is cheap and cuts fixed cost; the
 light path is added in week 3, with keel's own worktrees folder before it; merge radar and landing join week 4;
-and the final race is in the first week of January, because week 4 ends on a holiday and the runs need days of
-their own.
+and the final race is in the first week of January, because the Friday of week 4 is a holiday and the runs need
+days of their own.
 
 ![Roadmap: four build weeks from 30 November to 24 December 2026 and the race week of 4 to 8 January 2027](img/keel-proposal/roadmap.png)
 
@@ -1040,10 +1047,10 @@ gantt
 
 | Week | Build | Done when (measured) |
 |---|---|---|
-| **1** · 30 Nov to 4 Dec · the base | #217, #218, #219 · #250 part A · #246 phase 1 · feature 1, with the test machine set up so the client signs in and keel is connected the real way | The race of [K1] is run again on the fixed keel, on `shop`, 5 runs per arm, on Friday. It does not need #246. Expected: a large drop from 7.6 minutes. How large is not known: the one-agent keel run took 4.6 minutes and only 90 s of that is explained by #218 [K1], so the baseline also has to show where the rest goes. This is the baseline for the month. |
-| **2** · 7 to 11 Dec · cheap | features 2, 3, 4, 5, 6, 17 · keel's own worktrees folder (pulled forward from #246 phase 3) | Race run 2, on Friday. A keel agent's tokens in the flow path are within 2k of a plain agent's. The 12 definitions are under 12 KB. No agent opens `docs/CONVENTIONS.md` without being pointed to it by the brief. The shell arm and the MCP arm are compared. |
+| **1** · 30 Nov to 4 Dec · the base | #217, #218, #219 · #250 part A · #246 phase 1 · feature 1, with the test machine set up so the client signs in and keel is connected the real way | The race of [K1] is run again on the fixed keel, on `shop`, with the arms P1, P3 and K-flow, 5 runs per arm, on Friday. It does not need #246. Expected: a large drop from 7.6 minutes. How large is not known: the one-agent keel run took 4.6 minutes and only 90 s of that is explained by #218 [K1], so the baseline also has to show where the rest goes. This is the baseline for the month. |
+| **2** · 7 to 11 Dec · cheap | features 2, 3, 4, 5, 6, 17 · keel's own worktrees folder (pulled forward from #246 phase 3) | Race run 2, on Friday. A keel agent's tokens in the flow path are within 2k of a plain agent's (in Claude Code, which loads tools on demand). The 12 definitions are under 12 KB. No agent opens `docs/CONVENTIONS.md` without being pointed to it by the brief. The shell arm and the MCP arm are compared. |
 | **3** · 14 to 18 Dec · knows the project | features 8, 9, 10, 11, 7 · the second, larger repository is set up for the race | Race run 3, on Friday. Three agents on the light path finish in about the time of three plain agents and commit in the project's style on the first try. `keel_land` comes a week later, so this week the harness merges the three branches with its fixed script (section 6), that time counts, and a conflict counts as a failed check. Each piece of code is tested once (only if feature 11 is in). A light-path task leaves no new file in the project folder. There is no `keel_who` yet; the "others" line comes from keel's own worktree list. |
-| **4** · 21 to 24 Dec · together | features 12, 13, 15, 16, and the first slice of 14 | Checked in the race week, since week 4 has no Friday: `keel_land` merges the three branches without the harness script, and the merged result passes 4 of 4 hidden checks. No commit holds another agent's lines. |
+| **4** · 21 to 24 Dec · together | features 12, 13, 15, 16, and the first slice of 14 | Checked in the race week, since week 4 has no Friday: `keel_land` merges the three branches without the harness script, and the merged result passes 4 of 4 hidden checks. |
 | **Race week** · 4 to 8 Jan | no new features | **The race flips** (section 6): all arms, both repositories, 5 runs per arm. |
 | After | features 18 to 27, the rest of 14, the later phases of #246 | Chosen by what the race and the meter show. |
 
@@ -1052,7 +1059,7 @@ Notes:
 - The effort letters are for one agent with a reviewer. The squad runs at most three agents at once, so each week
   holds about three parallel pieces. By the effort letters the plan is too full: week 3 holds four M items and one
   S, more than three agents do in five days, and week 4 has five items in four working days. It fits only if some S
-  and M guesses are too high, or the cut order below is used. We keep the full list and say so.
+  and M guesses are too high, or the cut order below is used. We keep the full list and say so. The chart's bars are spans of work, not people: weeks 1 and 2 also show more than three bars at once, and they fit only because several are small.
 - **What to cut first if a week runs over**, in this order, with what falls away:
   1. 14, the memory: nothing in the race needs it.
   2. 17, one OK for many: only the click count of the K-flow arm.
@@ -1077,14 +1084,15 @@ without keel, and the result is at least as correct.
 | Part | How |
 |---|---|
 | Job | The `shop` project and the three tasks of [K1], unchanged, with its four hidden checks. In the final race also a second, larger repository (about 1,000 files or more, three separate issues), because on a tiny project there is little to find and so little for keel to save. The weekly runs are on `shop` only. |
-| Arms | **P1** one plain agent, three tasks · **P3** three plain agents, one folder (the arm of [K1]) · **P3-wt** three plain agents, each in its own git worktree · **K-light** three agents on keel's light path · **K-flow** three agents in keel flows, with the person bot answering gates · in week 2 also **K-shell** against **K-mcp** |
-| Same for all | model, client and its version, machine and its limits, prompts. keel is set up in the client's own MCP settings, so tool names, instructions and loaded definitions are counted. The first race could not do this, because the client could not sign in on the test machine [K1]; that setup is part of week 1. |
-| Runs | at least 5 per arm, the arms taken in turn, not one arm after the other. Report the median and the lowest and highest run. One run of the job takes seconds to a few minutes, so a weekly round fits in an hour. |
-| One end point for all arms | The clock runs from the first prompt until the three tasks are in **one branch** and the hidden checks have run on it. P3 gets there by itself (one folder). For P3-wt, and for K-light before `keel_land` exists, the harness merges the three branches with one fixed script: plain `git merge` in task order, nothing fixed by hand, a conflict counts as failed checks. K-light with `keel_land` and K-flow end with keel's own merge. The merge time counts in every arm. |
+| Arms | **P1** one plain agent, three tasks · **P3** three plain agents, one folder (the arm of [K1]) · **P3-wt** three plain agents, each in its own git worktree · **K-light** three agents on keel's light path · **K-flow** three agents in keel flows, with the person bot answering gates · in week 2 also **K-shell** (keel by shell commands only) against **K-mcp** (keel by MCP tools only) |
+| Same for all | model, client and its version, machine and its limits, prompts. keel is set up in the client's own MCP settings (not in K-shell), so tool names, instructions and loaded definitions are counted. The first race could not do this, because the client could not sign in on the test machine [K1]; that setup is part of week 1. |
+| Runs | at least 5 per arm, the arms taken in turn, not one arm after the other. Report the median and the lowest and highest run. A run of the light arms takes seconds; a K-flow run took minutes in [K1]. So a weekly round takes about two hours until the flow path is faster. It runs on what is merged by Thursday evening; work that ends on Friday is measured a week later. |
+| One end point for all arms | The clock runs from the first prompt until the three tasks are in **one branch** and the hidden checks have run on it. P3 gets there by itself (one folder). For P3-wt, and for K-light before `keel_land` exists, the harness merges the three branches with one fixed script: plain `git merge` in task order, nothing fixed by hand, a conflict counts as failed checks. K-flow uses the same script until `keel_land` exists. From then on K-light and K-flow end with `keel_land`. The merge time counts in every arm. After a conflict the script leaves that branch out and tries the next; the checks run on what was merged, so a left-out task fails its checks. |
 | Measured | wall time as above · tokens from the client's own usage report (input, output, cache read and cache write, each on its own) · tool calls · test runs · clicks by the person · hidden checks on the one branch · for P3 also: commits that hold another agent's lines, and steps an agent had to repeat because another agent changed the folder (both happened in [K1]) |
-| **Pass** | K-light's median wall time **and** median tokens are both below P3's, in at least 4 of 5 paired runs · 4 of 4 hidden checks on the merged branch in every K-light run. Nothing else is in the pass rule. |
-| What keel adds beyond worktrees | K-light against P3-wt. Own worktrees are plain git. If K-light only matches P3-wt, the win over P3 comes from the worktrees and the report says so. keel's own part is what K-light does better than P3-wt: the merged result, the tests run once, fewer calls to find the rules. |
-| Also reported | K-flow against P3. A flow waits for a person, so it is not asked to beat 25 seconds; the target is under twice P3's time with the bot, and at most 2k tokens per agent more than P3. |
+| **Pass** | Decided on `shop` only, where the hidden checks exist. Run n of K-light is compared with run n of P3. In at least 4 of the 5 pairs K-light must be lower on wall time **and** on the tokens of all three agents together (the 60k of [K1] is this sum; `keel_land` calls no model, so it adds none). And every K-light run must pass 4 of 4 hidden checks on the merged branch. Nothing else is in the pass rule. |
+| The second repository | Reported, not part of the pass rule. Its three issues get their own hidden checks, written before week 3 by someone who does not build the features. If K-light wins on `shop` and loses there, the report says: the race flipped on the small job and not on the large one. |
+| What keel adds beyond worktrees | K-light against P3-wt. Own worktrees are plain git. If K-light only matches P3-wt on time and tokens, the win over P3 comes from the worktrees and the report says so. On the merged result P3-wt is expected to fail checks, because the three CHANGELOG lines conflict in a plain merge; there the comparison is `keel_land` against a plain merge. keel's own part is what K-light does better than P3-wt: the merged result, the tests run once, fewer calls to find the rules. |
+| Also reported | K-flow against P3. A flow waits for a person, so it is not asked to beat 25 seconds; the target is under twice P3's time (about 25 s in [K1]) with the bot, and at most 2k tokens per agent more than P3 where tools load on demand, as in Claude Code; a client that loads all 12 definitions pays up to 3k more. |
 | Honest line | P1 (17 s, 20k tokens) is expected to stay the cheapest on three tiny tasks. Nothing found in the research says parallel agents win on small work. The report must say so, and must say where keel was worse. |
 
 Where the win has to come from, per agent (our estimate, to be replaced by the week 1 numbers):
