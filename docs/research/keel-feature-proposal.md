@@ -1083,7 +1083,7 @@ itself added.
 - **Mermaid on GitHub is not confirmed.** In one check with a headless browser, GitHub drew the two sequence
   diagrams and showed "Unable to render rich display" for the three flowcharts, the state diagram and the chart.
   A control page did not load, so we cannot say if that is GitHub's viewer or the test browser. This is why the
-  report shows pictures and folds the source. All seven sources render with Mermaid's own tool (version 11).
+  report shows pictures and folds the source. All seven sources render with Mermaid's own command-line tool (Mermaid 12.3.0).
 - **keel's own state** was read from the code of 0.41.1 on 2026-11-26. `main` moves several times a day; #246 and
   #250 are plans on their branches and not in `main`.
 
