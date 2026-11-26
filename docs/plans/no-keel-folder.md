@@ -1,94 +1,177 @@
 # keel keeps its files out of the project (issue #246)
 
-Status: proposal, waits for review and for Milad's OK on the phases.
+Status: proposal, round 2 (round 1 review by Dash: STU-115). Waits for review and for Milad's OK.
+When the build starts, the tasks below are tracked as an OpenSpec change `no-keel-folder`.
 
 ## Context
 
 Today a new project gets layout `keel` (`engine/keel_engine/layout.py`, `NEW_PROJECT`): keel writes `.keel/` into the
-project folder (config.yml, rules, specs, knowledge, ADRs, RUNNING.md, CLAUDE.md, flow state, hunts, worktrees) and
-adds `/.keel` to `.git/info/exclude`. Layout `external` moves the files to `~/.keel/projects/<id>/`, but still puts a
-`.keel` symlink into the project. Layout `repo` writes into `docs/` and `CLAUDE.md`.
+project folder and adds lines to `.git/info/exclude`. Layout `external` keeps the files in `~/.keel/projects/<id>/` but
+puts a `.keel` symlink into the project. Layout `repo` writes into `docs/` and `CLAUDE.md`.
 
-The project folder is the user's. keel should not change it unless the user asks: a user who opens keel on a project
-and runs a flow should find only the commits of the work itself, nothing else.
+What keel writes into a project today (all must move or stop in the new default):
 
-Size: `.keel` is named about 440 times in the engine, 90 in the api, 80 in the web app, 55 in plugins, 270 in the
-JetBrains plugin, plus the launcher, the desktop app, content (agents' instructions name `.keel/...` paths) and e2e.
-Most engine places build the path by hand (`Path(root) / ".keel" / ...`), and many pass `.keel/...` as a
-project-relative path to agents, to the git tools and to the web app.
+| What | Where now | Written by |
+|---|---|---|
+| config, rules | `.keel/config.yml`, `.keel/rules/` | init, Rules page, MCP |
+| specs, knowledge, ADRs, runbook, CLAUDE.md block | `.keel/{specs,knowledge,adr}/`, `.keel/RUNNING.md`, `.keel/CLAUDE.md` (layout keel) | flows, Wiki |
+| stacks, skills, agents, ladder, flow state, archive, hunts | `.keel/stacks/`, `.keel/skills/`, `.keel/agents/`, `.keel/ladder.json`, `.keel/state.json`, `.keel/archive/`, `.keel/hunts/` | engine |
+| flow worktrees | `.keel/worktrees/<name>` | `tools/worktrees.py` |
+| exclude lines | `.git/info/exclude` (`/.keel`, `ENGINE_FILES`, worktrees) | `layout.hide`, `git.exclude_engine_files`, `worktrees.add` |
+| stack switches | `<git common dir>/keel/stacks.json` | `runtime/stacks.py local_file` |
+
+Size: `.keel` is named ~440× in the engine, ~90 in the api, ~80 in web, ~55 in plugins, ~270 in JetBrains, plus
+`keel2`, desktop, VS Code, content (agents' instructions) and e2e.
 
 ## Goal
 
-1. By default keel writes nothing into the project folder: no `.keel`, no symlink, no `.git/info/exclude` line, no
-   `CLAUDE.md` block, no `docs/` files. The commits of the user's code changes are still made.
-2. keel keeps the project's config, rules, specs, knowledge, ADRs, runbook, flow state, hunts and worktrees in its own
-   storage, one folder per project: `<KEEL_DATA>/projects/<project-id>/` (the data volume the container already has).
-   Structured state that has a database table already (doc history, flows, inbox…) stays in the database.
-3. A project that has a `.keel` folder keeps working: keel reads it as today. On the first start keel offers (Inbox
-   confirmation) to copy it into its storage; after the copy it asks again before it deletes the old folder, and never
-   deletes without that OK.
-4. An opt-in setting `export: repo` (per project, off by default) writes the config and rules into the repo for teams
-   who want them in git (today's layouts `keel` and `repo` stay available behind it).
+1. New default: keel writes nothing into the project's working tree and does not touch `.git/info/exclude` or
+   `.git/config`. Allowed inside `.git` (git's own work for the user's changes): objects, refs, branches and
+   `.git/worktrees/*` metadata of keel's flow worktrees.
+2. keel keeps the project's files in its own storage, one folder per project (the **store**). Rows that already live
+   in the database (doc history, flows, inbox …) stay there.
+3. Projects that already have `.keel` (folder or link) keep working exactly as today (mode `legacy`). keel offers once
+   to move them into the store; a "no" is remembered; deleting the old `.keel` needs a second OK.
+4. Opt-in mode `export` writes config and rules into the repo's `.keel/` for teams who want them in git. Off by default.
 5. README, docs/GUIDE.md and the layout docs say where keel keeps its files.
-
-## Acceptance criteria
-
-1. Start keel on a clean git project (no `.keel`), init it, run a flow to the end: `git status --porcelain --ignored`
-   and a file listing of the project show only the files the flow's commits changed; no `.keel`, nothing in
-   `.git/info/exclude`.
-2. The config, rules, specs and knowledge of that project are under `<KEEL_DATA>/projects/<id>/` and the web app,
-   MCP and the agents read and change them there.
-3. Agents in a flow can read the spec and the knowledge files (absolute paths into keel's storage, allowed by the
-   agent sandbox), and cannot write keel's rules there (the rule guard covers the new place).
-4. A project with an existing `.keel/` folder starts and runs a flow as before; the migration offer shows in the Inbox;
-   saying no leaves everything as it is; saying yes copies, and the old folder stays until a second OK.
-5. With `export: repo` the config and rules are written to the repo as today.
-6. Two keel worktrees of one project share the project's storage folder (the id is the project's, not the folder's).
-7. All CI suites stay green; a new e2e journey checks criterion 1.
 
 ## Design
 
-- **One resolver.** `layout.keel_home(root) -> Path` (engine) and `Layout.keelHome(root)` (api) return where keel's
-  files are: `<root>/.keel` when that exists (legacy) or when `export: repo` is on, else the project's storage folder.
-  Every `Path(root) / ".keel"` goes through it. A new layout name `store` is the default for new projects
-  (`NEW_PROJECT = "store"`); `hidden` is true for it; `hide()` does nothing for it.
-- **Project id.** The api's project id; for a git project the id is stored in keel's database keyed by the main
-  worktree's path (common git dir), so linked worktrees map to the same folder.
-- **Paths given to agents and the web app.** Today they are project-relative (`.keel/specs/x.md`). They become a
-  logical path (`keel:specs/x.md`) that the resolver turns into the real file; agents get the absolute path. The agent
-  sandbox (`tools/agent_sandbox.py`) gets read access to the project's storage folder; the rule guard
-  (`rules/__init__.py` `RULE_PATH`) matches the new folder too.
-- **Commits.** Spec / knowledge / hunt commits are recorded (doc history) instead of committed, as the hidden layouts
-  do today.
-- **Worktrees** that keel makes go under `<KEEL_DATA>/projects/<id>/worktrees/` instead of `<root>/.keel/worktrees`.
-- **Launcher.** `keel2` already mounts the data volume; nothing new is mounted into the project.
-- **Front ends.** The web app, JetBrains and VS Code read keel's files through the api, not from the disk; places that
-  read `.keel/` from the disk move to the api.
+### Storage mode, stored once (not probed)
 
-## Phases (each one PR, each one released; pause after each for review)
+- Each project gets a stored **storage mode** in the api database: `legacy`, `store` or `export`.
+  - Set once, when the project is first registered (or on the first start of this version for known projects):
+    a `.keel` folder or link exists → `legacy`; else `store`. Projects known before this version are `legacy` only if
+    they have `.keel`.
+  - It changes only by an explicit action: the migration (legacy → store) or the export switch (store ↔ export).
+  - A later `mkdir .keel`, a branch with a tracked `.keel/config.yml`, or a worktree seed never changes it.
+- The engine gets the mode and the store path from the api with the project (the engine already calls the api; no
+  disk probing). When the engine runs without the api (tests, tools), the default is `legacy`, i.e. today's behaviour.
 
-1. **Resolver + store layout, engine and api.** `keel_home`, layout `store` as default for new projects, all engine and
-   api places through the resolver, sandbox + rule guard, worktrees, commits recorded. Existing `.keel` projects
-   unchanged. Tests: unit tests for the resolver, the clean-project e2e journey (criterion 1).
-2. **Front ends.** Web app, plugins, JetBrains, VS Code, desktop, content (agents' instructions) use the api / logical
-   paths.
-3. **Migration + export.** Inbox offer to copy a `.keel` folder into the storage and, with a second OK, delete it;
-   `export: repo` setting in the web app's project settings.
-4. **Docs.** README, GUIDE, layout docs, CHANGELOG.
+### The store and the project id
+
+- Store path: `<KEEL_DATA>/projects/<project-id>/`, where `project-id` is the api's `ProjectRow.id` (the stable slug).
+  It does not depend on the folder's path: the api already matches a project that is seen through another mount
+  (plain ↔ `--docker`, `HostMount`, `movedHere`) or comes back after being parked, and keeps its id.
+- Not-git projects get a store too (the id is not tied to git).
+- A root the api does not know as a project gets no store: the engine refuses to write keel's files for it and says
+  "add this folder as a project first". keel never creates an empty store silently for an unknown folder.
+- Store layout:
+  - `docs/`: specs, knowledge, adr, RUNNING.md, CLAUDE.md block, hunts. Agents may read and write here (a spec step
+    writes the spec).
+  - `private/`: config.yml, rules/, stacks/, skills/, agents/, ladder.json, state.json, archive/, stacks.json. Agents
+    never see it.
+
+### One resolver, logical paths unchanged
+
+- Engine `layout.keel_file(root, logical) -> Path` and api `Layout.keelFile(root, logical)`: `logical` is the path as
+  keel names it today (`.keel/specs/x.md`, `.keel/config.yml` …). In `legacy`/`export` it is `<root>/<logical>` (as
+  today); in `store` it maps `.keel/<docs part>` to `<store>/docs/…` and the rest to `<store>/private/…`.
+- So the web app, MCP, citations and the api's routes keep sending the same `.keel/...` strings; only the place they
+  are read from changes. The front ends need no path changes where they go through the api.
+- The resolver rejects `..`, absolute paths and symlinks that leave the store (real path check), like `layout._sub`
+  does for config paths today.
+- Agents get absolute paths (they work on the disk). The prompt builders (`runtime/prompts.py`, `session_steps.py`,
+  content agents) pass `keel_file(...)` results instead of literal `.keel/...` strings.
+- Store files are never committed: spec / knowledge / hunt commits are recorded in doc history, as the hidden layouts
+  do today (`Layout.hidden` is true for `store`).
+- A new layout name is not needed: `store` mode uses the `keel` layout's tables with the resolver in front.
+
+### Flow worktrees (must be host paths)
+
+- Tests in a flow worktree may ask the host Docker for bind mounts (Testcontainers, compose), so a worktree must be
+  a real path on the person's computer. The data volume is not.
+- `store` mode puts worktrees in a host folder keel owns, outside the project: native
+  `~/.keel2/<KEEL_NAME>/worktrees/<project-id>/<name>`; container: the same host path, mounted by `keel2 start` at the
+  same path (like the project folder in `--docker` mode). This folder is not under `KEEL_DATA`, so the sandbox does not
+  hide it.
+- `runtime/container.py worktree_fit` checks the mounts against this folder; a compose service that mounts only the
+  project still gets `ok: False` (same as today).
+- `agent_sandbox._project` stops cutting at `/.keel/worktrees/`: for a path in keel's worktrees folder it keeps the
+  worktree and the project's git common dir open (`git rev-parse --git-common-dir`), since the worktree's `.git` file
+  points there.
+- `seed_keel_files` / `keep_keel_files` are not used in `store` mode: every worktree of a project reads the same store.
+- All hard-coded `.keel/worktrees` places move to one helper `worktrees.base(root)`: `tools/worktrees.py`,
+  `rules/__init__.py` (`is_worktree`, ~l.957), `runtime/knowledge.py` (~l.42), `runtime/bug.py` (~l.347),
+  `runtime/container.py` (~l.311), `tools/agent_sandbox.py`, and the api/web places found by grep in step 1.
+
+### Sandbox and rule guard (all three backends)
+
+- bwrap: `--tmpfs <KEEL_DATA>` stays; then `--bind <store>/docs <store>/docs` (read-write). `private/` stays hidden.
+- macOS sandbox-exec: the deny on `KEEL_DATA` stays; add an allow for `(subpath "<store>/docs")` after it (later,
+  more specific rules win in SBPL).
+- container (`agent_user.py`): `/data` stays 0710; `/data/projects` and `/data/projects/<id>` 0710 (traverse only),
+  `docs/` group read-write, `private/` 0700 owned by keel's user.
+- Rule guard: `RULE_PATH`, `RULE_FILES` and `_IN_KEEL_DIR` also match `<store>/private/` (the real path), so an agent
+  that finds the path still cannot write rules or config.
+- Criterion 3 is tested per backend (unit tests of the argv / profile / permissions, plus one run each where CI can).
+
+### Migration and export
+
+- `legacy` project, first start of the new version: one Inbox item "Move keel's files out of this project?".
+  - No → remembered; the item does not come back; the same action stays in project settings.
+  - Yes → copy `.keel/*` into the store (docs/private split), switch mode to `store`, keep the old `.keel` untouched.
+    Then a second Inbox item: "Delete the old .keel folder?"; only a yes deletes it. Exclude lines keel added are
+    removed only with that same yes.
+  - `external` layout (`.keel` is a link to `~/.keel/projects/<id>/`): copy from the link's target; the second OK
+    removes only the link, never the target.
+  - Flows that run during the copy: the copy waits until no flow of the project is running.
+- `export`: project settings switch. On: writes `.keel/config.yml` and `.keel/rules/` into the repo (not hidden from
+  git) and reads them from there; off: copies them back into the store and asks before deleting them from the repo.
+
+### Database or files
+
+- The store keeps keel's files as files (in keel's own data folder), not as rows, so agents and every reader keep
+  working with files. Milad asked for "its own database"; this needs his OK before the build (open question 2).
+
+## Acceptance criteria
+
+1. Clean project test (e2e journey `no-keel-files`, fake model): a new git project with one commit; snapshot the
+   file list of the working tree (without `.git`), and copies of `.git/info/exclude` and `.git/config`. Register the
+   project, run `init`, then the `quick` flow to done. After it:
+   - working tree: the only new or changed paths are the files in the flow's commits
+     (`git diff --name-only <start>..<flow head>`) plus paths ignored by the project's own `.gitignore` (test/build
+     output);
+   - `.git/info/exclude` and `.git/config` unchanged (only `worktree`/branch sections git itself adds are allowed);
+   - no `.keel` file or link anywhere in the project.
+2. The project's config, rules, specs and knowledge are in its store; the web app, MCP and the agents read and change
+   them there.
+3. In each sandbox backend an agent can read and write `<store>/docs/` and cannot read `<store>/private/` or the rest
+   of `KEEL_DATA`; the rule guard blocks writes to the store's rules and config.
+4. A flow in a worktree runs its tests from keel's host worktrees folder in native, plain container and `--docker`
+   modes; `worktree_fit` gives the same answers as today for the same compose files.
+5. A `legacy` project starts and runs a flow exactly as before. Migration: no → nothing changes and no new Inbox item
+   on the next start; yes → copied, mode `store`, old `.keel` kept until the second yes.
+6. Moving the project between plain and `--docker` mode keeps its store (same id).
+7. With `export` on, config and rules are in the repo's `.keel/` and are read from there.
+8. All CI suites stay green.
+
+## Phases (each a PR; the default flips only in the last one)
+
+1. **Resolver + storage mode (no behaviour change).** api: storage mode column, store path, sent to the engine.
+   engine + api: `keel_file` / `keelFile`, `worktrees.base`, tests. Default stays `legacy` for everyone.
+2. **Engine callers.** Every engine `.keel` place through the resolver (split into two PRs if it is too big to
+   review: runtime/, then the rest). Still no change for users.
+3. **api, sandbox, worktrees, front ends, content.** api callers, sandbox backends, rule guard, host worktrees folder
+   + `keel2` mount, VS Code / JetBrains places that read `.keel` from disk go through the api, agents' instructions.
+   `store` mode works end to end but is opt-in (hidden setting) for testing.
+4. **Flip + migration + export + docs.** `store` becomes the default for new projects, Inbox migration, export
+   switch, README/GUIDE, e2e journeys for criteria 1, 5 and 7. Release.
+
+Phases 1–3 are released as normal versions (no user-visible change); phase 4 is the release that changes the default.
 
 ## Test plan
 
-- Engine: unit tests for `keel_home` (clean, legacy `.keel`, symlink, export on, linked worktree); the existing layout
-  tests keep passing with the old layouts.
-- e2e journey "clean project": fake model, init, one flow to done, assert the project folder has no keel files and
-  `.git/info/exclude` is unchanged.
-- e2e journey "legacy project": a `.keel` project runs a flow; migration offer: no → unchanged, yes → copied, folder
-  kept until the second OK.
+- Unit: resolver (each mode, `..`/absolute/symlink escapes), storage mode set once (a later `mkdir .keel` does not
+  change it), `worktrees.base`, `_project` for the new worktree folder, sandbox argv/profile per backend, rule guard
+  on store paths, migration (no remembered, yes copies, delete only after second yes, external link target kept).
+- api: storage mode on register / moved / parked projects; id kept across plain ↔ `--docker`.
+- e2e: `no-keel-files` (criterion 1), `legacy-keel` (criterion 5), `export` (criterion 7); worktree flow in native
+  and container modes (criterion 4).
 - Full CI suites per phase.
 
-## Open questions
+## Open questions for Milad
 
-- Feature freeze (2026-11-18): this is a new default, asked for by Milad in #246; confirm it goes ahead now.
-- "Database": the plan keeps keel's files as files in keel's own data folder (one per project), not as rows in the
-  database, so the agents and every reader keep working with files. OK, or must they be database rows?
-- One PR per phase (4 PRs and releases) instead of one big PR: OK?
+1. Feature freeze (2026-11-18): this changes the default. #246 asks for it; please confirm it goes ahead now.
+2. "Own database": the store keeps files in keel's own data folder, not database rows (agents need files). OK?
+3. Four phases (1–3 without user-visible change, 4 flips the default) instead of one big PR. OK?
