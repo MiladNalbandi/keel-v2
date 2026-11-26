@@ -338,6 +338,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTick((t) => t + 1);
     }, 300);
   }, []);
+  // the app is gone (a closed window, a test's end): a bump still waiting must not set state after it
+  useEffect(() => () => {
+    if (pending.current !== null) window.clearTimeout(pending.current);
+    pending.current = null;
+  }, []);
 
   useEffect(() => {
     if (typeof EventSource === "undefined") {
