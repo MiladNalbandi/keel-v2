@@ -1,6 +1,6 @@
 # keel keeps its files out of the project (issue #246)
 
-Status: proposal, round 3 (reviews by Dash: STU-115, STU-116). Waits for review and for Milad's OK.
+Status: approved by goldfish review round 3 (Dash: STU-115, STU-116, STU-117). Waits for Milad's OK. Waits for review and for Milad's OK.
 When the build starts, the tasks below are tracked as an OpenSpec change `no-keel-folder`.
 
 ## Context
@@ -207,6 +207,13 @@ Phases 1–3 are released as normal versions (no user-visible change); phase 4 i
 - e2e: `no-keel-files` (criterion 1), `legacy-keel` (criterion 5), `export` (criterion 7); worktree flow in native
   and container modes (criterion 4).
 - Full CI suites per phase.
+
+## Notes for the build (review round 3)
+
+- A. When the api is not reachable, a `store` project shows "keel's api is not reachable" instead of an empty Wiki
+  (decided in phase 1).
+- B. Phase 1 checks that the api → engine mode-change hook exists (engine API with `X-Keel-Token`); if not, it adds it.
+- C. Criterion 1's `.git/config` check is an allowlist of the section names git adds for worktrees and branches.
 
 ## Open questions for Milad
 
