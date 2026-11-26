@@ -249,6 +249,11 @@ DOCS: dict[str, dict] = {
             "Fails when a run failed (in ship the step is soft: the final review shows it as an exception).",
         ],
     },
+    "commit_style": {
+        "summary": "The project's commit style, for an agent that wants to commit like the team (keel_commit_style).",
+        "steps": ["Reads git.commit_template in .keel/config.yml, else the style most of the team's recent commits share; "
+                  "lists recent subjects as examples. Runs nothing, changes nothing."],
+    },
     "ci_report": {
         "summary": "The last CI pipeline report of the project (the ci verdict), and whether it is about HEAD.",
         "steps": ["Reads the latest ci verdict; runs nothing."],
@@ -784,7 +789,7 @@ DOCS: dict[str, dict] = {
 # "flow-only" (also the default for an action not named here; tests/test_explain.py keeps the list current).
 ACTION_LEVELS: dict[str, str] = {
     **{n: "read" for n in ("audit", "trace", "trace_strict", "arch", "arch_detect", "coverage_report", "lint_scope",
-                           "lint_report", "review_lenses", "ci_report")},
+                           "lint_report", "review_lenses", "ci_report", "commit_style")},
     **{n: "write" for n in ("verify_release", "verify_coverage", "verify_fast", "verify_deps", "verify_lint", "lint_run",
                             "knowledge_check", "memory_check", "push_check", "pr", "ci_pipeline")},
     **{n: "admin" for n in ("arch_set", "open_pr")},

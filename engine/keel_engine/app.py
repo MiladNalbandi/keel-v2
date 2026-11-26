@@ -426,6 +426,12 @@ def create_app(bus: EventBus | None = None, *, resume_running: bool = True) -> F
                 app.state.demo = str(create_demo())
             except Exception as exc:  # the demo is a convenience; never block startup on it
                 log.warning("could not create the demo project: %s", exc)
+        if os.environ.get("KEEL_NATIVE") == "1":
+            from .tools import agent_sandbox     # native mode: which sandbox hides keel's files from agents' commands
+
+            line = await asyncio.to_thread(agent_sandbox.status)
+            (log.info if agent_sandbox.backend() else log.warning)("%s", line)
+            print(f"keel engine: {line}", flush=True)
         bus.start()
         await engine.open(resume_running=resume_running)
         # keel 0.18.22 the system packages every registered project's stacks need (setup.apt): in the background, so

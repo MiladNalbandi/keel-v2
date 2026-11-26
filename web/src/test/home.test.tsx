@@ -109,4 +109,24 @@ describe("Home (keel 0.28)", () => {
     fireEvent.keyDown(window, { key: "n" });
     expect(await screen.findByRole("dialog", { name: /Start a flow/ })).toBeInTheDocument();
   });
+
+  it("#233 tells what keel gives your agent at first sight, links to the MCP set-up, and folds to one line", async () => {
+    const user = userEvent.setup();
+    localStorage.removeItem("keel2.home.intro");
+    await openHome();
+    const intro = screen.getByRole("heading", { name: /Your agent connects to keel/ }).closest("section") as HTMLElement;
+    expect(intro).toHaveTextContent("does not take control of your agents");
+    const gives = within(within(intro).getByRole("list", { name: "What keel gives your agent" })).getAllByRole("listitem");
+    expect(gives.map((g) => g.querySelector("b")?.textContent)).toEqual([
+      "Project knowledge", "Code and commit style", "Rules", "Wiki", "Graph", "Shared context",
+    ]);
+    expect(intro).toHaveTextContent("Your agent wants to commit.");
+    expect(within(intro).getByRole("link", { name: "Connect your agent ›" })).toHaveAttribute("href", "#/help");
+    await user.click(within(intro).getByRole("button", { name: "Hide what keel gives your agent" }));
+    expect(screen.queryByRole("heading", { name: /Your agent connects to keel/ })).toBeNull();
+    expect(localStorage.getItem("keel2.home.intro")).toBe("hidden");
+    await user.click(screen.getByRole("button", { name: "What keel gives your agent ›" }));
+    expect(screen.getByRole("heading", { name: /Your agent connects to keel/ })).toBeInTheDocument();
+    expect(localStorage.getItem("keel2.home.intro")).toBeNull();
+  });
 });

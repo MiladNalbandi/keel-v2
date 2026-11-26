@@ -603,7 +603,7 @@ class SystemSetup:
         from ..tools import agent_user
         from ..tools.agent_tools import command_env
 
-        argv, env = agent_user.wrap(["bash", "-c", command], command_env())
+        argv, env = agent_user.wrap(["bash", "-c", command], command_env(), cwd=agent_user.home())
         try:
             r = subprocess.run(argv, cwd=agent_user.home(), capture_output=True, text=True, timeout=RUN_TIMEOUT,
                                stdin=subprocess.DEVNULL, env=env, start_new_session=True)
