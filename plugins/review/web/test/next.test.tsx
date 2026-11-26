@@ -82,6 +82,36 @@ describe("the new Review view: its own page", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByText(/Pick a pull request on the left/)).toBeInTheDocument();
   });
+
+  // #248 Code Review off for the project: the page says so and asks the api nothing of the review (no 409s in the
+  // console), and one click turns it on and loads the list
+  it("with Code Review off it offers to turn it on and calls no review route", async () => {
+    start();
+    db.plugins.review = false;
+    const asked: string[] = [];
+    const watch = ({ request }: { request: Request }) => {
+      const path = new URL(request.url).pathname;
+      if (/\/review\//.test(path)) asked.push(path);
+    };
+    server.events.on("request:start", watch);
+    try {
+      location.hash = "#/review";
+      render(<App />);
+      const box = await screen.findByRole("alert");
+      expect(box).toHaveTextContent("The Code Review plugin is off for this project");
+      expect(asked).toEqual([]);
+      await userEvent.click(within(box).getByRole("button", { name: "Turn Code Review on for this project" }));
+      const side = await screen.findByRole("region", { name: "Review" });
+      await waitFor(() =>
+        expect(within(side).queryAllByRole("button", { name: /^#\d+ / })).toHaveLength(4),
+      );
+      // on for this project only (the button's scope), not for every project
+      expect(Object.values(db.projectPlugins).some((p) => p.review === true)).toBe(true);
+      expect(db.plugins.review).toBe(false);
+    } finally {
+      server.events.removeListener("request:start", watch);
+    }
+  });
 });
 
 describe("the new Review view: the list", () => {
