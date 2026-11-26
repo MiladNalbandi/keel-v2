@@ -1,7 +1,7 @@
 # keel as the agent's toolkit: research and plan
 
 Research for [#234](https://github.com/MiladNalbandi/keel-v2/issues/234), 2026-11-25. Nothing here is built; this is a
-plan to decide on.
+plan to decide on. Revised 2026-11-26 after a review, and for keel 0.41.1.
 
 **The question.** How should keel answer an agent's "how do we do X in this project?" (commit style, branch names,
 tests, code style, where things live, who works on what), and which flows should do the repeated work, so that an
@@ -9,18 +9,19 @@ agent with keel is smarter and cheaper than one without, and several agents on o
 
 ## Answer in short
 
-1. **Add one small tool, `keel_howto(topic)`, and make `commit` its first topic.** keel already knows most answers
-   (commit style, branch pattern, test commands, the repo's rule files) but only uses them inside its own flows. No
-   MCP tool gives them to a connected agent.
+1. **Grow `keel_commit_style` into one tool, `keel_howto(topic)`.** Since 0.41.0 keel answers the commit question
+   over MCP, but thinly: no scope, issue number, trailers, source or check. Branch names, test commands, code style
+   and PR rules are still only used inside keel's own flows.
 2. **Answer from facts, not from a model.** Read configs, linters, CI and git history; name the source and how sure
    keel is. Written rules from a person win over anything detected. This works on a new project with no model key.
-3. **Give agents a small tool set.** `--write` lists 131 tools, about 28k tokens. An `--agent` set of about 10 tools
-   costs about a tenth of that.
+3. **Give agents a small tool set.** `--write` lists 131 tools, about 28k tokens in a client that loads them all. An
+   `--agent` set of 12 tools is about a tenth of that. Clients that load tools on demand, like Claude Code, gain less.
 4. **For several agents: show, do not control.** One shared memory that agents can write to (with citations), a
    "who works on what" view, and advisory claims that expire. No locks that block.
 
-How sure: **high** on 1 and 3 (keel's own test report and vendor guidance agree), **medium** on 2 and 4 (good
-sources, but no public measurement of a "conventions tool" as such; see "Not found").
+How sure: **high** on 1 (keel's own test report and vendor guidance agree), **medium** on 2, 3 and 4 (good sources,
+but nothing measured yet: there is no public measurement of a "conventions tool", and the token gain of 3 depends
+on the client; see "Not found").
 
 ## 1. What the research says
 
@@ -96,7 +97,8 @@ Lessons for a tool that does not control agents:
 - **Derive status from git**, do not trust agents to update it [S23].
 - **Share decisions and facts**, not only messages; give each fact a citation and check it when it is read [S26].
 - More agents cost more tokens; they pay off only when the work is truly separate [S23]. keel's own run agrees:
-  3 agents through keel took 7.6 min and 90k tokens, one plain agent 17 s and 20k tokens [K1].
+  3 agents through keel took 7.6 min and 90k tokens, 3 plain agents about 25 s and 60k, and one plain agent doing
+  all three tasks 17 s and 20k. About 4–5 of the 7.6 minutes were lost to one bug (#217) [K1].
 
 ### 1.4 Detected or written by people?
 
@@ -105,7 +107,7 @@ Lessons for a tool that does not control agents:
 | Commit format | commitlint / commitizen / release config, commit hooks, then `git log` | config: high; history: medium |
 | Trailers (co-author, sign-off) | `git log` bodies, hooks | medium |
 | Branch names | keel's `branch_pattern`, existing branches, CI branch filters | medium |
-| Test, lint, build commands | `.keel/config.yml`, stacks, `package.json`, `Makefile`, CI YAML | high (CI is what really runs) |
+| Test, lint, build commands | keel's project settings, stacks, `package.json`, `Makefile`, CI YAML | high (CI is what really runs) |
 | Code style | `.editorconfig`, linter and formatter configs | high when a config exists |
 | PR rules | PR template, `CONTRIBUTING.md`, recent merged PR titles | medium |
 | "We never do X here" | nothing: a person must write it | – |
@@ -126,18 +128,18 @@ machines enforce, cite the file, and let a person's written rule override everyt
 
 The existing tools either copy written rules into files, or write commits in one fixed format. In this search we
 found none that answers "what is *this* repo's style?" from the repo's own configs and history, with a source and a
-confidence (one search summary names a commit tool that adapts to the history; not opened). That is the gap
-`keel_howto` fills.
+confidence (one search summary names a commit tool that adapts to the history; not opened). keel's
+`keel_commit_style` (0.41.0) is a first step into that gap; `keel_howto` is the rest.
 
-## 2. keel today
+## 2. keel today (0.41.1)
 
 ### What keel already has
 
 | Need | In keel today | Where |
 |---|---|---|
-| Commit style | A template (`git.commit_template`) or a style inferred from the last 20 human commits, but only when they share a ticket prefix; used for keel's own commits only | `engine/keel_engine/runtime/commit_style.py` |
+| Commit style for agents | `keel_commit_style` (0.41.0, [#237](https://github.com/MiladNalbandi/keel-v2/issues/237)): the configured `git.commit_template`, else the style at least half of the last 20 human commits share (ticket or not), plus 8 recent subjects. keel's own commit step uses a narrower rule on purpose (`infer`: ticket styles only, so its subjects keep the criterion id) | `runtime/commit_style.py` (`for_agent`, `team_style`, `infer`), `mcp_more.py` |
 | Branch names | `branch_pattern` (default `feat/{slug}`, `fix/` for fixes) | `runtime/bug.py`, api `FlowService` |
-| Test and lint commands | `.keel/config.yml` `commands:`, stacks, `tools:` | `keel_stacks`, `keel_stack` |
+| Test and lint commands | The project's keel settings (`commands:`, `tools:`; today in `.keel/config.yml`) and stacks | `keel_stacks`, `keel_stack` |
 | The repo's own rule files | Finds `AGENTS.md`, `CLAUDE.md`, Copilot / Cursor / Windsurf rules and skills at init and refresh | `runtime/project_rules.py` |
 | Knowledge pages | Six sections with `path:line` citations, written by a model in init / knowledge-refresh; opt-in | `keel_knowledge`, `content/templates/knowledge/` |
 | Facts | A `facts` table with REST create / change / delete | api `KnowledgeService`; no MCP write tool |
@@ -147,10 +149,12 @@ confidence (one search summary names a commit tool that adapts to the history; n
 
 ### What is missing
 
-- **No tool answers a convention question.** The commit style lives in code that only keel's own commit step calls.
-  `keel_git_commit(message)` takes any message as it is.
-- **The inferred style is narrow.** It is used only with a ticket prefix. A repo like keel itself
-  (`fix(mcp): … (#220)`, no co-author line) gets no answer.
+- **Only the commit question has a tool.** Branch names, test commands, code style, PR rules and "where does this go"
+  are still only used inside keel's own flows. `keel_git_commit(message)` takes any message as it is.
+- **The commit answer is thin.** On keel-v2 itself `keel_commit_style` answers `{type}: {subject}` and 8 subjects. The
+  scope (`fix(mcp): …`) and the issue number (`… (#220)`) are lost in the style line. It gives no count and no
+  confidence, says nothing about trailers (co-author, sign-off), reads no tool config (commitlint), and cannot check
+  a draft.
 - **Knowledge needs a model.** `keel_knowledge` is empty on a new project, and agents cannot add to it [K1].
 - **Agents cannot see each other.** `keel_live` shows no connected sessions ([#219](https://github.com/MiladNalbandi/keel-v2/issues/219));
   work orders go to the wrong agent ([#217](https://github.com/MiladNalbandi/keel-v2/issues/217)).
@@ -158,30 +162,57 @@ confidence (one search summary names a commit tool that adapts to the history; n
 
 ### What is too much
 
-- **131 tools at `--write`, about 28k tokens**; 69 at read, about 10k [K1]. That is over the "10+ tools or 10k
-  tokens" line where vendors say to load tools on demand [S14].
+- **131 tools at `--write`, about 28k tokens** if a client loads them all; 69 at read, about 10k [K1]. That is over
+  the "10+ tools or 10k tokens" line where vendors say to load tools on demand [S14].
 - **Person's tools in the agent's list**: 37 of the 141 tools are marked "person's tool" in the test report (gates,
   settings, projects, models, marketplace) and only 48 "helps build" [K1].
 - **Long descriptions**: `keel_start_flow` is 2.8k characters [K1].
 - **Several ways to do one thing**: `keel_approve_gate` / `keel_resume` / `keel_answer` / `keel_resume_flow`;
-  `keel_read_file` / `keel_read_project_file`.
+  `keel_read_file` / `keel_read_project_file`. A `keel_howto` next to `keel_commit_style` would add one more, so the
+  plan replaces the old tool.
 - **Gates on tiny tasks**: minutes with keel against seconds without [K1].
+
+### A warning from keel's own numbers
+
+keel measured help that the agent did not ask for. On 2026-10-06, pre-fetched "where to look" hints from the code
+graph saved no tokens (153k with, 150k without) and the answers named the same code, so hints are off by default
+(`runtime/agent_knowledge.py`). Two lessons for this plan: answer only when the agent asks, and measure before
+calling anything a gain.
 
 ## 3. Ranked features
 
 Effort: S = days, M = about a week, L = more. "Gain" is what the agent saves or gets right. The example answers
 below are illustrations: their counts, file names and line numbers are made up.
 
+Order: #1 first because the commit question was asked for first, and #2 next because it is the same tool. #3 and #4
+are small and can be built before #2. #5 to #7 need more new code, and #6 needs two bugs fixed first.
+
 | # | Feature | Gain for the agent | Effort |
 |---|---|---|---|
-| 1 | `keel_howto(topic="commit")` | Commits in the project's style on the first try; no reading of docs or `git log` | S |
+| 1 | `keel_howto(topic="commit")`, which replaces `keel_commit_style` | Scope, issue number and trailers right on the first try; a draft can be checked; the answer says where it comes from | S |
 | 2 | `keel_howto` topics `branch`, `test`, `style`, `pr`, `where` | One tool for every "how do we do X here" | M |
-| 3 | `keel2 mcp --agent` (about 10 tools) and shorter descriptions | About 25k fewer tokens in every session | S |
-| 4 | `keel_brief()` | One call replaces reading `AGENTS.md`, `CONTRIBUTING`, conventions and configs | S |
+| 3 | `keel2 mcp --agent` (12 tools) and shorter descriptions | Up to about 25k fewer tokens per session in a client that loads every tool; a shorter list to choose from in the others | S |
+| 4 | `keel_brief()` | One call replaces looking for `AGENTS.md`, `CONTRIBUTING`, the CI file and the test command | S |
 | 5 | `keel_remember(fact, cite)` and recall inside `howto` / `brief` | What one agent learns, every later agent knows | M |
 | 6 | `keel_who()` and advisory `keel_claim(paths, ttl)` | No two agents on the same files; no repeated work | M |
 | 7 | `keel_test(scope)` | Tests run with keel's own command; short failing output | M |
-| 8 | Export to `AGENTS.md` | Agents without MCP get the same answers | S |
+| 8 | Export to `AGENTS.md` (only on request) | Agents without MCP get the same answers | S |
+
+### Where the data lives
+
+Since 2026-11-26 keel's rule is: by default keel creates no `.keel` folder and changes nothing in the user's project;
+its config, rules and state live in keel's own storage ([#246](https://github.com/MiladNalbandi/keel-v2/issues/246)).
+This plan follows it:
+
+| Data | Where | New storage work |
+|---|---|---|
+| `keel_howto` and `keel_brief` answers | Nowhere: computed on each call from the project's files and git history (read only) | none |
+| A person's written rule (for example `git.commit_template`) | keel's project settings, wherever #246 puts them | none here; it comes with #246 |
+| Remembered facts | The api's `facts` table, which exists | an MCP tool and the citation check |
+| Claims | A new api table and REST route | yes, counted in #6's M |
+
+The rule makes the MCP answer more important: with no keel files in the repo, asking keel is how an agent gets what
+keel knows.
 
 ### 1. `keel_howto(topic="commit")` (first)
 
@@ -189,21 +220,24 @@ below are illustrations: their counts, file names and line numbers are made up.
 call    keel_howto(topic="commit")
 
 answer  commit style (keel-v2)
-        format    type(scope): subject (#issue)      e.g. fix(mcp): …  (#220)
-        types     feat, fix, docs, test, chore       scope: optional, the part (engine, mcp, web)
+        format    type(scope): subject (#issue)     scope: 9 of 50 · (#issue): 31 of 50, both optional
+        types     feat, fix, docs, test, chore
         subject   lower case, no full stop, under 72 characters
-        trailers  none: no Co-Authored-By line (written rule: AGENTS.md:12)
+        trailers  none: no Co-Authored-By or Signed-off-by line in the last 50 commits
         examples  "fix(mcp): keel_flow_doctor reads /flow-doctor/report, not /api/api/... (#220)"
                   "chore: version 0.40.1 (keel_flow_doctor fix, MCP test report)"
-        source    AGENTS.md (written) + 37 of the last 40 commits · sure: high
+        source    47 of the last 50 commits; no git.commit_template, no commitlint config · sure: high
+        see also  CONTRIBUTING.md:31 "Commits" (keel points to it, it does not parse it)
         check     keel_howto(topic="commit", check="<your message>")
 ```
 
 ```text
 call    keel_howto(topic="commit", check="Added new feature.")
 answer  not in the project's style: no type prefix; starts with a capital; ends with a full stop.
-        try: "feat: add <what>"
+        template: "feat: add <what>"
 ```
+
+The check only informs. keel refuses nothing here, and the agent commits as it likes.
 
 On a project with nothing to learn from: `no commit convention found (3 commits, no config). Suggest: Conventional
 Commits "type: subject".` An honest "not found" is a useful answer.
@@ -212,9 +246,9 @@ Commits "type: subject".` An honest "not found" is a useful answer.
 
 ```text
 keel_howto(topic="branch")  →  pattern feat/{slug}, fix/{slug} · base main · ticket in the name: no
-                               source: .keel settings + 18 of 20 remote branches · sure: medium
+                               source: keel settings + 18 of 20 remote branches · sure: medium
 keel_howto(topic="test")    →  all: cd engine && uv run pytest -q · one test: … -k <name>
-                               needs: uv on PATH · source: .keel/config.yml + .github/workflows/ci.yml · sure: high
+                               needs: uv on PATH · source: keel settings + .github/workflows/ci.yml · sure: high
 keel_howto(topic="style")   →  formatter ruff (pyproject.toml), line 128 · run: uv run ruff format <files>
 keel_howto(topic="pr")      →  title like the commit · body must say "Closes #N" · base main · source: CONTRIBUTING.md:31
 keel_howto(topic="where", about="a new MCP tool")
@@ -223,28 +257,51 @@ keel_howto(topic="where", about="a new MCP tool")
 ```
 
 One tool with a `topic` list follows the "group related operations" rule [S13]. Unknown topic: the answer lists the
-topics.
+topics. The `where` topic needs the architecture page (written by a model) or the code graph, so it comes last and
+only if a test shows it saves reads (see the warning in section 2).
 
 ### 3. A small agent set
 
-`keel2 mcp --agent`: `keel_brief`, `keel_howto`, `keel_status`, `keel_read_gate`, `keel_search`, `keel_remember`,
-`keel_who`, `keel_test`, `keel_start_flow`, and the five `keel_session_*` tools only inside a session flow. The
-server's `instructions` say when to ask: "Call `keel_brief` once at the start. Call `keel_howto` before you commit,
-name a branch, run tests or open a PR." Also cut `keel_start_flow`'s description to a few lines; the long catalog
-is already what the call without a type returns.
+`keel2 mcp --agent` is a named list of 12 tools, used inside the level you start it with:
+
+- read level: `keel_brief`, `keel_howto`, `keel_status`, `keel_read_gate`, `keel_search`, `keel_flows`
+- with `--write`: also `keel_start_flow` and the five `keel_session_*` tools
+
+`keel_remember`, `keel_who` and `keel_test` join the list when they are built; `keel_who` then takes the place of
+`keel_flows`, which today is the only tool where agents see each other's flows [K1]. The server's `instructions` say
+when to ask: "Call `keel_brief` once at the start. Call `keel_howto` before you commit, name a branch, run tests or
+open a PR." Also cut `keel_start_flow`'s description to a few lines; the long catalog is already what the call
+without a type returns.
+
+Why a name and not `--allow t1,t2`: one word people can copy, kept up to date by keel as tools land, and shown in
+`--print-config` and Help. A hand-written list of 12 names goes stale.
+
+How much it saves depends on the client. One that loads every tool definition pays about 28k tokens for `--write`
+today [K1]. Claude Code loads only tool names and server instructions first and finds the rest on demand [S16], so
+there the gain is a shorter list and fewer wrong picks, not 25k tokens.
 
 ### 4. `keel_brief()`
 
 ```text
-keel-v2 · Python engine (uv), Kotlin api (Gradle), React web (Vite) · base main
-rules for agents   AGENTS.md, CONTRIBUTING.md (keel_howto has the short answers)
-test               engine: uv run pytest -q · web: npm test -- --run        (keel_howto topic=test)
-where              engine/ flows and MCP · api/ REST · web/ dashboard · plugins/<name>/ · content/ workflows
-right now          2 flows: feat/safety-only (agent a1, engine/…), fix/doctor-404 (agent b2, mcp_*.py)
-facts              3 remembered (keel_howto and keel_search show them)
+shop · Kotlin api (Gradle), React web (Vite) · base main
+rules for agents   AGENTS.md, CONTRIBUTING.md, .cursor/rules/testing.mdc
+test               api: ./gradlew test · web: npm test -- --run          (keel_howto topic=test has more)
+right now          2 flows: feat/euro-prices (green, AC-2), fix/rounding (review)
+ask                keel_howto before you commit, name a branch, run tests or open a PR
 ```
 
-No model needed: `project_rules.discover`, the stacks, the config and the flow list already hold all of it.
+Each line has a source, and none needs a model:
+
+| Line | From | Before init? |
+|---|---|---|
+| stack, base branch | stack detection from the project's files, git | yes |
+| rule files for agents | `project_rules.discover` (titles and paths only) | yes |
+| test commands | keel's project settings (`commands:`) | no: before init the brief points to the CI file instead |
+| right now | the flow list (`keel_flows` data); agents and files after [#219](https://github.com/MiladNalbandi/keel-v2/issues/219) | yes |
+
+There is no "where things live" line in the first version. It would need the architecture page, which a model
+writes, and it is the kind of overview that did not help in the ETH study [S8] or in keel's own hints test. The brief
+is commands and pointers, not a description of the code.
 
 ### 5. Shared memory agents can write to
 
@@ -254,10 +311,10 @@ call    keel_remember(fact="web tests need Node 20; Node 26 breaks localStorage 
 answer  saved (fact 14, by claude-code, checked: the citation exists). Shown in keel_howto(topic="test").
 ```
 
-Rules taken from Copilot Memory [S26]: a fact needs a citation or is marked `unverified`; keel checks the citation
-when it shows the fact (keel already has a citation check); facts not confirmed for 90 days drop out; a person can
-edit or delete them on the Knowledge page. The `facts` table and its REST routes exist; only the MCP tool and the
-checks are new.
+Rules taken from Copilot Memory: a fact needs a citation or is marked `unverified`; keel checks the citation when it
+shows the fact (keel already has a citation check) [S26]; facts not confirmed for 90 days drop out, which is
+Copilot's default [S4]; a person can edit or delete them on the Knowledge page. The `facts` table and its REST routes
+exist; only the MCP tool and the checks are new.
 
 ### 6. Who works on what, and advisory claims
 
@@ -285,21 +342,23 @@ answer  uv run pytest -q tests/test_mcp.py  ·  1 failed, 41 passed (3.2 s)
 
 ### 8. Export
 
-`keel2 export agents-md` writes a short, marked block into `AGENTS.md` (commands and non-standard rules only, no
-overview, under 60 lines), so agents that never connect still get the answers. The ETH study says instructions are
-followed and overviews are not worth their tokens [S8].
+`keel2 export agents-md` is the one part of this plan that writes into the repo, so it runs only when the person
+asks for it and is off by default. It writes a short, marked block into `AGENTS.md` (commands and non-standard rules
+only, no overview, under 60 lines), so agents that never connect still get the answers. The ETH study says
+instructions are followed and overviews are not worth their tokens [S8]. To decide: #246 allows an opt-in export of
+keel's config; a block inside the user's own `AGENTS.md` is a bigger edit than that and needs its own yes.
 
 ## 4. Flows: what to use and what to change
 
 | Flow | Change | Why |
 |---|---|---|
-| **init** | Add a model-free step `conventions_scan` after `project_rules`: it writes `.keel/conventions.json` (commit, branch, test, style, pr, each with source and confidence) | `keel_howto` then works on day one, with no model key |
-| **knowledge-refresh** | Run the scan again; check every remembered fact's citation; mark changed answers | Stops stale answers, the main failure of written files [S11] |
-| **quick / implement / harness (session)** | Put the 5-line brief in the work order instead of long standing text; point to `keel_howto` | keel agents used 26–32k tokens against about 20k plain; the work-order text is most of the gap [K1] |
-| **ship** | Use the `pr` answer for the PR title and body (also fixes "no `Closes #N`", [#207](https://github.com/MiladNalbandi/keel-v2/issues/207)); check commit subjects against the style | One place decides the style for keel's commits and the agent's |
+| **init** | Its hand-over shows the `keel_howto` answers (commit, branch, test). The person corrects one once, and the correction is saved as a written rule in keel's settings | A written rule beats a detected one; no model key is needed for any of it |
+| **knowledge-refresh** | Check every remembered fact's citation; list `keel_howto` answers that changed since the last refresh | Stops stale answers, the main failure of written files [S11] |
+| **quick / implement / harness (session)** | For keel's own flow agents: put the 5-line brief in the work order instead of long standing text, and point to `keel_howto` | keel agents used 26–32k tokens against about 20k plain; the work-order text is most of the gap [K1] |
+| **ship** | Use the `pr` answer for the PR title and body (also fixes "no `Closes #N`", [#207](https://github.com/MiladNalbandi/keel-v2/issues/207)); show commit subjects that do not fit the style as a note at the gate, never as a refusal | The agent and keel's ship step read the same answer |
 | **review / review-pr** | Give the reviewers the `howto` answers as the rule list | Reviewers stop guessing the conventions |
 | **after parallel flows** | A hint in `keel_status` / `keel_who`: "3 finished branches; `keel_branch_sync` merges them in order" | The test's parallel run ended with a CHANGELOG conflict [K1] |
-| **quick** for tiny tasks | Keep one gate at most; no change needed beyond #218 | Minutes against seconds [K1] |
+| **quick** for tiny tasks | Nothing: it already has one gate. Only [#218](https://github.com/MiladNalbandi/keel-v2/issues/218) (the wait after a finished flow) costs time | Minutes against seconds [K1] |
 
 No new flow is needed. The heavy, repeated work (finding the rules, running the tests, bringing branches together)
 moves into steps keel already runs.
@@ -308,69 +367,98 @@ moves into steps keel already runs.
 
 ### Spec A: `keel_howto`, topic `commit`
 
-**Context.** keel infers a commit style for its own commits only (`commit_style.py`). Connected agents guess, or read
-docs and `git log` each time.
+**Context.** keel 0.41.0 has `keel_commit_style` (#237). It gives the configured template or the style most recent
+commits share, and 8 recent subjects. It loses the scope and the issue number, has no count, confidence or trailers,
+reads no commitlint config, cannot check a draft, and covers only commits.
 
-**Goal.** A connected agent learns the project's commit style in one call of under 150 tokens and can check a draft.
+**Goal.** `keel_howto(topic="commit")` replaces it: one call, at most 1,000 characters, that tells a connected agent
+the full commit form of this project and where the answer comes from, and can check a draft.
 
 **Acceptance criteria**
 
 1. `keel_howto(topic="commit")` answers at the read level, with no model, in under 300 ms on a repo with 10k commits.
-2. The answer has: format, types seen, subject rules, trailers, two real examples, source, and `sure: high | medium | low`.
-3. Order of sources: a written rule (`.keel/config.yml` `git.commit_template`, or a commit section in the repo's
-   agent docs), then tool config (commitlint, commitizen, a commit-msg hook), then history (the last 50 human,
-   non-merge commits; keel's own commits are left out as today).
-4. History gives a style only when at least 60% of the commits share it; else the answer says "mixed" and shows the
+   It computes the answer on each call from the last 50 human, non-merge commits (keel's own commits are left out,
+   as today). Nothing is cached or stored.
+2. The answer has: format, types seen, subject rules, trailers, two real examples, source, and
+   `sure: high | medium | low`. It is at most 1,000 characters; a test measures it.
+3. Order of sources: the person's `git.commit_template` setting; then tool config that enforces a format
+   (commitlint, commitizen, a commit-msg hook: named, and its rules shown when keel can read them, such as
+   commitlint's `type-enum`); then history.
+4. Agent docs (`AGENTS.md`, `CONTRIBUTING.md`) are not parsed for rules. When one has a heading with "commit" in it,
+   the answer points to the file and line.
+5. History gives a style only when at least 60% of the commits share it; else the answer says "mixed" and shows the
    two most common forms.
-5. Styles without a ticket prefix are recognised (today they are dropped).
-6. Trailers: the answer says whether co-author and sign-off lines are used, from the bodies of the same commits.
-7. `check="<message>"` returns "ok" or each rule the message breaks and one corrected form.
-8. No convention found: the answer says so and suggests one; it never invents a rule.
-9. An unknown topic lists the topics. Tool errors say how to fix the call.
-10. keel's own commit step and `keel_howto` read the same function, so they cannot disagree.
+6. The style keeps what today's answer loses: an optional scope (`type(scope):`) and an issue or ticket reference at
+   the end (`(#220)`), each with how many of the commits have it.
+7. Trailers: the answer says whether co-author and sign-off lines are used, from the bodies of the same commits.
+8. `check="<message>"` returns "ok", or each rule the message breaks and a template with placeholders
+   (`feat: add <what>`). It only informs: nothing is refused and `keel_git_commit` does not change.
+9. No convention found: the answer says so and suggests one; it never invents a rule.
+10. An unknown topic lists the topics. Tool errors say how to fix the call.
+11. `keel_commit_style` is removed in the same change (tool list, README and GUIDE), so there is one way to ask.
+12. keel's own commit step does not change: `infer` and the `test(AC-2): …` subjects stay, and a test pins them. The
+    two views differ on purpose, because the trace and the audit read keel's form.
+13. After the call, a clean project folder has no new file (the test of #246).
 
-**Design.** A new `runtime/conventions.py` with `commit(root, cfg) -> dict`; `commit_style.infer` moves behind it and
-keeps its behaviour for keel's commits. `mcp_more.howto()` formats the dict. The result is cached per HEAD in
-`.keel/conventions.json`.
+**Design.** A new `runtime/conventions.py` with `commit(root, cfg) -> dict`, built on `commit_style.recent_subjects`
+and `_style_of` (extended for the scope and the trailing reference). The engine's read action `commit_style` becomes
+`howto`; `mcp_more.howto()` formats the dict.
 
-**Test plan.** Unit tests on fixture repos: Conventional Commits, ticket prefix, mixed history, empty repo, commitlint
-config, a written rule that disagrees with history (the written rule wins). One MCP test for the call and the
-`check` path. Measure the answer's tokens.
+**Out of scope.** Making keel's own commits follow the team's style through the `Keel-Ref` trailer. It touches the
+trace and the audit and needs its own decision.
+
+**Test plan.** Unit tests on fixture repos: Conventional Commits with and without scope, issue references, ticket
+prefix, mixed history, empty repo, commitlint config, a `git.commit_template` that disagrees with history (the
+setting wins). One MCP test for the call and the `check` path, one for the 1,000 characters, one that keel's own
+subjects are unchanged, and the clean-folder check.
 
 ### Spec B: the agent tool set and `keel_brief`
 
-**Context.** `--write` costs about 28k tokens of tool definitions; most tools are for the person.
+**Context.** `--write` lists 131 tools, about 114 KB of schema [K1]; most are for the person. An agent also has no
+single call that names the project's rule files and commands.
 
-**Goal.** An agent connects with about 10 tools and gets the project in one call.
+**Goal.** An agent connects with 12 tools and gets the project's commands and rule files in one call.
 
 **Acceptance criteria**
 
-1. `keel2 mcp --agent` registers only the agent set (a named list in `mcp_levels.py`); `--print-config` shows it.
-2. The set's definitions are under 3k tokens; a test fails when they grow past that.
-3. The server `instructions` name `keel_brief` and `keel_howto` and when to call them, in under 400 characters.
-4. `keel_brief()` answers with no model, in under 60 lines: stack, rule files found, test commands, where things
-   live, flows running now.
-5. It works before init (from `project_rules.discover` and the files) and says what init would add.
-6. No description in the agent set is longer than 600 characters.
-7. The read, write and admin levels are unchanged.
+1. `--agent` is a named list in `mcp_levels.py`, applied inside the level. `keel2 mcp --agent` (read) registers
+   `keel_brief`, `keel_howto`, `keel_status`, `keel_read_gate`, `keel_search`, `keel_flows`. `keel2 mcp --write
+   --agent` adds `keel_start_flow` and the five `keel_session_*` tools. `--read-only` still wins over everything.
+2. `--print-config` and Help show the `--agent` lines. `--allow` and the read, write and admin levels work as before.
+3. The 12 definitions together are under 12 KB of schema (about 3k tokens by the bytes / 4 rule the test report
+   used); a test fails when they grow past that.
+4. The server `instructions` name `keel_brief` and `keel_howto` and when to call them, in under 400 characters.
+5. No description in the agent set is longer than 600 characters.
+6. `keel_brief()` answers with no model, in at most 60 lines, and every line comes from a source in the table of
+   section 3.4.
+7. Before init it shows: stack, base branch, rule files, flows, and a pointer to the CI file in place of test
+   commands. After init it adds the test commands from keel's settings.
+8. It has no "where things live" text.
+9. After the call, a clean project folder has no new file.
 
-**Test plan.** A unit test for the list and the token budget; `keel_brief` on a bare repo, an initialised repo and a
-repo with running flows; one run with a real client to confirm the smaller list.
+**Not in this spec.** `keel_remember`, `keel_who` and `keel_test`; they join the list when they are built.
 
-**How to judge both.** Repeat the three-task run from the 0.40.0 report [K1] with and without the two tools and
-compare tokens, wall time and the hidden checks. If the keel agents do not read `docs/CONVENTIONS.md` any more and
-use fewer tokens, it works.
+**Test plan.** A unit test for the two lists and the size budget; `keel_brief` on a bare repo, an initialised repo
+and a repo with running flows; one run with a real client to confirm the smaller list.
+
+**How to judge both.** Repeat the three-task run from the 0.40.0 report [K1], three keel agents with and without the
+two tools, once in a client that loads every tool definition and once in Claude Code. Compare tokens, wall time and
+the hidden checks. If the agents stop reading `docs/CONVENTIONS.md` themselves and use fewer tokens, it works. If
+not, stop here.
 
 ## 6. Not found, and guesses
 
 - **No public numbers on MCP tool usage per server or tool**, and no measurement of a "conventions over MCP" tool. The
   expected gain is our inference from the sources above, not a measured fact.
+- **The token gain of the small tool set is not measured.** The 28k is an estimate from the schema size, and the
+  agents in keel's test did not load the tool list at all [K1].
 - **No measured evidence that agents break commit conventions** in particular. A study of 33k agent PRs names CI
   failures, duplicates and "agent misalignment" as rejection reasons (abstract only) [S28].
 - **Not opened:** Cursor / Codex / Windsurf support for MCP resources and prompts; Cursor's tool limit; Beads' Gas
-  Town; mem0, Letta, Zep; convention-mining papers; the full text of the ETH paper (abstract and summaries read).
-- **Read through a summarising fetch tool:** most web quotes. Spot-check a quote before it is used in public text.
-- **Guess:** the 60% threshold, the 90-day expiry and the 3k-token budget are starting values, to be tuned in the test
+  Town; mem0, Letta, Zep; convention-mining papers.
+- **Read through a summarising fetch tool:** most web quotes. A second reader checked [S8] (full text), [S13], [S14],
+  [S24] and [S26] against the pages; spot-check any other quote before it is used in public text.
+- **Guess:** the 60% threshold, the 1,000 characters and the 12 KB budget are starting values, to be tuned in the test
   run.
 - keel has a feature freeze since 2026-11-18; everything here is new features, so it needs a decision first.
 
