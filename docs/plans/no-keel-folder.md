@@ -1,6 +1,6 @@
 # keel keeps its files out of the project (issue #246)
 
-Status: proposal, round 2 (round 1 review by Dash: STU-115). Waits for review and for Milad's OK.
+Status: proposal, round 3 (reviews by Dash: STU-115, STU-116). Waits for review and for Milad's OK.
 When the build starts, the tasks below are tracked as an OpenSpec change `no-keel-folder`.
 
 ## Context
@@ -41,12 +41,24 @@ Size: `.keel` is named ~440× in the engine, ~90 in the api, ~80 in web, ~55 in 
 
 - Each project gets a stored **storage mode** in the api database: `legacy`, `store` or `export`.
   - Set once, when the project is first registered (or on the first start of this version for known projects):
-    a `.keel` folder or link exists → `legacy`; else `store`. Projects known before this version are `legacy` only if
-    they have `.keel`.
+    `legacy` when a `.keel` folder or link exists **or** `layout.resolve(root)` gives `repo` (keel files in `docs/`,
+    `specs/*.md`, or a config naming `specs.dir` / `memory.dir` / `setup.runbook`); else `store`. So no existing
+    project loses the files it has. `repo` projects are not offered the migration (their files are committed, they
+    belong to the repo).
   - It changes only by an explicit action: the migration (legacy → store) or the export switch (store ↔ export).
   - A later `mkdir .keel`, a branch with a tracked `.keel/config.yml`, or a worktree seed never changes it.
-- The engine gets the mode and the store path from the api with the project (the engine already calls the api; no
-  disk probing). When the engine runs without the api (tests, tools), the default is `legacy`, i.e. today's behaviour.
+- **Engine lookup `projects.of(path) -> {id, root, mode, store, worktrees}`** (phase 1), the only way the engine
+  learns a mode:
+  - `path` may be a project root, a sub folder, or a flow worktree. A worktree is mapped to its project by
+    `worktrees.project_of(path)`: an exact prefix match on keel's worktrees base (`<base>/<project-id>/<name>`, never a
+    substring), and for a worktree made by an older version `git rev-parse --git-common-dir` (its main checkout).
+    This replaces every `/.keel/worktrees/` string cut (list under Flow worktrees).
+  - Fed by the api: the engine keeps a small cache `root → {id, mode, …}`, filled from `GET /api/projects` on start and
+    on a miss; the api calls the engine's existing internal hook when a mode changes (migration, export switch), and
+    the engine drops that entry. Every entry also has a short time-to-live (30 s) in case a call is lost.
+  - The api not reachable, or the path is no project: `legacy` (today's behaviour) — for reading. Writing a store file
+    for an unknown path is refused (see below), so nothing is written to a wrong place.
+  - `keel_file`, `layout.resolve`, CLI tools and MCP tools all go through this lookup; none probes `.keel` itself.
 
 ### The store and the project id
 
@@ -56,11 +68,17 @@ Size: `.keel` is named ~440× in the engine, ~90 in the api, ~80 in web, ~55 in 
 - Not-git projects get a store too (the id is not tied to git).
 - A root the api does not know as a project gets no store: the engine refuses to write keel's files for it and says
   "add this folder as a project first". keel never creates an empty store silently for an unknown folder.
-- Store layout:
-  - `docs/`: specs, knowledge, adr, RUNNING.md, CLAUDE.md block, hunts. Agents may read and write here (a spec step
-    writes the spec).
-  - `private/`: config.yml, rules/, stacks/, skills/, agents/, ladder.json, state.json, archive/, stacks.json. Agents
-    never see it.
+- Store layout (every `.keel/` name found in engine, api and content):
+
+  | Part | `docs/` (agents read + write) | `private/` (agents never see it) |
+  |---|---|---|
+  | names | specs/, knowledge/ (and `docs/knowledge` of a `memory.dir`), adr/, RUNNING.md, CLAUDE.md block, hunts/, chats/ | config.yml, rules/, lenses/, dod.md, project-rules.json, memory.json, stacks/, skills/, agents/, plugins/<name>/plugin.yml, ladder.json, state.json, archive/, stacks.json |
+
+  - `lenses/` and `dod.md` are trusted, rule-like input, so private (agents cannot change them); `project-rules.json`
+    stays readable by the api (`SkillService`), which runs as keel's user. A name not in the table goes to `private/`.
+  - The `setup` phase may edit `.keel/config.yml` today (`rules/__init__.py` ~l.630). In `store` mode that is in
+    `private/`: setup and init agents must go through keel (the `keel-config` block that keel writes, as
+    `setup-doctor` does); a direct edit is blocked by the guard and the agent is told so.
 
 ### One resolver, logical paths unchanged
 
@@ -91,17 +109,33 @@ Size: `.keel` is named ~440× in the engine, ~90 in the api, ~80 in web, ~55 in 
   worktree and the project's git common dir open (`git rev-parse --git-common-dir`), since the worktree's `.git` file
   points there.
 - `seed_keel_files` / `keep_keel_files` are not used in `store` mode: every worktree of a project reads the same store.
-- All hard-coded `.keel/worktrees` places move to one helper `worktrees.base(root)`: `tools/worktrees.py`,
-  `rules/__init__.py` (`is_worktree`, ~l.957), `runtime/knowledge.py` (~l.42), `runtime/bug.py` (~l.347),
-  `runtime/container.py` (~l.311), `tools/agent_sandbox.py`, and the api/web places found by grep in step 1.
+- All hard-coded `.keel/worktrees` places move to `worktrees.base(project)` (project → base) and
+  `worktrees.project_of(path)` (path → project). Start list (the full grep is step 1 of phase 1): engine
+  `tools/worktrees.py`, `rules/__init__.py` (`is_worktree` ~l.957, `in_keel_worktree`), `runtime/knowledge.py`
+  (~l.42–50), `runtime/stack_setup.py` (~l.185, 361, 651, 672, 698), `runtime/ci_pipeline.py` (~l.143),
+  `runtime/bug.py` (~l.347), `runtime/container.py` (~l.311, `worktree_containers`), `tools/agent_sandbox.py`
+  (`_project`); api `FlowService.kt` (~l.536, 914, 1146), `WorkspaceDoctor.kt` (~l.340); web `StartFlow.tsx`
+  (~l.364, text).
+- Host path in the plain container: `~` there is `/home/keel`, so `keel2 start` passes the host path of the worktrees
+  folder (`KEEL_HOST_WORKTREES`, like `KEEL_HOST_WORKSPACE`) and mounts it at that same path; the agents' user gets
+  `agent_user.share()` on it, like the project folder. A running container gets the mount at its next `keel2 start`
+  (recreate); until then `store` worktree flows say "restart keel: keel2 start".
+- Compose files: a committed `.keel/worktrees:/…` mount cannot name a per-machine folder. keel sets `KEEL_WORKTREES`
+  (the base) for the test commands, so a compose file can mount `${KEEL_WORKTREES}`; `worktree_fit` accepts a mount of
+  that folder (or of the worktree itself, when the compose run starts from the worktree folder).
 
 ### Sandbox and rule guard (all three backends)
 
 - bwrap: `--tmpfs <KEEL_DATA>` stays; then `--bind <store>/docs <store>/docs` (read-write). `private/` stays hidden.
 - macOS sandbox-exec: the deny on `KEEL_DATA` stays; add an allow for `(subpath "<store>/docs")` after it (later,
   more specific rules win in SBPL).
-- container (`agent_user.py`): `/data` stays 0710; `/data/projects` and `/data/projects/<id>` 0710 (traverse only),
-  `docs/` group read-write, `private/` 0700 owned by keel's user.
+- container: the permissions of `/data` are set by `docker/keel-start` `lock_data()` by folder name, and `projects`
+  falls into `*` (`go-rwx`) today. Add a `projects` case: `/data/projects` and each `/data/projects/<id>` 0710
+  (traverse only), `docs/` group read-write (setgid, so new files keep the group), `private/` 0700. `lock_data` runs
+  only at start, so keel applies the same modes when it creates a store (`agent_user.share` / `_passable`) and writes
+  `docs/` files group-readable (keel's umask is 077).
+- Sandbox `keep` becomes a list per command: the cwd's worktree (or project), that project's git common dir and that
+  project's `<store>/docs` (found with `projects.of(cwd)`), never other projects' stores.
 - Rule guard: `RULE_PATH`, `RULE_FILES` and `_IN_KEEL_DIR` also match `<store>/private/` (the real path), so an agent
   that finds the path still cannot write rules or config.
 - Criterion 3 is tested per backend (unit tests of the argv / profile / permissions, plus one run each where CI can).
@@ -115,7 +149,8 @@ Size: `.keel` is named ~440× in the engine, ~90 in the api, ~80 in web, ~55 in 
     removed only with that same yes.
   - `external` layout (`.keel` is a link to `~/.keel/projects/<id>/`): copy from the link's target; the second OK
     removes only the link, never the target.
-  - Flows that run during the copy: the copy waits until no flow of the project is running.
+  - Flows during the copy: new flow starts in that project are refused ("keel is moving this project's files")
+    while the copy runs, and the copy starts only when no flow of the project is running.
 - `export`: project settings switch. On: writes `.keel/config.yml` and `.keel/rules/` into the repo (not hidden from
   git) and reads them from there; off: copies them back into the store and asks before deleting them from the repo.
 
@@ -148,8 +183,10 @@ Size: `.keel` is named ~440× in the engine, ~90 in the api, ~80 in web, ~55 in 
 
 ## Phases (each a PR; the default flips only in the last one)
 
-1. **Resolver + storage mode (no behaviour change).** api: storage mode column, store path, sent to the engine.
-   engine + api: `keel_file` / `keelFile`, `worktrees.base`, tests. Default stays `legacy` for everyone.
+1. **Resolver + storage mode (no behaviour change).** api: storage mode column (first-start rule above), store path,
+   `GET /api/projects` carries them, mode-change hook to the engine. engine: `projects.of`, `worktrees.base`,
+   `worktrees.project_of` (replacing the string cuts), `keel_file`; api `Layout.keelFile`; tests. Every existing
+   project is `legacy`, new ones too (the default flips in phase 4).
 2. **Engine callers.** Every engine `.keel` place through the resolver (split into two PRs if it is too big to
    review: runtime/, then the rest). Still no change for users.
 3. **api, sandbox, worktrees, front ends, content.** api callers, sandbox backends, rule guard, host worktrees folder
@@ -163,7 +200,8 @@ Phases 1–3 are released as normal versions (no user-visible change); phase 4 i
 ## Test plan
 
 - Unit: resolver (each mode, `..`/absolute/symlink escapes), storage mode set once (a later `mkdir .keel` does not
-  change it), `worktrees.base`, `_project` for the new worktree folder, sandbox argv/profile per backend, rule guard
+  change it; a `repo`-layout project without `.keel` stays `legacy`), `projects.of` (root, sub folder, new and old
+  worktree paths, api down → legacy, cache dropped on a mode change), `worktrees.base`, `_project` for the new worktree folder, sandbox argv/profile per backend, rule guard
   on store paths, migration (no remembered, yes copies, delete only after second yes, external link target kept).
 - api: storage mode on register / moved / parked projects; id kept across plain ↔ `--docker`.
 - e2e: `no-keel-files` (criterion 1), `legacy-keel` (criterion 5), `export` (criterion 7); worktree flow in native
