@@ -4185,7 +4185,9 @@ GET  /api/plugins/cluster/contexts             -> ... own_kubeconfig, contexts[]
   sign-in cookie); every keel2 keel's `data`, `run` and `logs` (`<KEEL2_HOME>/<name>` with
   every folder in `KEEL2_HOME`, default `~/.keel2`, also one `keel2 uninstall` left); and the desktop app's `data`,
   `run` and `logs` (`KEEL_DESKTOP_HOME`, else `~/Library/Application Support/keel` and `~/Library/Logs/keel` on macOS,
-  `${XDG_DATA_HOME:-~/.local/share}/keel` on Linux). `KEEL2_HOME` and the desktop app's folder are followed when they
+  `${XDG_DATA_HOME:-~/.local/share}/keel` on Linux); and, from every keel, the desktop app's browser profile
+  (`desktop_profiles`: Electron's `userData`, `~/Library/Application Support/keel` on macOS,
+  `${XDG_CONFIG_HOME:-~/.config}/keel` on Linux, and `keel-desktop` for a developer's run). `KEEL2_HOME` and the desktop app's folder are followed when they
   are symlinks; symlinks inside them count for nothing. No more guessing a `run` folder next to `KEEL_DATA`.
 - Read only for agents' commands (`read_only`): keel2's folder (`KEEL2_HOME`: the releases, the agent CLIs, each keel's
   files), keel2's settings (`${XDG_CONFIG_HOME:-~/.config}/keel2`), the desktop app's folder, the running release
@@ -4196,7 +4198,7 @@ GET  /api/plugins/cluster/contexts             -> ... own_kubeconfig, contexts[]
   of them from anywhere else (`/tmp` to the project) gets EXDEV: `mv` and most tools copy instead, hard-linking caches
   (pnpm, uv) copy too.
 - keel's GitHub login for a push (`tools/git_auth.py`) is written to a temp folder in `$KEEL_DATA/run`, not `/tmp`.
-- The engine reads the token file again only when it changed (its size or time).
+- The engine reads the token file again only when it changed (its inode, size or time).
 - `docker/keel-native-start`: given `KEEL_INTERNAL_TOKEN` (a keel2 script before 0.41.2 with a newer release), it
   writes the file and starts itself again without the variable. keel2 starts keel and `keel2 mcp` with `env -u
   KEEL_INTERNAL_TOKEN`, removes the last start's `data/run/internal-token` first, and reads the token keel-start wrote
@@ -4215,4 +4217,5 @@ GET  /api/plugins/cluster/contexts             -> ... own_kubeconfig, contexts[]
   only, the folders above, the probe; for real: `/proc/<pid>/root`, another keel's run folder, a rename and a changed
   keel-start), `test_api_misc.py` (the token file), `docker/tests/keel-start.test.sh` (file or variable in, the file out;
   keel-native-start drops the variable), `scripts/test-keel2-launcher.sh` (keel2's native start passes the file,
-  `KEEL_HIDE`, `KEEL2_HOME`), `tools/keel-plugin` `test_dev.py`, `desktop/test/unit.test.ts`.
+  `KEEL_HIDE`, `KEEL2_HOME`), `tools/keel-plugin` `test_dev.py`, `desktop/test/unit.test.ts` (a start writes the token
+  file, 0600, and passes no `KEEL_INTERNAL_TOKEN`).

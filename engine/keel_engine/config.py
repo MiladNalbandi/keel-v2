@@ -32,7 +32,7 @@ def internal_token() -> str:
         st = os.stat(path)
     except OSError:
         return ""
-    key = (path, st.st_mtime_ns, st.st_size)
+    key = (path, st.st_ino, st.st_mtime_ns, st.st_size)
     if _token_file.get("key") != key:                 # read again only when the file changed (every request asks)
         try:
             with open(path, encoding="utf-8") as f:

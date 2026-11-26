@@ -65,6 +65,19 @@ def desktop_home() -> str:
     return os.path.join(xdg if os.path.isabs(xdg) else os.path.join(home, ".local", "share"), "keel")
 
 
+def desktop_profiles() -> list[str]:
+    """The desktop app's browser profile (Electron's userData, with the window's sign-in cookie): hidden from every
+    keel's agents, not only from the desktop app's own keel (its KEEL_HIDE). The built app ("keel") and a developer's
+    run of it ("keel-desktop"). macOS: ~/Library/Application Support/<name>; Linux: ${XDG_CONFIG_HOME:-~/.config}/<name>."""
+    home = os.path.expanduser("~")
+    if sys.platform == "darwin":
+        base = os.path.join(home, "Library", "Application Support")
+    else:
+        xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
+        base = xdg if os.path.isabs(xdg) else os.path.join(home, ".config")
+    return [os.path.join(base, n) for n in ("keel", "keel-desktop")]
+
+
 def _real_dir(path: str) -> str | None:
     """The real path of a folder that is not a symlink itself (an agent may have made one: ~/.keel2/x/data -> /)."""
     try:
@@ -119,6 +132,7 @@ def hidden() -> list[str]:
         return []
     want = [data, *os.environ.get(HIDE_ENV, "").split(":")]
     want += [os.path.join(i, part) for i in _instances() for part in KEEL2_PARTS]
+    want += desktop_profiles()                              # a symlink there (an agent's) counts for nothing
     if sys.platform == "darwin":
         want.append(os.path.join(os.path.expanduser("~"), "Library", "Logs", "keel"))     # the desktop app's logs
     out = _clean(want)

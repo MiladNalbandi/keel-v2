@@ -26,6 +26,7 @@ def native(tmp_path, monkeypatch):
     monkeypatch.delenv("KEEL_HIDE", raising=False)
     monkeypatch.setenv("KEEL_DESKTOP_HOME", str(tmp_path / "no-desktop-app"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-config"))
+    monkeypatch.setattr(agent_sandbox, "desktop_profiles", lambda: [str(tmp_path / "no-profile")])
     for v in ("KEEL_APP", "KEEL2_PATH", "KEEL_DESKTOP"):
         monkeypatch.delenv(v, raising=False)
     monkeypatch.delenv("KEEL_SANDBOX", raising=False)
@@ -142,6 +143,29 @@ def test_the_desktop_apps_folders_are_hidden_and_its_folder_is_read_only(native,
     got = agent_sandbox.hidden()
     assert all(_real(app / d) in got for d in ("data", "run", "logs"))
     assert _real(app) in agent_sandbox.read_only()
+
+
+def test_the_desktop_apps_browser_profile_is_hidden_from_every_keel(native, monkeypatch, tmp_path):
+    """Its sign-in cookie: hidden from a keel2 keel's agents too, not only through the desktop keel's KEEL_HIDE."""
+    profile = tmp_path / "config" / "keel"
+    profile.mkdir(parents=True)
+    (profile / "Cookies").write_text("the-cookie")
+    linked = tmp_path / "config" / "keel-desktop"
+    linked.symlink_to(native.parent)                       # an agent's symlink: never followed
+    monkeypatch.setattr(agent_sandbox, "desktop_profiles", lambda: [str(profile), str(linked)])
+    got = agent_sandbox.hidden()
+    assert _real(profile) in got
+    assert _real(native.parent) not in got
+
+
+def test_the_desktop_profile_is_electrons_user_data(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    got = agent_sandbox.desktop_profiles()
+    if sys.platform == "darwin":
+        assert got[0] == str(tmp_path / "Library" / "Application Support" / "keel")
+    else:
+        assert got == [str(tmp_path / "cfg" / "keel"), str(tmp_path / "cfg" / "keel-desktop")]
 
 
 def test_keels_programs_are_read_only_and_the_folders_above_keels_cannot_be_renamed(native, monkeypatch, tmp_path):
