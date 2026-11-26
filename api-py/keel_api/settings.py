@@ -11,10 +11,23 @@ def _env(name: str, default: str = "") -> str:
     return os.environ.get(name, default)
 
 
+def _internal_token() -> str:
+    """KEEL_INTERNAL_TOKEN, else the file KEEL_INTERNAL_TOKEN_FILE names: keel-start hands it over as the file only (a
+    variable shows in the environment of keel's processes to every program of the same user)."""
+    tok = _env("KEEL_INTERNAL_TOKEN").strip()
+    path = _env("KEEL_INTERNAL_TOKEN_FILE").strip()
+    if not tok and path:
+        try:
+            tok = Path(path).read_text(encoding="utf-8").strip()
+        except OSError:
+            tok = ""
+    return tok
+
+
 @dataclass
 class Settings:
     data: Path = field(default_factory=lambda: Path(_env("KEEL_DATA", "./.data")))
-    internal_token: str = field(default_factory=lambda: _env("KEEL_INTERNAL_TOKEN"))
+    internal_token: str = field(default_factory=_internal_token)
     public_url: str = field(default_factory=lambda: _env("KEEL_PUBLIC_URL"))
     allowed_hosts: str = field(default_factory=lambda: _env("KEEL_ALLOWED_HOSTS"))
     dev_origins: str = field(default_factory=lambda: _env("KEEL_DEV_ORIGINS"))

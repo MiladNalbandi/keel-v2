@@ -111,7 +111,11 @@ async function main(): Promise<void> {
       }
       show({ page: "starting", text: safe ? "Starting keel in safe mode (only the plugins that came with it)…" : "Starting keel…", since: Date.now() });
       if (!(await keel.adopt())) {
-        await keel.start({ folders: settings.folders.filter((f) => fs.existsSync(f)), port: settings.port, safe, pathValue, env: process.env });
+        await keel.start({
+          folders: settings.folders.filter((f) => fs.existsSync(f)), port: settings.port, safe, pathValue, env: process.env,
+          // the app's browser profile holds the window's sign-in cookie: as strong as keel's own keys
+          hide: [app.getPath("userData")],
+        });
         log(`keel started: pid ${keel.pid}, port ${keel.ports?.api}`);
       } else log(`keel found running: pid ${keel.pid}, port ${keel.ports?.api}`);
       if (keel.ports && settings.port !== keel.ports.api) {

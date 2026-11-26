@@ -13,7 +13,7 @@ class McpTokenController(private val tokens: McpTokens, private val props: KeelP
     /** The token of one MCP level, only for a caller with the internal token (keel2 mcp, the engine). */
     @PostMapping("/api/mcp/token")
     fun token(@RequestHeader("X-Keel-Token", required = false) internal: String?, @RequestBody body: McpTokenRequest): Map<String, String> {
-        val expected = props.internalToken
+        val expected = props.token
         if (expected.isEmpty() || internal == null || !McpTokens.same(internal, expected)) {
             throw Forbidden("Wrong or missing X-Keel-Token", "Only keel2 mcp and keel's engine can get an MCP level token.")
         }

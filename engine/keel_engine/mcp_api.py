@@ -40,16 +40,9 @@ def out_of_scope(pid: str, sc: list[str]) -> str:
 
 
 def internal_token() -> str:
-    """KEEL_INTERNAL_TOKEN, else the file KEEL_INTERNAL_TOKEN_FILE names (keel2 mcp in Docker: docker/keel-start writes it)."""
-    tok = os.environ.get("KEEL_INTERNAL_TOKEN", "").strip()
-    path = os.environ.get("KEEL_INTERNAL_TOKEN_FILE", "")
-    if not tok and path:
-        try:
-            with open(path, encoding="utf-8") as f:
-                tok = f.read().strip()
-        except OSError:
-            tok = ""
-    return tok
+    """KEEL_INTERNAL_TOKEN, else the file KEEL_INTERNAL_TOKEN_FILE names (config.internal_token)."""
+    from . import config
+    return config.internal_token()
 
 
 class KeelApi:

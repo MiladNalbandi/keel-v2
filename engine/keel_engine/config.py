@@ -7,7 +7,7 @@ import hmac
 import os
 from pathlib import Path
 
-VERSION = "0.41.1"   # keel v2 release; a test keeps it equal to KEEL2_VERSION in keel2
+VERSION = "0.41.2"   # keel v2 release; a test keeps it equal to KEEL2_VERSION in keel2
 
 
 def data_dir() -> Path:
@@ -21,7 +21,28 @@ def api_url() -> str:
 
 
 def internal_token() -> str:
-    return os.environ.get("KEEL_INTERNAL_TOKEN", "")
+    """The token keel's api, engine and keel2 share: KEEL_INTERNAL_TOKEN, else the file KEEL_INTERNAL_TOKEN_FILE names.
+    keel-start hands it over as the file only (KEEL_DATA/run/internal-token, mode 600): a variable would show in the
+    environment of keel's processes (`ps eww`, /proc/<pid>/environ) to every program of the same user."""
+    tok = os.environ.get("KEEL_INTERNAL_TOKEN", "").strip()
+    path = os.environ.get("KEEL_INTERNAL_TOKEN_FILE", "").strip()
+    if tok or not path:
+        return tok
+    try:
+        st = os.stat(path)
+    except OSError:
+        return ""
+    key = (path, st.st_ino, st.st_mtime_ns, st.st_size)
+    if _token_file.get("key") != key:                 # read again only when the file changed (every request asks)
+        try:
+            with open(path, encoding="utf-8") as f:
+                _token_file.update(key=key, token=f.read().strip())
+        except OSError:
+            return ""
+    return str(_token_file.get("token") or "")
+
+
+_token_file: dict = {}
 
 
 def engine_open() -> bool:

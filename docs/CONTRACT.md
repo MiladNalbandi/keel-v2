@@ -36,6 +36,8 @@ web `cd web && npm run dev` (port 5173, proxies `/api` to 8080).
 | `KEEL_ENGINE_URL` | `http://127.0.0.1:8090` | api |
 | `KEEL_API_URL` | `http://127.0.0.1:8080` | engine — where it POSTs events |
 | `KEEL_INTERNAL_TOKEN` | random at start, shared by both | header `X-Keel-Token` on engine↔api calls; v0.18.1 also keel2's and the e2e suites' api calls (the api refuses `/internal/events` when it is empty) |
+| `KEEL_INTERNAL_TOKEN_FILE` | `$KEEL_DATA/run/internal-token` (keel-start) | 0.41.2 the file that holds the internal token; keel's api, engine and MCP server read it when `KEEL_INTERNAL_TOKEN` is not set. keel-start hands the token to keel's processes as this file only |
+| `KEEL_HIDE` | keel2: `~/.keel2/<name>/run:~/.keel2/<name>/logs` | 0.41.2 more folders the native sandbox hides from agents' commands (`:` between them) |
 | `KEEL_PUBLIC_URL` | — | api (v0.18.1) — the dashboard as people open it: its host and origin count as keel's own (sign-in) |
 | `KEEL_ALLOWED_HOSTS` | — | api (v0.18.1) — more host names keel answers on (comma-separated), besides localhost |
 | `KEEL_DEV_ORIGINS` | — | api (v0.18.1) — more origins keel's own page may come from (comma-separated) |
@@ -2386,7 +2388,7 @@ question to the person). The plugins' "ask in keel's Inbox" stays as a second ch
 
 - The api makes three random tokens at start (read, write, admin; 64 hex characters each), kept only in memory (`mcp/McpLevels.kt` `McpTokens`); a restart makes new ones.
 - `POST /api/mcp/token { level: read | write | admin }` → `{ level, token }`, only with `X-Keel-Token` equal to the internal token (`KEEL_INTERNAL_TOKEN`, compared in constant time); 403 otherwise (also when keel has no internal token), 400 for an unknown level. keel2 and the engine have the internal token; agents never do (engine `models/cli.py` `SECRET_VARS`).
-- keel's MCP server (`python -m keel_engine.mcp`) asks for its level's token on its first request when it has the internal token (`KEEL_INTERNAL_TOKEN`, else the file `KEEL_INTERNAL_TOKEN_FILE` names) and sends it as `X-Keel-Mcp-Token` on every request; it no longer sends `X-Keel-Token` on ordinary requests. `keel2 mcp` natively passes `KEEL_INTERNAL_TOKEN` from `run/token`; in Docker it passes `KEEL_INTERNAL_TOKEN_FILE=/data/run/internal-token`, which `docker/keel-start` writes (mode 600). Agents' builtin `keel` server gets neither, so it sends no token.
+- keel's MCP server (`python -m keel_engine.mcp`) asks for its level's token on its first request when it has the internal token (`KEEL_INTERNAL_TOKEN`, else the file `KEEL_INTERNAL_TOKEN_FILE` names) and sends it as `X-Keel-Mcp-Token` on every request; it no longer sends `X-Keel-Token` on ordinary requests. `keel2 mcp` natively passes `KEEL_INTERNAL_TOKEN` from `run/token` (0.41.2: `KEEL_INTERNAL_TOKEN_FILE`, the file itself); in Docker it passes `KEEL_INTERNAL_TOKEN_FILE=/data/run/internal-token`, which `docker/keel-start` writes (mode 600). Agents' builtin `keel` server gets neither, so it sends no token.
 - `McpLevelGuard` checks requests under `/api/` that carry `X-Keel-Via: mcp` or `X-Keel-Mcp-Token`, and every `POST /api/projects/{pid}/actions/{name}` (only MCP calls it). Without a valid token such a request is at the **read** level. GET is fine at read; `POST /api/projects/{pid}/db/query` is fine at read, but `change: true` needs write; other methods need **write** (0.18.64: only the routes `McpLevelGuard.WRITE` or a plugin's `McpRouteLevels` names; any other non-GET route needs **admin**, see the 0.18.64 security addendum); **admin**: `POST /api/threads/{tid}/stop`, `DELETE /api/projects/{pid}/flows/{tid}`, `POST /api/projects`, `POST /api/projects/bulk`, `DELETE /api/projects/{pid}`, `PUT` / `DELETE /api/workflows/{wid}`. An action needs its engine level: `McpLevelGuard.READ_ACTIONS` and `ADMIN_ACTIONS` mirror `action_docs.ACTION_LEVELS` (a Kotlin and a Python test pin both lists); any other action needs write. A refused call → 403 `{ error: "This needs the MCP <level> level: run keel2 mcp --write | --admin", hint }`, still recorded by `McpAudit` (`ok: false, status: 403`).
 - The web app sends neither header and never calls `/actions`, so it works as before. The guard binds only callers that say they are MCP: it is not a login for the api.
 
@@ -4169,3 +4171,51 @@ GET  /api/plugins/cluster/contexts             -> ... own_kubeconfig, contexts[]
   for the person's OK in the Inbox, like `keel_rules_mode`.
 - Tests: `engine/tests/test_agent_sandbox.py` (the real-sandbox tests run when the computer has one;
   `KEEL_TEST_SANDBOX=1` makes them required).
+
+## 0.41.2: native mode, the internal token as a file; more of keel's folders hidden
+
+- The internal token reaches keel's processes as a file only: keel2 (`~/.keel2/<name>/run/token`) and the desktop app
+  (`<app data>/run/token`) pass `KEEL_INTERNAL_TOKEN_FILE`, never `KEEL_INTERNAL_TOKEN`; `docker/keel-start` copies the
+  token to `$KEEL_DATA/run/internal-token` (600), unsets `KEEL_INTERNAL_TOKEN` and exports `KEEL_INTERNAL_TOKEN_FILE`
+  for the engine, both apis and keel's MCP server. Readers (engine `config.internal_token`, api `KeelProperties.token`,
+  api-py `Settings.internal_token`, `keel-plugin dev`): `KEEL_INTERNAL_TOKEN`, else the file. `keel2 mcp` natively
+  passes `KEEL_INTERNAL_TOKEN_FILE` too.
+- The sandbox hides (`tools/agent_sandbox.py hidden`): `KEEL_DATA`; the folders in `KEEL_HIDE` (keel2: its run and
+  logs folders; the desktop app: its run and logs folders and its browser profile, `userData`, with the window's
+  sign-in cookie); every keel2 keel's `data`, `run` and `logs` (`<KEEL2_HOME>/<name>` with
+  every folder in `KEEL2_HOME`, default `~/.keel2`, also one `keel2 uninstall` left); and the desktop app's `data`,
+  `run` and `logs` (`KEEL_DESKTOP_HOME`, else `~/Library/Application Support/keel` and `~/Library/Logs/keel` on macOS,
+  `${XDG_DATA_HOME:-~/.local/share}/keel` on Linux); and, from every keel, the desktop app's browser profile
+  (`desktop_profiles`: Electron's `userData`, `~/Library/Application Support/keel` on macOS,
+  `${XDG_CONFIG_HOME:-~/.config}/keel` on Linux, and `keel-desktop` for a developer's run). `KEEL2_HOME` and the desktop app's folder are followed when they
+  are symlinks; symlinks inside them count for nothing. No more guessing a `run` folder next to `KEEL_DATA`.
+- Read only for agents' commands (`read_only`): keel2's folder (`KEEL2_HOME`: the releases, the agent CLIs, each keel's
+  files), keel2's settings (`${XDG_CONFIG_HOME:-~/.config}/keel2`), the desktop app's folder, the running release
+  (`KEEL_APP`; the desktop app: the folder it is in, with the app's Python, Java and engine) and the keel2 script
+  (`KEEL2_PATH`; not when it is inside the project, a keel checkout). The folders above the hidden and read-only ones cannot be renamed (bubblewrap:
+  each is bound onto itself, a mount point; macOS: `(deny file-write* (literal …))`). A project that holds keel's folders
+  keeps them hidden. On Linux each of those folders is a mount point of its own, so a rename(2) or link(2) into one
+  of them from anywhere else (`/tmp` to the project) gets EXDEV: `mv` and most tools copy instead, hard-linking caches
+  (pnpm, uv) copy too.
+- keel's GitHub login for a push (`tools/git_auth.py`) is written to a temp folder in `$KEEL_DATA/run`, not `/tmp`.
+- The engine reads the token file again only when it changed (its inode, size or time).
+- `docker/keel-native-start`: given `KEEL_INTERNAL_TOKEN` (a keel2 script before 0.41.2 with a newer release), it
+  writes the file and starts itself again without the variable. keel2 starts keel and `keel2 mcp` with `env -u
+  KEEL_INTERNAL_TOKEN`, removes the last start's `data/run/internal-token` first, and reads the token keel-start wrote
+  there (else `run/token`), so a rollback to an older release still works.
+- What the sandbox is: it keeps keel's own files out of agents' commands. The agent runs as the person, so it is not a
+  wall against a program that sets out to leave it.
+- bubblewrap keeps `--unshare-pid`: without its own process namespace, `/proc/<keel's pid>/root` would show keel's
+  folders as keel's own processes see them. So a background process an agent's command starts still ends with that
+  command (the limit above stays).
+- bwrap runs from the absolute path the probe found. A probe that found no sandbox is tried again after a minute; one
+  that found it is kept for the process.
+- The CI pipeline's version check of a project's style tool (`<tool> --version`) runs like the project's other
+  commands (`agent_user.wrap`: the agents' user, natively the sandbox).
+- The harness says a saved whole output is for Read only (Bash and Grep cannot reach keel's data folder).
+- Tests: `engine/tests/test_agent_sandbox.py` (other keels' folders, the desktop app's, symlinks, `KEEL_HIDE`, read
+  only, the folders above, the probe; for real: `/proc/<pid>/root`, another keel's run folder, a rename and a changed
+  keel-start), `test_api_misc.py` (the token file), `docker/tests/keel-start.test.sh` (file or variable in, the file out;
+  keel-native-start drops the variable), `scripts/test-keel2-launcher.sh` (keel2's native start passes the file,
+  `KEEL_HIDE`, `KEEL2_HOME`), `tools/keel-plugin` `test_dev.py`, `desktop/test/unit.test.ts` (a start writes the token
+  file, 0600, and passes no `KEEL_INTERNAL_TOKEN`).

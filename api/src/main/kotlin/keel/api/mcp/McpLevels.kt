@@ -26,7 +26,7 @@ import java.security.SecureRandom
 @Component
 class McpTokens(props: KeelProperties) {
     private val tokens: Map<String, String> = LEVELS.associateWith { level ->
-        if (props.internalToken.isEmpty()) newToken() else hmac(props.internalToken, "keel-mcp:$level")
+        if (props.token.isEmpty()) newToken() else hmac(props.token, "keel-mcp:$level")
     }
 
     fun tokenFor(level: String): String = tokens[level] ?: throw BadRequest("No MCP level called \"$level\"", "One of: ${LEVELS.joinToString(", ")}")

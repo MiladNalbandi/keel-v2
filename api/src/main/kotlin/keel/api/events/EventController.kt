@@ -27,7 +27,7 @@ class EventController(
         @RequestHeader("X-Keel-Token", required = false) token: String?,
         @RequestBody body: List<EngineEvent>,
     ): Map<String, Any> {
-        val expected = props.internalToken
+        val expected = props.token
         val ok = expected.isNotEmpty() && token != null && Hash.constantTimeEquals(token, expected)
         if (!ok) throw Forbidden("Wrong or missing X-Keel-Token", "Set KEEL_INTERNAL_TOKEN for the api and the engine (keel2 does).")
         val stored = events.ingest(body)

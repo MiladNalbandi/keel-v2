@@ -89,9 +89,16 @@ class Dev:
 
     def call(self, method: str, path: str, body: dict | None, timeout: float) -> tuple[int, object]:
         """One api call, as keel2 makes it: keel 0.18.1 answers no caller without a credential (its api's auth/LocalAuth).
-        keel's internal token: $KEEL_INTERNAL_TOKEN, else read from the container (/data/run/internal-token)."""
+        keel's internal token: $KEEL_INTERNAL_TOKEN, else the file $KEEL_INTERNAL_TOKEN_FILE names (a native keel:
+        ~/.keel2/<name>/run/token), else read from the container (/data/run/internal-token)."""
         if self.token is None:
             self.token = os.environ.get("KEEL_INTERNAL_TOKEN", "").strip()
+            token_file = os.environ.get("KEEL_INTERNAL_TOKEN_FILE", "").strip()
+            if not self.token and token_file:
+                try:
+                    self.token = Path(token_file).read_text(encoding="utf-8").strip()
+                except OSError:
+                    self.token = ""
             if not self.token:
                 r = self.run(["docker", "exec", self.container, "cat", "/data/run/internal-token"])
                 self.token = r.stdout.strip() if r.returncode == 0 else ""

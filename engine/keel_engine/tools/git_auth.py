@@ -188,7 +188,14 @@ def remote(root: str, keys_or_login, name: str = "origin"):
                            "not send its GitHub login; remove it with git config --unset")
     base = {**base, "GIT_ALLOW_PROTOCOL": "https", "GIT_ASKPASS": ""}
     base.pop("SSH_ASKPASS", None)
-    folder = tempfile.mkdtemp(prefix="keel-git-")
+    # 0.41.2 in keel's own run folder when there is one: /tmp is shared with agents' commands (natively the same user)
+    run = os.path.join(os.environ.get("KEEL_DATA", "").strip(), "run") if os.environ.get("KEEL_DATA", "").strip() else ""
+    try:
+        if run:
+            os.makedirs(run, mode=0o700, exist_ok=True)
+    except OSError:
+        run = ""
+    folder = tempfile.mkdtemp(prefix="keel-git-", dir=run or None)
     try:
         path = os.path.join(folder, "t")
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

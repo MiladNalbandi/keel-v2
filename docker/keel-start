@@ -28,11 +28,21 @@ set -euo pipefail
 
 # 0.20.0 glibc keeps one malloc arena per thread up to 8 x CPUs: two are enough here and hold far less memory
 export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"
-export KEEL_INTERNAL_TOKEN="${KEEL_INTERNAL_TOKEN:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
+# The internal token keel's api, engine and keel2 share: KEEL_INTERNAL_TOKEN, else the file KEEL_INTERNAL_TOKEN_FILE
+# names (keel2 --native, the desktop app), else a new one (the readers' order). 0.41.2 keel's processes get it as a file only
+# ($KEEL_DATA/run/internal-token, mode 600): in their environment every program of the same user could read it (`ps eww`
+# on macOS, /proc/<pid>/environ on Linux), the agents' commands in native mode too.
+internal_token="${KEEL_INTERNAL_TOKEN:-}"
+if [ -z "$internal_token" ] && [ -n "${KEEL_INTERNAL_TOKEN_FILE:-}" ] && [ -s "$KEEL_INTERNAL_TOKEN_FILE" ]; then
+  internal_token="$(tr -d ' \r\n' < "$KEEL_INTERNAL_TOKEN_FILE")"
+fi
+[ -n "$internal_token" ] || internal_token="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 mkdir -p "$KEEL_DATA"
 # v0.16.1 keel2 mcp (docker exec) reads it from here to ask the api for its MCP level token (KEEL_INTERNAL_TOKEN_FILE)
 mkdir -p "$KEEL_DATA/run"
-(umask 077; printf '%s' "$KEEL_INTERNAL_TOKEN" > "$KEEL_DATA/run/internal-token")
+(umask 077; printf '%s' "$internal_token" > "$KEEL_DATA/run/internal-token.new" && mv -f "$KEEL_DATA/run/internal-token.new" "$KEEL_DATA/run/internal-token")
+unset internal_token KEEL_INTERNAL_TOKEN
+export KEEL_INTERNAL_TOKEN_FILE="$KEEL_DATA/run/internal-token"
 
 # keel 0.21.3 the agents' own user (engine/keel_engine/tools/agent_user.py, Dockerfile): the agent CLIs and every
 # command keel runs for a project start as KEEL_AGENT_USER (`agent`), through sudo and keel-as-agent. It works only when

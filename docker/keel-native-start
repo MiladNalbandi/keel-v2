@@ -13,6 +13,13 @@ set -euo pipefail
 
 : "${KEEL_APP:?KEEL_APP is not set (keel2 start --native sets it)}"
 : "${KEEL_DATA:?KEEL_DATA is not set}"
+# 0.41.2 a keel2 script before 0.41.2 (keel2 update keeps the script) still passes the token as KEEL_INTERNAL_TOKEN: this
+# process lives as long as keel, and its environment (`ps eww`) would keep it. Into the file, then start again without it.
+if [ -n "${KEEL_INTERNAL_TOKEN:-}" ]; then
+  mkdir -p "$KEEL_DATA/run"
+  (umask 077; printf '%s' "$KEEL_INTERNAL_TOKEN" > "$KEEL_DATA/run/internal-token.new" && mv -f "$KEEL_DATA/run/internal-token.new" "$KEEL_DATA/run/internal-token")
+  exec env -u KEEL_INTERNAL_TOKEN KEEL_INTERNAL_TOKEN_FILE="$KEEL_DATA/run/internal-token" "${BASH:-/bin/bash}" "$0" "$@"
+fi
 export KEEL_NATIVE=1
 export KEEL_CONTENT="${KEEL_CONTENT:-$KEEL_APP/content}"
 export KEEL_PORT="${KEEL_PORT:-8080}"
@@ -21,7 +28,7 @@ export SERVER_ADDRESS="${KEEL_BIND:-127.0.0.1}"
 export KEEL_ENGINE_PORT="${KEEL_ENGINE_PORT:-8090}"
 export KEEL_ENGINE_URL="http://127.0.0.1:$KEEL_ENGINE_PORT"
 export KEEL_API_URL="http://127.0.0.1:$KEEL_PORT"
-export KEEL_INTERNAL_TOKEN="${KEEL_INTERNAL_TOKEN:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
+# the internal token: keel-start (KEEL_INTERNAL_TOKEN_FILE from keel2 or the desktop app, never a variable)
 export CODEGRAPH_NO_DAEMON=1 CODEGRAPH_TELEMETRY=0 DO_NOT_TRACK=1 CODEGRAPH_NO_UPDATE_CHECK=1
 # the plugins that came in the release (as /opt/keel-v2/plugins in the image), with the installed ones in $KEEL_DATA
 export KEEL_PLUGINS_IMAGE="${KEEL_PLUGINS_IMAGE:-$KEEL_APP/plugins}"

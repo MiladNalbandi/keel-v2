@@ -32,7 +32,7 @@ class EngineClient(private val props: KeelProperties, private val mapper: Object
     private fun client(readTimeout: Duration): RestClient {
         return RestClients.builder(Duration.ofSeconds(3), readTimeout)
             .baseUrl(props.engineUrl.trimEnd('/'))
-            .defaultHeader("X-Keel-Token", props.internalToken)
+            .defaultHeader("X-Keel-Token", props.token)
             .build()
     }
 
