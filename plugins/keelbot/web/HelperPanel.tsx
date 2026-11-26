@@ -505,9 +505,12 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     }, 0);
   };
 
-  const ensureSession = async (m: HelperMode = mode): Promise<string> => {
+  // `made`: runs with the new chat's id in the same step that opens it (#235: a message on its way moves with it, so it
+  // never shows for a moment as nobody's)
+  const ensureSession = async (m: HelperMode = mode, made?: (id: string) => void): Promise<string> => {
     if (sid && s) return sid;
     const created = await kb.create(pid, { mode: m });
+    made?.(created.id);
     setSid(created.id);          // the draft moves with the chat (the draft effect); the new-chat draft is done
     dropDraft(pid, null);
     void list.reload();
@@ -546,9 +549,8 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     stick.current = true;
     setUnseen(false);
     try {
-      const id = await ensureSession(toMode ?? mode);
       // a new chat: the message belongs to the chat just made
-      if (id !== from) setOutbox((o) => o.map((x) => (x.id === oid ? { ...x, chat: id } : x)));
+      const id = await ensureSession(toMode ?? mode, (made) => setOutbox((o) => o.map((x) => (x.id === oid ? { ...x, chat: made } : x))));
       if (toMode && s && s.mode !== toMode) {
         try {
           await kb.patch(pid, id, { mode: toMode });
@@ -569,8 +571,9 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
       // the person opened another chat while it was sent: they stay there (this chat's answer is read when they come back)
       if (sidRef.current === id) {
         setPending({ call: started.call_id, n: started.n });
+        // not awaited: the answer's steps and text stream in while the chat is read
         void sess.reload();
-      }   // not awaited: the answer's steps and text stream in while the chat is read
+      }
     } catch (e) {
       const p = errorParts(e);
       setOutbox((o) => o.map((x) => (x.id === oid ? { ...x, state: "failed", error: p.hint ? `${p.message} ${p.hint}` : p.message } : x)));

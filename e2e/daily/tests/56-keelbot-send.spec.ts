@@ -1,4 +1,4 @@
-// J28 (#235) KeelBot's chat sends at once: the message is on screen right after Enter and the input is empty, "Sending…"
+// J29 (#235) KeelBot's chat sends at once: the message is on screen right after Enter and the input is empty, "Sending…"
 // ends when the api took it, a failed send keeps the message with the reason and Retry sends it; the chat follows
 // KeelBot's text, and scrolled up it stays and offers "New messages ↓". Desktop and phone width, the fake model.
 import { expect, test, type Page } from "@playwright/test";
@@ -15,7 +15,7 @@ async function open(page: Page) {
 }
 
 for (const [w, h, tag] of [[1360, 860, "desktop"], [390, 844, "phone"]] as const) {
-  test(`J28 KeelBot sends at once, Retry, New messages (${tag})`, async ({ page }, info) => {
+  test(`J29 KeelBot sends at once, Retry, New messages (${tag})`, async ({ page }, info) => {
     test.setTimeout(5 * 60_000);
     await page.setViewportSize({ width: w, height: h });
     const errors = watchConsole(page);
@@ -42,7 +42,7 @@ for (const [w, h, tag] of [[1360, 860, "desktop"], [390, 844, "phone"]] as const
     await page.unroute(TURN);
     await expect(log.locator(".hp-help").last()).toBeVisible({ timeout: 60_000 });
     await expect(page.locator(".hp-live")).toHaveCount(0, { timeout: 60_000 });
-    await page.screenshot({ path: `${OUT}/j28-sent-${tag}.png` });
+    await page.screenshot({ path: `${OUT}/j29-sent-${tag}.png` });
 
     // 2. a failed send: the reason and Retry; Retry sends it
     await page.route(TURN, (r) => r.fulfill({ status: 503, contentType: "application/json",
@@ -51,7 +51,7 @@ for (const [w, h, tag] of [[1360, 860, "desktop"], [390, 844, "phone"]] as const
     await box.press("Enter");
     const alert = page.getByRole("alert").filter({ hasText: "Not sent" });
     await expect(alert).toContainText("The engine is not running");
-    await page.screenshot({ path: `${OUT}/j28-failed-${tag}.png` });
+    await page.screenshot({ path: `${OUT}/j29-failed-${tag}.png` });
     await page.unroute(TURN);
     await alert.getByRole("button", { name: "Retry" }).click();
     await expect(alert).toHaveCount(0, { timeout: 15_000 });
@@ -66,7 +66,7 @@ for (const [w, h, tag] of [[1360, 860, "desktop"], [390, 844, "phone"]] as const
     const more = page.getByRole("button", { name: "New messages: scroll down" });
     await expect(more).toBeVisible({ timeout: 30_000 });
     expect(await log.evaluate((el) => el.scrollTop)).toBeLessThan(50);
-    await page.screenshot({ path: `${OUT}/j28-new-messages-${tag}.png` });
+    await page.screenshot({ path: `${OUT}/j29-new-messages-${tag}.png` });
     await more.click();
     await expect.poll(() => log.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(40);
     await expect(more).toHaveCount(0);
