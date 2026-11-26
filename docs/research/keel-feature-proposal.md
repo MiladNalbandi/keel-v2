@@ -160,7 +160,7 @@ sequenceDiagram
   K->>R: worktrees for flow 2 and 3, inside .keel
   A->>K: keel_session_next
   K-->>A: the oldest work order of the project
-  Note over A,K: Agents get each other's orders (#217). About 4 to 5 minutes lost.
+  Note over P,R: Agents get each other's orders (issue 217). About 4 to 5 minutes lost.
   A->>R: each agent reads docs/CONVENTIONS.md itself
   A->>K: keel_session_plan
   K->>P: plan gate (3 cards)
@@ -172,8 +172,8 @@ sequenceDiagram
   P-->>K: OK
   K->>R: one commit per task, on 3 branches
   A->>K: keel_session_next
-  Note over A,K: Waits up to 90 s although the flow is finished (#218)
-  Note over R: 3 branches, CHANGELOG conflict at merge, 2 of 4 hidden checks pass
+  Note over P,R: Waits up to 90 s although the flow is finished (issue 218)
+  Note over P,R: 3 branches, CHANGELOG conflict at merge, 2 of 4 hidden checks pass
   Note over P,R: 7.6 minutes, 90k tokens, 43 tool calls
 ```
 
