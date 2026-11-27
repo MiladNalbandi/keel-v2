@@ -11,7 +11,7 @@ tool an agent connects to; it is not there to manage agents.
 
 ## Summary
 
-- **The daily e2e suite passes on 0.41.3**: 33 passed, 1 skipped (J20, the Org plugin is parked), 0 failed, in 3.8 min. Earlier runs, kept in the task's comments on #203: 0.41.1 31 passed, 0.40.0 29 passed and 1 failed. J24 (Review comment → Ask KeelBot), which failed on 0.40.0
+- **The daily e2e suite passes on 0.41.3**: 33 passed, 1 skipped (J20, the Org plugin is parked), 0 failed, in 3.8 min. Earlier runs, listed in a comment on #203: 0.41.1 31 passed, 0.40.0 29 passed and 1 failed. J24 (Review comment → Ask KeelBot), which failed on 0.40.0
   (409s in the console), passes since #251 (0.41.2).
 - **Main flow** (feature flow: spec → contract → tests → code → review → commits, 8 gates): **every run finished**: 5 of 5 on
   0.40.1, 0.41.1 and 0.41.3, 3 of 3 on 0.40.0. 0.41.3 median 14.4 s per flow on the fake model; a gate answer takes 191 ms.
