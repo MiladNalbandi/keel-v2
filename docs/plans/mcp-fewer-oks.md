@@ -155,7 +155,7 @@ cards then shows "allowed by your OK for review posts (until Fix the cart ends)"
 
 ### 4.4 Multi-agent
 An OK belongs to the project, not to one client: a person who allows review posts until a flow ends allows them for
-every agent working on the flow. This is on purpose: the client name over MCP is not a proof of who the agent is, so
+every agent on the project. This is on purpose: the client name over MCP is not a proof of who the agent is, so
 keel does not pretend it can hold an OK for one agent only. The card and the audit still name the client of each call.
 
 ## 5. The per-project setting (part B)
