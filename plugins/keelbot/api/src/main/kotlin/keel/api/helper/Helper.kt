@@ -237,6 +237,9 @@ class HelperService(
         keel.api.settings.LocalOnly.check(eff, listOf(model), "KeelBot")
         flows.refuseFakeAnswer(pid, model, "KeelBot")
         val helper = helperAgent(pid)
+        // #235 the project's flow, read once for this message (flowContext and keelContext read it each before: every
+        // read is an engine call, and the person waits for all of them before KeelBot starts)
+        val now = if (fix) null else runCatching { flows.flow(pid).thread }.getOrNull()
         val payload = linkedMapOf<String, Any?>(
             "text" to text,
             "model" to body.model?.checked(),
@@ -246,8 +249,8 @@ class HelperService(
             "tools_allow" to (mcp.allow(pid)[AGENT] ?: emptyList()),
             "agents" to (helper?.let { mapOf(AGENT to AgentStart(it.knowledge)) } ?: emptyMap()),
             "skills" to (helper?.skills?.takeIf { it.isNotEmpty() }?.let { mapOf(AGENT to skills.textFor(pid, it)) } ?: emptyMap()),
-            "flow" to if (fix) fixContext(pid, s.path("thread_id").asText()) else flowContext(pid),
-            "keel" to keelContext(pid),
+            "flow" to if (fix) fixContext(pid, s.path("thread_id").asText()) else flowContext(pid, now),
+            "keel" to keelContext(pid, now),
             "mentions" to body.mentions.filter { it.value.isNotBlank() }.take(30),
             "selection" to body.selection?.takeIf { it.path.isNotBlank() && it.text.isNotBlank() }?.let { it.copy(text = it.text.take(8000)) },
             "open_file" to body.openFile?.takeIf { it.isNotBlank() },
@@ -426,8 +429,8 @@ class HelperService(
     }
 
     /** The flow that runs or waits in the project, as KeelBot's prompt shows it; null when none does. */
-    private fun flowContext(pid: String): Map<String, Any?>? {
-        val t = runCatching { flows.flow(pid).thread }.getOrNull() ?: return null
+    private fun flowContext(pid: String, thread: JsonNode? = null): Map<String, Any?>? {
+        val t = thread ?: runCatching { flows.flow(pid).thread }.getOrNull() ?: return null
         val status = t.path("status").asText()
         if (status != "running" && status != "waiting") return null
         val waiting = t.path("waiting").takeIf { it.isObject }
@@ -476,11 +479,11 @@ class HelperService(
     }
 
     /** v0.9.0, KeelBot's view of keel (engine runtime/keelbot.py): the workflows it can suggest, and the project's flows. */
-    private fun keelContext(pid: String): Map<String, Any?> {
+    private fun keelContext(pid: String, thread: JsonNode? = null): Map<String, Any?> {
         val wfs = runCatching { workflows.list(pid) }.getOrDefault(emptyList())
         val runs = runCatching { flows.runs(pid, null, 8) }.getOrDefault(emptyList())
         // the waiting flow's question structure (ids, choice names) for KeelBot's answer button; one engine read
-        val now = runCatching { flows.flow(pid).thread }.getOrNull()
+        val now = thread ?: runCatching { flows.flow(pid).thread }.getOrNull()
         val asked = now?.path("waiting")?.takeIf { it.isObject }?.let { askedOf(it) }.orEmpty()
         val nowId = now?.path("thread_id")?.asText()
         return mapOf(

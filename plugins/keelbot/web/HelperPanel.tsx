@@ -18,7 +18,7 @@ import {
 import { AgentCard, CiCard, FlowCard, QuestionsCard, RuleCard, SkillCard, SlotCard, StackCard, splitActions, StartCard, WorkflowCard } from "./Actions";
 import { ChangesBox, DoneFailed, fixRequest, PermissionCard, SideBar } from "./FixParts";
 import { kb } from "./keelbotApi";
-import { answerModel, fileLink, folderBanner, messageTokens, PREFILL_KEY, replaceTyping, sessionTokens, starters, typingAt, usageParts, usageText, type Typing } from "./model";
+import { answerModel, atBottom, fileLink, outgoingShown, folderBanner, messageTokens, PREFILL_KEY, replaceTyping, sessionTokens, starters, typingAt, usageParts, usageText, type Outgoing, type Typing } from "./model";
 import { ChatList, ConfirmRow } from "./ChatList";
 import { dropDraft, getDraft, getListOpen, getNewMode, getScroll, saveListOpen, saveNewMode, saveScroll, setDraft } from "./chats";
 import { markSeen, useKeelBotUnread, useSeen } from "./unread";
@@ -216,15 +216,16 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const hasCode = pages.some((p) => p.id === "repo");
   const hasGraph = pages.some((p) => p.id === "graph");
   const [sid, setSidState] = useState<string | null>(() => read(sidKey(pid)));
+  const sidRef = useRef(sid);
+  sidRef.current = sid;
   /** keep: this tab's choice only (following keel TUI or another tab); set: the person's, so keel TUI follows it (0.18.6) */
-  const keepSid = useCallback((v: string | null) => { setSidState(v); write(sidKey(pid), v); }, [pid]);
+  // #235 sidRef is the chat on screen now, also before the next render (a send that ends checks it)
+  const keepSid = useCallback((v: string | null) => { sidRef.current = v; setSidState(v); write(sidKey(pid), v); }, [pid]);
   const setSid = useCallback((v: string | null) => {
     keepSid(v);
     shareFocus(v ? { chat: v, chat_project: pid } : { close: true, chat_project: pid });
   }, [keepSid, pid]);
   // the chat this panel shows and the text typed in it now (read when another tab or keel TUI switches the chat)
-  const sidRef = useRef(sid);
-  sidRef.current = sid;
   const draftRef = useRef<{ text: string; mentions: HelperMention[] }>({ text: "", mentions: [] });
   /** Another tab or keel TUI opened a chat: this panel follows. The text typed stays in the chat it was typed for, and the
    *  chat that opens shows its own draft (the draft effect below must not write the old text into it). */
@@ -290,6 +291,11 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   useEffect(() => setDraft(pid, sid, { text, mentions }), [pid, sid, text, mentions]);
   const [pending, setPending] = useState<{ call: string; n: number } | null>(null);
   const [sending, setSending] = useState(false);
+  // #235 the person's messages on screen from Enter on, before the chat read back has them (and the ones that failed)
+  const [outbox, setOutbox] = useState<Outgoing[]>([]);
+  const outId = useRef(0);
+  // #235 the person scrolled up while new text came: a "New messages" button takes them down
+  const [unseen, setUnseen] = useState(false);
   const [pick, setPick] = useState(0);
   const [files, setFiles] = useState<string[] | null>(null);
   const [symbols, setSymbols] = useState<GraphHit[]>([]);
@@ -347,6 +353,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   // commands that wait for the person's OK (this project's; the cards show this chat's)
   const perms = useLoad(`helper:${pid}:perms`, () => kb.permissions(pid), { live: false });
   const asks = (perms.data ?? []).filter((q) => q.session === sid);
+  const asksLen = asks.length;
   // the running answer: the one this page started, else the one an earlier page started (helper.started event)
   const runningCall = useMemo(() => {
     if (pending) return pending.call;
@@ -423,17 +430,29 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const onScroll = () => {
     const el = scroller.current;
     if (!el || restored.current !== sid) return;
-    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    const bottom = atBottom(el);
     stick.current = bottom;
+    if (bottom) setUnseen(false);
     if (scrollSave.current && scrollSave.current.sid !== sid) flushScroll();
     if (scrollSave.current) window.clearTimeout(scrollSave.current.timer);
     scrollSave.current = { sid, top: el.scrollTop, bottom, timer: window.setTimeout(flushScroll, 150) };
   };
   // keep the newest message in view, unless the person scrolled up to read
-  useEffect(() => {
+  // #235 also while KeelBot thinks and writes (its live text grows), and for the person's own message at Enter
+  const liveLen = runningCall ? (liveText?.[runningCall]?.length ?? 0) + (liveThinking?.[runningCall]?.length ?? 0) : 0;
+  const shownOut = outgoingShown(outbox, messages, sid);
+  useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [messages.length, runningCall, runningCall ? liveSteps[runningCall]?.length : 0]);
+    if (!el) return;
+    if (stick.current) el.scrollTop = el.scrollHeight;
+    else if (restored.current === sid && el.scrollHeight > el.clientHeight) setUnseen(true);
+  }, [messages.length, runningCall, runningCall ? liveSteps[runningCall]?.length : 0, liveLen, shownOut.length, asksLen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toBottom = () => {
+    const el = scroller.current;
+    stick.current = true;
+    setUnseen(false);
+    if (el) el.scrollTop = el.scrollHeight;   // at once: a smooth scroll loses the race with text that still grows
+  };
 
   const typing: Typing = useMemo(() => typingAt(text, caret), [text, caret]);
   useEffect(() => {
@@ -486,9 +505,12 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
     }, 0);
   };
 
-  const ensureSession = async (m: HelperMode = mode): Promise<string> => {
+  // `made`: runs with the new chat's id in the same step that opens it (#235: a message on its way moves with it, so it
+  // never shows for a moment as nobody's)
+  const ensureSession = async (m: HelperMode = mode, made?: (id: string) => void): Promise<string> => {
     if (sid && s) return sid;
     const created = await kb.create(pid, { mode: m });
+    made?.(created.id);
     setSid(created.id);          // the draft moves with the chat (the draft effect); the new-chat draft is done
     dropDraft(pid, null);
     void list.reload();
@@ -499,7 +521,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
   const [queued, setQueued] = useState<string[]>([]);
   // 0.18.63 `toMode`: a picked "Switch to Edit" option: the chat goes on in that mode (as /mode edit in keel TUI), and the
   // answer already runs in it
-  const send = async (raw?: string, toMode?: HelperMode) => {
+  const send = async (raw?: string, toMode?: HelperMode, again?: Outgoing) => {
     const body = (raw ?? text).trim();
     if (body && raw === undefined && (runningCall || sending) && !handed) {
       setQueued((q) => [...q, body]);
@@ -508,36 +530,60 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
       return;
     }
     if (!body || sending || runningCall || handed) return;
+    // #235 the message is on screen at once, the input is empty at once: the person never waits on the UI. The
+    // "Sending…" state lasts only until the api took the message (it answers before KeelBot starts); a failure keeps the
+    // message with the reason and a Retry.
+    const oid = again?.id ?? ++outId.current;
+    const from = sid;   // the chat it is sent in: it shows there only, and the person may open another one meanwhile
+    // the mentions go with the message (a Retry sends the same ones); the input's chips are gone with its text
+    const sendMentions = again ? (again.mentions ?? []) : raw === undefined ? mentions : [];
+    const after = messages.reduce((a, m) => Math.max(a, m.n), 0);
+    setOutbox((o) => [...o.filter((x) => x.id !== oid),
+      { id: oid, chat: from, text: body, state: "sending", after, mentions: sendMentions }]);
+    if (raw === undefined) {
+      setText("");
+      setCaret(0);
+      setMentions([]);
+    }
     setSending(true);
     stick.current = true;
+    setUnseen(false);
     try {
-      const id = await ensureSession(toMode ?? mode);
+      // a new chat: the message belongs to the chat just made
+      const id = await ensureSession(toMode ?? mode, (made) => setOutbox((o) => o.map((x) => (x.id === oid ? { ...x, chat: made } : x))));
       if (toMode && s && s.mode !== toMode) {
         try {
           await kb.patch(pid, id, { mode: toMode });
         } catch (e) {
+          setOutbox((o) => o.filter((x) => x.id !== oid));
           toast(`Not switched to ${toMode === "edit" ? "Edit" : "Ask"}: ${errorParts(e).message} Use the mode menu above.`);
           return;
         }
       }
-      const used = mentions.filter((m) => body.includes(`@${m.value}`));
+      const used = sendMentions.filter((m) => body.includes(`@${m.value}`));
       const started = await kb.turn(pid, id, {
         text: body, mentions: used.length ? used : undefined, selection: selection ?? undefined, open_file: openFile ?? undefined,
       });
-      setPending({ call: started.call_id, n: started.n });
-      setText("");
-      setCaret(0);
-      setMentions([]);
+      // the api has it: "Sending…" ends now, the message stays until the chat read back has it
+      setOutbox((o) => o.map((x) => (x.id === oid ? { ...x, state: "sent", n: started.n } : x)));
+      setSending(false);
       onClearSelection?.();
-      if (sid !== id) setSid(id);
-      await sess.reload();
+      // the person opened another chat while it was sent: they stay there (this chat's answer is read when they come back)
+      if (sidRef.current === id) {
+        setPending({ call: started.call_id, n: started.n });
+        // not awaited: the answer's steps and text stream in while the chat is read
+        void sess.reload();
+      }
     } catch (e) {
       const p = errorParts(e);
-      toast(p.hint ? `${p.message} ${p.hint}` : p.message);
+      setOutbox((o) => o.map((x) => (x.id === oid ? { ...x, state: "failed", error: p.hint ? `${p.message} ${p.hint}` : p.message } : x)));
     } finally {
       setSending(false);
     }
   };
+  /** #235 send a failed message again (Retry on it) */
+  const retry = (o: Outgoing) => { if (o.chat === sid) void send(o.text, undefined, o); };
+  const dropOut = (o: Outgoing) => setOutbox((x) => x.filter((y) => y.id !== o.id));
 
   const stop = async () => {
     if (!sid) return;
@@ -559,6 +605,7 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
       setCaret(0);
       setPending(null);
       setFailed(null);
+      setUnseen(false);
     }
     setConfirmDel(false);
     setListOpen(false);
@@ -877,6 +924,19 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
             )}
           </div>
         ))}
+        {shownOut.map((o) => (
+          <div key={`out-${o.id}`} className={`hp-msg hp-user hp-out ${o.state}`} data-testid="hp-outgoing">
+            <p className="hp-text">{o.text}</p>
+            {o.state === "sending" && <p className="hp-out-state" role="status">Sending…</p>}
+            {o.state === "failed" && (
+              <div className="hp-out-state hp-out-err" role="alert">
+                <span>Not sent: {o.error}</span>{" "}
+                <button type="button" className="hp-tb" onClick={() => retry(o)} disabled={busy}>Retry</button>
+                <button type="button" className="hp-tb" onClick={() => dropOut(o)} aria-label="Remove this message">×</button>
+              </div>
+            )}
+          </div>
+        ))}
         {runningCall && !messages.some((m) => m.call_id === runningCall) && (
           <div className="hp-msg hp-help hp-live">
             <TurnSteps callId={runningCall} live={liveSteps[runningCall] ?? []} running />
@@ -903,6 +963,9 @@ export function HelperPanel({ pid, openFile, selection, onClearSelection, onOpen
         )}
       </div>
 
+      {unseen && (
+        <button type="button" className="hp-newmsg" onClick={toBottom} aria-label="New messages: scroll down">New messages ↓</button>
+      )}
       <form className="hp-compose" onSubmit={submit}>
         {(selection || openFile) && (
           <div className="hp-chips">

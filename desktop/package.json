@@ -1,6 +1,6 @@
 {
   "name": "keel-desktop",
-  "version": "0.41.2",
+  "version": "0.41.3",
   "private": true,
   "description": "keel as a desktop app: keel's engine and api inside, no Docker",
   "license": "MIT",

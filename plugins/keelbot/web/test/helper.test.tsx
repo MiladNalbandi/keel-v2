@@ -91,8 +91,9 @@ describe("Helper in the Code page", () => {
     await waitFor(() => expect(turns()).toHaveLength(1));
     expect(db.calls.some((c) => c.method === "POST" && c.path.endsWith("/helper/sessions"))).toBe(true);
     expect(turns()[0].body).toMatchObject({ text: "Where is a score saved?", open_file: "api/ScoreController.kt" });
-    // the question shows once the chat is read again, after the turn's request
-    expect(await within(p).findByText("Where is a score saved?", { selector: ".hp-text" })).toBeInTheDocument();
+    // the question shows (#235: from Enter on, then the chat read back's copy takes its place: another element, so the
+    // check looks it up again instead of keeping one that may be gone)
+    await waitFor(() => expect(within(p).getByText("Where is a score saved?", { selector: ".hp-text" })).toBeInTheDocument());
 
     answer("It is saved in `api/ScoreController.kt:9`, after the check.", [{ kind: "read", text: "fun save()", path: "api/ScoreController.kt" }]);
     const link = await within(p).findByRole("link", { name: "api/ScoreController.kt:9" });
