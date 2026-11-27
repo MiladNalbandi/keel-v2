@@ -1,6 +1,6 @@
 # MCP: fewer Inbox OKs for agents (#250)
 
-Status: plan, round 3 (round 2 fixed who may answer, the flow, one card across MCP processes and rule edits; round 3
+Status: plan, after 3 review rounds (round 3's one blocker, `--yes`, fixed in 3.3; round 2 fixed who may answer, the flow, one card across MCP processes and rule edits; round 3
 fixes the part tools' gate, single use on the api, the kind on every path, and drops "the flow a card was asked in"). Issue: #250. Fixes on the way: #221, #222, #226, #227.
 
 ## 1. Why
@@ -62,11 +62,15 @@ The default does not change: with no OK given, every kind asks each time, as tod
   today). **The card is the OK; a token is only the agent's handle for it.**
 - **Single use lives on the api's row.** An "Allow once" lets the call run **once**, not once per agent. The api's
   `approvals` row gets `used_at`. `POST /api/plugins/asks/{qid}/take` is one atomic `UPDATE … SET used_at = now
-  WHERE id = ? AND decision = allow AND used_at IS NULL` and answers `{taken: true | false}`. `act()` runs the call
+  WHERE id = ? AND source = 'mcp' AND status = 'approved' AND used_at IS NULL AND decided_at > now - 600 s` and
+  answers `{taken: true | false}`. `take` and `close` touch only rows of MCP cards (`source = mcp`): an MCP token
+  can never close (deny) a KeelBot approval. `act()` runs the call
   **only after** `take` said true; a plain read (`GET /plugins/asks/{qid}`) never lets a call run. `take` is on the
   MCP WRITE level list (7).
+- If the call fails after `take` (a git error), the OK is spent; the agent reads "keel: it was not done (<error>);
+  call again to ask the person again".
 - The second agent with the same call (its `take` says false, `used_at` set) gets: "keel: another agent (Claude
-  Code) already ran this same call under the person's OK at 14:02; read its result with keel_status /
+  Code) already ran or tried this same call under the person's OK at 14:02; read its result with keel_status /
   keel_review_threads". It does not run the call twice, and it learns what the other agent did.
 - **How long answers last.** An allow that nobody used ends `INBOX_TTL` (10 min) after the answer (status
   `expired`, unused); the next call asks again. A "no" holds for the same 10 minutes: a repeat of that call (same
@@ -76,6 +80,10 @@ The default does not change: with no OK given, every kind asks each time, as tod
   ("still waits in keel's Inbox as p_…"); allowed and not used → it runs after `take`; denied → the no; nothing → a
   new card. So an unknown token plus an allowed question runs the call once, because the person allowed that exact
   call. A wrong token never adds a second card.
+- **Where the lookup by key happens.** Waiting cards: in the engine (above). Answered cards (denied in the last 10
+  minutes, allowed and not used): only the api's row knows them (the engine forgets an answer after one read), so
+  the api's `Plugins.ask()` looks up its rows by `key` first and calls the engine only when none fits. A used row,
+  or one older than 10 minutes, does not fit: a repeat after the call ran gets a new card.
 - **A restarted keel** (engine) has lost its waiting questions (they live in memory). At start the api's
   `ApprovalService.sync()` marks the rows that still wait as `closed` ("keel restarted"); the next call asks again,
   with one new card.
@@ -114,8 +122,18 @@ does anything:
 
 - They return at once like keel's own tools: "waits in keel's Inbox as p_…; call again with confirm=<token> after
   the person approved". `_ask_person` is removed.
-- `keel_db_change`'s card keeps what the inner ask showed: the rows it changes and the SQL (its dry run moves into
-  the card's text).
+- **`--yes` keeps the Inbox for these tools.** Today `act()` skips its question under `keel2 mcp --yes`, and the inner
+  ask stays as a second check (`docs/CONTRACT.md`, "the plugins' ask in keel's Inbox stays as a second check").
+  So the five part tools (`keel_git_commit`, `keel_git_push`, `keel_pr_create`, `keel_ci_rerun`, `keel_db_change`)
+  get a flag (`INBOX_EVEN_WITH_YES`): `act()` still opens their Inbox card under `--yes`. Tested: with `--yes` each
+  of them makes a card and does not run on its own. The gateway keeps today's `--yes` (it skips, as now).
+- `keel_db_change`'s card keeps what the inner ask showed: the rows it changes and the SQL. Its dry run (a
+  rolled-back transaction, `core.query(..., allow_change=True)`; the builder checks it is never committed) runs
+  before the card, so its `precheck` returns the card text as well as a reason.
+- **Gateway tools** do not go through `act()` today (`mcp_gateway.py` `_proxy_tool` builds each one from the
+  connected server's schema, named `server__tool`). Moving them means a `confirm` property added to the proxied
+  schema and removed before forwarding, and `OUT_OF_BAND` matched by the `__` name. Part A may ship without the
+  gateway row: its blocking ask stays the gate until then.
 - A client that shows forms (elicitation) keeps its form, as today. A call covered by an OK (part B) skips the form
   too: the person said yes already.
 
@@ -253,7 +271,8 @@ Settings › MCP (per project) gets a section **"Agents may, without asking"**:
   so no header from the MCP server is trusted for it; the OK counts its uses.
 - **Default**: no OK, every kind asks each time.
 - **Not changed**: the MCP levels (read / write / admin), the gateway's read-only tools, `KEEL_MCP_CONFIRM=token`,
-  `--yes`.
+  `--yes` (it still skips keel's own questions; the five part tools of 3.3 keep their Inbox card under it, as their
+  inner ask does today).
 
 ## 7. Where it lives
 
@@ -270,7 +289,8 @@ Settings › MCP (per project) gets a section **"Agents may, without asking"**:
   `key`. `POST /api/plugins/asks/{qid}/take` and `/close` (3.1).
 - **MCP level lists** (`McpLevels`): READ gets `GET …/mcp/grants`; WRITE gets `…/mcp/grants/use`,
   `/plugins/asks/{qid}/take`, `/plugins/asks/{qid}/close`. `POST` / `DELETE …/mcp/grants`, `decide` and
-  `decide-many` are on no MCP list; their controllers check the caller (6).
+  `decide-many` are not on the READ or WRITE lists (decide stays where it is today); their controllers check the
+  caller (6), and the tests send an admin MCP token too.
 - **engine**: `mcp_confirm.KINDS`; `/plugins/ask` takes `key`, `tool`, `op` and reuses a waiting question (locked
   find-or-open). `act()` order: precheck → `grants/use` → (covered: run) or (token + one card → after the person's
   allow, `take` → run). The part tools of 3.3 move to `confirm=True`; `_ask_person` goes.
@@ -318,7 +338,7 @@ that cannot work.
 - **Part A** (bugs #221, #222, #226, #227): engine (`act()`, `approvals`, `/plugins/ask` key reuse, prechecks, the
   part tools of 3.3 to `confirm=True` before `_ask_person` goes), plugins git / ci / db, the api's approvals rows
   (`used_at`, `take`, `close`, status `closed`, the clients, tool + op) and the web card's words. One PR. No new
-  setting. Safe alone: no tool loses its Inbox gate (3.3 table, tested).
+  setting. Safe alone: no tool loses its Inbox gate, with or without `--yes` (3.3 table, tested).
 - **Part B** (kinds, scopes, OKs, decide-many, card buttons, Settings, audit, J28): api + engine + web + TUI, one PR
   after A (the same `act()` code).
 
